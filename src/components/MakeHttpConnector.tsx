@@ -38,7 +38,9 @@ import {
   Mic,
   Pause,
   VolumeX,
-  History
+  History,
+  HardDrive,
+  Cloud
 } from 'lucide-react';
 import { Scene, SystemHealth, JobStatusResponse, ToastItem } from '../types';
 import { AiViralAutoPilot } from './AiViralAutoPilot';
@@ -46,6 +48,7 @@ import { RenderingQueue } from './RenderingQueue';
 import { ToastContainer } from './Toast';
 import { RecentJobsSidePanel } from './RecentJobsSidePanel';
 import { JobHistoryDashboard } from './JobHistoryDashboard';
+import { GoogleDriveManager } from './GoogleDriveManager';
 
 
 // Preset high quality public test video clips
@@ -81,7 +84,7 @@ const SAMPLE_MUSIC = [
 ];
 
 export const MakeHttpConnector: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'autopilot' | 'editor' | 'make' | 'n8n' | 'webhook' | 'jobs' | 'history' | 'docs'>('autopilot');
+  const [activeTab, setActiveTab] = useState<'autopilot' | 'editor' | 'make' | 'n8n' | 'webhook' | 'jobs' | 'history' | 'docs' | 'drive'>('autopilot');
   const [health, setHealth] = useState<SystemHealth | null>(null);
 
   const [healthLoading, setHealthLoading] = useState<boolean>(true);
@@ -704,6 +707,32 @@ export const MakeHttpConnector: React.FC = () => {
     URL.revokeObjectURL(url);
   };
 
+  const handleSelectDriveVideoForScene = (videoUrl: string, name: string) => {
+    setScenes((prev) => [
+      ...prev,
+      {
+        id: `scene-drive-${Date.now()}`,
+        videoUrl,
+        subtitles: name.replace(/\.[^/.]+$/, '').toUpperCase(),
+        voiceover_text: `Klip z Dysku Google: ${name}`,
+        trimStart: 0,
+        trimEnd: 6,
+        captionStyle: {
+          fontSize: 54,
+          fontColor: 'white',
+          outlineColor: 'black',
+          outlineWidth: 6,
+          boxColor: 'black@0.6',
+          position: 'bottom',
+          animation: 'word-by-word',
+          highlightColor: 'yellow'
+        }
+      }
+    ]);
+    setActiveTab('editor');
+    addToast('success', 'Wideo z Google Drive dodane', `Dodano "${name}" jako nową scenę do edytora.`);
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans p-4 md:p-8">
       {/* Top Header */}
@@ -889,6 +918,18 @@ export const MakeHttpConnector: React.FC = () => {
           >
             <Code2 className="w-4 h-4" />
             Dokumentacja API
+          </button>
+
+          <button
+            onClick={() => setActiveTab('drive')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold transition border-b-2 whitespace-nowrap ${
+              activeTab === 'drive'
+                ? 'border-sky-500 text-sky-400 bg-sky-500/10 rounded-t-lg'
+                : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-900/50'
+            }`}
+          >
+            <HardDrive className="w-4 h-4 text-sky-400" />
+            ☁️ Dysk Google (Workspace)
           </button>
         </div>
       </div>
@@ -2122,6 +2163,15 @@ export const MakeHttpConnector: React.FC = () => {
               </div>
             </div>
           </div>
+        )}
+
+        {/* TAB 7: GOOGLE DRIVE WORKSPACE INTEGRATION */}
+        {activeTab === 'drive' && (
+          <GoogleDriveManager
+            recentJobs={recentJobs}
+            onSelectVideoForScene={handleSelectDriveVideoForScene}
+            onToast={addToast}
+          />
         )}
       </div>
 

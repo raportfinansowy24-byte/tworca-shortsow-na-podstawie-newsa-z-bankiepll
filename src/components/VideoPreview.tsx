@@ -17,8 +17,16 @@ import {
   Sparkles,
   X,
   Gauge,
-  CheckCircle2
+  CheckCircle2,
+  Cloud,
+  RefreshCw
 } from 'lucide-react';
+import {
+  exportVideoUrlToDrive,
+  getOrCreateAppFolder,
+  getAccessToken,
+  googleSignIn
+} from '../services/googleDriveService';
 
 export interface VideoPreviewProps {
   /** The completion URL returned by the FFmpeg service */
@@ -80,6 +88,47 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
   const [copiedUrl, setCopiedUrl] = useState<boolean>(false);
   const [showControls, setShowControls] = useState<boolean>(true);
   const controlsTimeoutRef = useRef<any>(null);
+
+  // Google Drive Export State
+  const [isUploadingToDrive, setIsUploadingToDrive] = useState<boolean>(false);
+  const [driveUploadProgress, setDriveUploadProgress] = useState<number>(0);
+  const [uploadedDriveUrl, setUploadedDriveUrl] = useState<string | null>(null);
+
+  const handleExportToGoogleDrive = async () => {
+    if (!videoUrl) return;
+    setIsUploadingToDrive(true);
+    setDriveUploadProgress(10);
+    try {
+      const token = await getAccessToken();
+      if (!token) {
+        const signinRes = await googleSignIn();
+        if (!signinRes?.accessToken) {
+          throw new Error('Wymagane zalogowanie do konta Google.');
+        }
+      }
+
+      const folderId = await getOrCreateAppFolder('Raport Finansowy 24 - Shorts');
+      const filename = title ? (title.endsWith('.mp4') ? title : `${title}.mp4`) : `Short_Video_${Date.now()}.mp4`;
+
+      const result = await exportVideoUrlToDrive({
+        videoUrl,
+        fileName: filename,
+        folderId,
+        onProgress: (pct) => setDriveUploadProgress(pct)
+      });
+
+      if (result.webViewLink) {
+        setUploadedDriveUrl(result.webViewLink);
+      }
+      onToast?.('success', 'Zapisano na Dysku Google!', `Plik "${result.name}" został pomyślnie zapisany w Google Drive.`);
+    } catch (err: any) {
+      console.error('Błąd eksportu do Google Drive:', err);
+      onToast?.('error', 'Błąd zapisu do Google Drive', err.message || 'Wystąpił problem podczas eksportu.');
+    } finally {
+      setIsUploadingToDrive(false);
+      setDriveUploadProgress(0);
+    }
+  };
 
   // Sync external thumbnail prop
   useEffect(() => {
@@ -530,6 +579,40 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
             <Download className="w-3.5 h-3.5" />
             <span>Pobierz wideo MP4</span>
           </button>
+
+          {uploadedDriveUrl ? (
+            <a
+              href={uploadedDriveUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="py-2 px-3 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/30 text-xs font-semibold transition flex items-center gap-1.5"
+              title="Otwórz plik na Dysku Google"
+            >
+              <Check className="w-3.5 h-3.5" />
+              <span>Dysk Google</span>
+              <ExternalLink className="w-3 h-3" />
+            </a>
+          ) : (
+            <button
+              type="button"
+              onClick={handleExportToGoogleDrive}
+              disabled={isUploadingToDrive}
+              className="py-2 px-3 rounded-xl bg-sky-600/90 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-sky-950"
+              title="Zapisz ten film wideo bezpośrednio na swoim Dysku Google"
+            >
+              {isUploadingToDrive ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Dysk ({driveUploadProgress}%)</span>
+                </>
+              ) : (
+                <>
+                  <Cloud className="w-3.5 h-3.5" />
+                  <span>Dysk Google</span>
+                </>
+              )}
+            </button>
+          )}
 
           <button
             type="button"
