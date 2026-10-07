@@ -695,6 +695,8 @@ interface SceneInput {
   captionStyle?: CaptionStyle;
   trimStart?: number;
   trimEnd?: number;
+  ttsVoice?: string;
+  ttsSpeed?: number;
 }
 
 interface CombineScenesPayload {
@@ -743,44 +745,84 @@ export const ELEVEN_VOICES_MAP: Record<string, string> = {
 };
 
 export const NEURAL_VOICES_CATALOG = [
-  // ElevenLabs Studio AI Voices (Multilingual v2)
-  { id: 'eleven_adam', name: 'Adam (ElevenLabs - Głęboki, Autorytatywny PL/EN)', lang: 'pl', provider: 'elevenlabs', gender: 'Male', description: 'Legendarny, kinowy głos narracyjny ElevenLabs' },
-  { id: 'eleven_antoni', name: 'Antoni (ElevenLabs - Wyrazisty Męski Lektor PL/EN)', lang: 'pl', provider: 'elevenlabs', gender: 'Male', description: 'Mocny, profesjonalny polski głos biznesowy i shorts' },
-  { id: 'eleven_rachel', name: 'Rachel (ElevenLabs - Spokojna, Naturalna PL/EN)', lang: 'pl', provider: 'elevenlabs', gender: 'Female', description: 'Ciepły, czysty głos lektorski' },
-  { id: 'eleven_bella', name: 'Bella (ElevenLabs - Młoda, Ekspresyjna PL/EN)', lang: 'pl', provider: 'elevenlabs', gender: 'Female', description: 'Energetyczna narratorka do wideo viralowych' },
-  { id: 'eleven_josh', name: 'Josh (ElevenLabs - Dynamiczny Męski PL/EN)', lang: 'pl', provider: 'elevenlabs', gender: 'Male', description: 'Nowoczesny głos do YouTube Shorts' },
-  { id: 'eleven_george', name: 'George (ElevenLabs - Kinowy Narrator PL/EN)', lang: 'pl', provider: 'elevenlabs', gender: 'Male', description: 'Głęboki, storytellingowy głos studyjny' },
-  { id: 'eleven_liam', name: 'Liam (ElevenLabs - Młody Lektor PL/EN)', lang: 'pl', provider: 'elevenlabs', gender: 'Male', description: 'Świeży, szybki głos w stylu Shorts/TikTok' },
-  
-  // Microsoft Edge Neural Voices (HD Free)
-  { id: 'pl-PL-MarekNeural', name: 'Marek (Edge Neural - Dynamiczny Męski PL)', lang: 'pl', provider: 'edge', gender: 'Male', description: 'Głęboki, radiowy głos - idealny na Shortsy biznesowe i wiadomości' },
-  { id: 'pl-PL-ZofiaNeural', name: 'Zofia (Edge Neural - Żeński Wyrazisty PL)', lang: 'pl', provider: 'edge', gender: 'Female', description: 'Naturalna, pewna siebie narratorka' },
-  { id: 'en-US-ChristopherNeural', name: 'Christopher (Edge Neural - Viral Shorts EN)', lang: 'en', provider: 'edge', gender: 'Male', description: 'Szybki, energiczny głos w stylu MrBeast' },
-  { id: 'en-US-AndrewMultilingualNeural', name: 'Andrew (Edge Neural - Deep Cinema EN)', lang: 'en', provider: 'edge', gender: 'Male', description: 'Płynny, kinowy męski lektor' },
-  { id: 'en-US-JennyNeural', name: 'Jenny (Edge Neural - Natural & Crisp EN)', lang: 'en', provider: 'edge', gender: 'Female', description: 'Profesjonalna narratorka US' },
-  { id: 'en-US-GuyNeural', name: 'Guy (Edge Neural - News Anchor EN)', lang: 'en', provider: 'edge', gender: 'Male', description: 'Klasyczny głos prezentera wiadomości' },
-  { id: 'de-DE-ConradNeural', name: 'Conrad (Edge Neural - Deutsch Männlich)', lang: 'de', provider: 'edge', gender: 'Male', description: 'Niemiecki lektor dynamiczny' },
-  { id: 'es-ES-AlvaroNeural', name: 'Alvaro (Edge Neural - Español Masculino)', lang: 'es', provider: 'edge', gender: 'Male', description: 'Hiszpański głos lektora' },
-  { id: 'fr-FR-HenriNeural', name: 'Henri (Edge Neural - Français Masculin)', lang: 'fr', provider: 'edge', gender: 'Male', description: 'Francuski głos lektorski' },
-  { id: 'uk-UA-OstapNeural', name: 'Ostap (Edge Neural - Українська Чоловічий)', lang: 'uk', provider: 'edge', gender: 'Male', description: 'Ukraiński lektor informacyjny' }
+  // Polski (PL) - Zróżnicowane profile lektorskie (Męskie, Żeńskie, Kinowe, Dynamiczne)
+  { id: 'pl-PL-MarekNeural', name: 'Marek (Męski - Dynamiczny / Biznes & Shorts)', lang: 'pl', provider: 'edge', gender: 'Male', description: 'Głęboki, radiowy głos - idealny na Shortsy biznesowe, analizy i wiadomości' },
+  { id: 'pl-PL-ZofiaNeural', name: 'Zofia (Żeński - Naturalny & Wyrazisty)', lang: 'pl', provider: 'edge', gender: 'Female', description: 'Ciepła, naturalna narratorka z nienaganną dykcją' },
+  { id: 'pl-PL-MarekNeural-deep', name: 'Krzysztof (Męski - Głęboki Bas / Kino & Storytelling)', lang: 'pl', provider: 'edge', gender: 'Male', description: 'Basowy, autorytatywny głos lektorski o kinowym brzmieniu' },
+  { id: 'pl-PL-ZofiaNeural-expressive', name: 'Maja (Żeński - Młody, Ekspresyjny & Nowoczesny)', lang: 'pl', provider: 'edge', gender: 'Female', description: 'Świeża, dynamiczna narratorka do treści viralowych i lifestyle' },
+  { id: 'pl-PL-MarekNeural-energy', name: 'Patryk (Męski - Wysoka Energia / TikTok Hook)', lang: 'pl', provider: 'edge', gender: 'Male', description: 'Szybki, energetyczny lektor przyciągający uwagę w pierwszych 3 sekundach' },
+  { id: 'pl-PL-ZofiaNeural-pro', name: 'Anna (Żeński - Spokojny & Profesjonalny / Raport B2B)', lang: 'pl', provider: 'edge', gender: 'Female', description: 'Elegancka, profesjonalna lektorka do analiz finansowych i raportów' },
+
+  // Angielski (EN)
+  { id: 'en-US-ChristopherNeural', name: 'Christopher (Male - Viral Shorts / High Energy)', lang: 'en', provider: 'edge', gender: 'Male', description: 'Szybki, energiczny głos w stylu MrBeast i TikTok' },
+  { id: 'en-US-JennyNeural', name: 'Jenny (Female - Warm & Natural Storyteller)', lang: 'en', provider: 'edge', gender: 'Female', description: 'Ciepła i naturalna narratorka amerykańska' },
+  { id: 'en-US-GuyNeural', name: 'Guy (Male - News Anchor / Authoritative)', lang: 'en', provider: 'edge', gender: 'Male', description: 'Klasyczny głos prezentera wiadomości CNN/Bloomberg' },
+  { id: 'en-US-AvaNeural', name: 'Ava (Female - Expressive & Modern)', lang: 'en', provider: 'edge', gender: 'Female', description: 'Młoda, nowoczesna narratorka do Shorts i Reels' },
+  { id: 'en-US-AndrewNeural', name: 'Andrew (Male - Deep Cinematic Narrator)', lang: 'en', provider: 'edge', gender: 'Male', description: 'Głęboki męski głos kinowy do filmów dokumentalnych' },
+  { id: 'en-US-BrianNeural', name: 'Brian (Male - Natural Tech & Business)', lang: 'en', provider: 'edge', gender: 'Male', description: 'Współczesny, wyrazisty głos lektora technologicznego' },
+  { id: 'en-US-EmmaNeural', name: 'Emma (Female - Conversational & Crisp)', lang: 'en', provider: 'edge', gender: 'Female', description: 'Czysty, przyjazny głos konwersacyjny' },
+  { id: 'en-GB-RyanNeural', name: 'Ryan (Male - British Accent / London)', lang: 'en', provider: 'edge', gender: 'Male', description: 'Stylowy brytyjski akcent lektorski' },
+  { id: 'en-GB-SoniaNeural', name: 'Sonia (Female - British Accent / BBC)', lang: 'en', provider: 'edge', gender: 'Female', description: 'Klasyczna brytyjska narracja' },
+
+  // Niemiecki (DE)
+  { id: 'de-DE-ConradNeural', name: 'Conrad (Männlich - Dynamic / Nachrichten)', lang: 'de', provider: 'edge', gender: 'Male', description: 'Niemiecki lektor dynamiczny' },
+  { id: 'de-DE-KatjaNeural', name: 'Katja (Weiblich - Natürlich & Professionell)', lang: 'de', provider: 'edge', gender: 'Female', description: 'Niemiecka narratorka profesjonalna' },
+  { id: 'de-DE-KillianNeural', name: 'Killian (Männlich - Energetisch)', lang: 'de', provider: 'edge', gender: 'Male', description: 'Niemiecki lektor o wysokiej energii' },
+
+  // Hiszpański (ES)
+  { id: 'es-ES-AlvaroNeural', name: 'Alvaro (Masculino - Dinámico)', lang: 'es', provider: 'edge', gender: 'Male', description: 'Hiszpański głos męski' },
+  { id: 'es-ES-ElviraNeural', name: 'Elvira (Femenino - Natural)', lang: 'es', provider: 'edge', gender: 'Female', description: 'Hiszpański głos żeński' },
+
+  // Francuski (FR)
+  { id: 'fr-FR-HenriNeural', name: 'Henri (Masculin - Élégant)', lang: 'fr', provider: 'edge', gender: 'Male', description: 'Francuski głos lektorski' },
+  { id: 'fr-FR-DeniseNeural', name: 'Denise (Féminin - Naturel)', lang: 'fr', provider: 'edge', gender: 'Female', description: 'Francuska narratorka' },
+
+  // Ukraiński (UK)
+  { id: 'uk-UA-OstapNeural', name: 'Ostap (Чоловічий - Динамічний)', lang: 'uk', provider: 'edge', gender: 'Male', description: 'Ukraiński lektor męski' },
+  { id: 'uk-UA-PolinaNeural', name: 'Polina (Жіночий - Природний)', lang: 'uk', provider: 'edge', gender: 'Female', description: 'Ukraińska narratorka żeńska' },
+
+  // Włoski (IT)
+  { id: 'it-IT-DiegoNeural', name: 'Diego (Maschile - Dinamico)', lang: 'it', provider: 'edge', gender: 'Male', description: 'Włoski lektor męski' },
+  { id: 'it-IT-ElsaNeural', name: 'Elsa (Femminile - Naturale)', lang: 'it', provider: 'edge', gender: 'Female', description: 'Włoska lektorka' }
 ];
 
 export function resolveNeuralVoice(requestedVoice?: string, langCode: string = 'pl'): string {
-  if (requestedVoice) {
-    if (requestedVoice.startsWith('eleven_') || requestedVoice in ELEVEN_VOICES_MAP || requestedVoice.includes('Neural')) {
-      return requestedVoice;
-    }
-  }
   const cleanLang = normalizeLanguageCode(langCode);
-  if (process.env.ELEVENLABS_API_KEY) {
-    return 'eleven_adam';
+
+  if (requestedVoice && requestedVoice.trim()) {
+    const v = requestedVoice.trim();
+
+    // Map ElevenLabs voice keys to distinct, tailored personas if ElevenLabs is not active
+    if (v.startsWith('eleven_')) {
+      if (cleanLang === 'pl') {
+        if (v === 'eleven_rachel') return 'pl-PL-ZofiaNeural';
+        if (v === 'eleven_bella') return 'pl-PL-ZofiaNeural-expressive';
+        if (v === 'eleven_adam') return 'pl-PL-MarekNeural-deep';
+        if (v === 'eleven_george') return 'pl-PL-MarekNeural-deep';
+        if (v === 'eleven_josh' || v === 'eleven_liam') return 'pl-PL-MarekNeural-energy';
+        return 'pl-PL-MarekNeural';
+      } else {
+        if (v === 'eleven_rachel') return 'en-US-JennyNeural';
+        if (v === 'eleven_bella') return 'en-US-AvaNeural';
+        if (v === 'eleven_adam') return 'en-US-AndrewNeural';
+        if (v === 'eleven_george') return 'en-US-GuyNeural';
+        if (v === 'eleven_josh' || v === 'eleven_liam') return 'en-US-ChristopherNeural';
+        return 'en-US-ChristopherNeural';
+      }
+    }
+
+    // Direct Neural Voice matching (including styles like -deep, -energy, -expressive, -pro)
+    return v;
   }
+
+  // Language default
   if (cleanLang === 'pl') return 'pl-PL-MarekNeural';
   if (cleanLang === 'en') return 'en-US-ChristopherNeural';
   if (cleanLang === 'de') return 'de-DE-ConradNeural';
   if (cleanLang === 'es') return 'es-ES-AlvaroNeural';
   if (cleanLang === 'fr') return 'fr-FR-HenriNeural';
   if (cleanLang === 'uk') return 'uk-UA-OstapNeural';
+  if (cleanLang === 'it') return 'it-IT-DiegoNeural';
   return 'pl-PL-MarekNeural';
 }
 
@@ -927,10 +969,27 @@ async function generateEdgeNeuralChunk(
     }, timeoutMs);
 
     try {
+      let baseVoice = voice || 'pl-PL-MarekNeural';
+      let pitchStr = '+0Hz';
+
+      if (baseVoice.endsWith('-deep')) {
+        baseVoice = baseVoice.replace('-deep', '');
+        pitchStr = '-16Hz';
+      } else if (baseVoice.endsWith('-energy')) {
+        baseVoice = baseVoice.replace('-energy', '');
+        pitchStr = '+18Hz';
+      } else if (baseVoice.endsWith('-expressive')) {
+        baseVoice = baseVoice.replace('-expressive', '');
+        pitchStr = '+14Hz';
+      } else if (baseVoice.endsWith('-pro')) {
+        baseVoice = baseVoice.replace('-pro', '');
+        pitchStr = '-8Hz';
+      }
+
       const tts = new MsEdgeTTS();
-      await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
+      await tts.setMetadata(baseVoice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
       const rateStr = calculateRateString(speed);
-      const streamObj = tts.toStream(text, { rate: rateStr });
+      const streamObj = tts.toStream(text, { rate: rateStr, pitch: pitchStr });
       
       const file = fs.createWriteStream(destPath);
       streamObj.audioStream.pipe(file);
@@ -1009,10 +1068,10 @@ async function generateTtsAudio(
 
   if (!cleanText) return 0;
 
-  // 1. Try ElevenLabs API if selected or if ELEVENLABS_API_KEY is configured
-  if (voiceToUse.startsWith('eleven_') || voiceToUse in ELEVEN_VOICES_MAP || (process.env.ELEVENLABS_API_KEY && !voiceToUse.includes('Neural'))) {
+  // 1. Try ElevenLabs API only if requested voice is explicitly ElevenLabs and API key is configured
+  if (requestedVoice && requestedVoice.startsWith('eleven_') && process.env.ELEVENLABS_API_KEY && process.env.ELEVENLABS_API_KEY.trim()) {
     try {
-      const elevenSuccess = await generateElevenLabsAudio(cleanText, voiceToUse, destPath, safeSpeed, tempDir);
+      const elevenSuccess = await generateElevenLabsAudio(cleanText, requestedVoice, destPath, safeSpeed, tempDir);
       if (elevenSuccess && fs.existsSync(destPath)) {
         const dur = await getAudioDuration(destPath);
         if (dur > 0) {
@@ -1020,16 +1079,13 @@ async function generateTtsAudio(
         }
       }
     } catch (elErr) {
-      console.warn(`[ElevenLabs TTS Info] Switch to Edge Neural fallback voice:`, (elErr as Error).message);
+      console.warn(`[ElevenLabs TTS Info] Switch to matching Neural voice (${voiceToUse}):`, (elErr as Error).message);
     }
   }
 
-  // 2. Try Neural TTS with Microsoft Edge (Ultra realistic & fast)
+  // 2. Try Neural TTS with Microsoft Edge (Ultra realistic, diverse & fast)
   try {
-    const edgeVoice = voiceToUse.startsWith('eleven_')
-      ? (cleanLang === 'pl' ? 'pl-PL-MarekNeural' : 'en-US-ChristopherNeural')
-      : voiceToUse;
-    const neuralSuccess = await generateEdgeNeuralChunk(cleanText, edgeVoice, destPath, safeSpeed, 7000);
+    const neuralSuccess = await generateEdgeNeuralChunk(cleanText, voiceToUse, destPath, safeSpeed, 7000);
     if (neuralSuccess && fs.existsSync(destPath)) {
       const dur = await getAudioDuration(destPath);
       if (dur > 0) {
@@ -1327,8 +1383,8 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
     let totalEstimatedDuration = 0;
     const ttsEnabled = payload.tts !== false;
     const ttsLanguage = normalizeLanguageCode(payload.ttsLanguage || (payload as any).language || 'pl');
-    const ttsVoice = payload.ttsVoice || resolveNeuralVoice(undefined, ttsLanguage);
-    const ttsSpeed = typeof payload.ttsSpeed === 'number' && payload.ttsSpeed > 0 ? payload.ttsSpeed : 1.15;
+    const ttsVoice = payload.ttsVoice || (payload as any).tts_voice || (payload as any).voice || (payload as any).lektor || (payload as any).glos || resolveNeuralVoice(undefined, ttsLanguage);
+    const ttsSpeed = typeof payload.ttsSpeed === 'number' && payload.ttsSpeed > 0 ? payload.ttsSpeed : (typeof (payload as any).tts_speed === 'number' ? (payload as any).tts_speed : 1.15);
     const defaultCaptionAnim = payload.captionAnimation || 'word-by-word';
     const defaultHighlightCol = payload.highlightColor || 'yellow';
 
@@ -1382,15 +1438,17 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
       // 1. Text-to-Speech Generation
       let hasTtsAudio = false;
       const sceneTtsPath = path.join(jobTempDir, `scene_tts_${sceneNum}.mp3`);
+      const sceneVoice = scene.ttsVoice || (scene as any).tts_voice || (scene as any).voice || (scene as any).lektor || ttsVoice;
+      const sceneSpeed = typeof scene.ttsSpeed === 'number' && scene.ttsSpeed > 0 ? scene.ttsSpeed : ttsSpeed;
 
       if (ttsEnabled && speechText.length > 0) {
         try {
           updateJobProgress(
             jobId,
             {},
-            `Generowanie głosu lektora TTS (${ttsVoice.split('-')[2] || ttsVoice} @ ${ttsSpeed}x): "${speechText.slice(0, 40)}..."`
+            `Generowanie głosu lektora TTS (${sceneVoice.split('-')[2] || sceneVoice} @ ${sceneSpeed}x): "${speechText.slice(0, 40)}..."`
           );
-          const ttsDuration = await generateTtsAudio(speechText, ttsLanguage, sceneTtsPath, jobTempDir, ttsVoice, ttsSpeed);
+          const ttsDuration = await generateTtsAudio(speechText, ttsLanguage, sceneTtsPath, jobTempDir, sceneVoice, sceneSpeed);
           if (ttsDuration > 0 && fs.existsSync(sceneTtsPath)) {
             hasTtsAudio = true;
             // Synchronize scene duration with voice narration length (+0.35s natural trailing pause)
@@ -1911,7 +1969,9 @@ function normalizeSceneItem(sc: any, idx: number, totalCount: number): SceneInpu
       outlineWidth: capStyle.outlineWidth || sc.outlineWidth || 6,
       outlineColor: 'black',
       boxColor: 'black@0.6'
-    }
+    },
+    ttsVoice: sc.ttsVoice || sc.tts_voice || sc.voice || sc.lektor || sc.glos,
+    ttsSpeed: typeof sc.ttsSpeed === 'number' ? sc.ttsSpeed : (typeof sc.tts_speed === 'number' ? sc.tts_speed : (typeof sc.speed === 'number' ? sc.speed : undefined))
   };
 }
 
@@ -2736,8 +2796,8 @@ router.post('/auto-pilot-shorts', async (req, res) => {
       webhookUrl,
       tts: body.tts !== false,
       ttsLanguage: body.ttsLanguage || language || 'pl',
-      ttsVoice: body.ttsVoice,
-      ttsSpeed: typeof body.ttsSpeed === 'number' ? body.ttsSpeed : 1.15,
+      ttsVoice: body.ttsVoice || body.tts_voice || body.voice || body.lektor || body.glos,
+      ttsSpeed: typeof body.ttsSpeed === 'number' ? body.ttsSpeed : (typeof body.tts_speed === 'number' ? body.tts_speed : (typeof body.speed === 'number' ? body.speed : 1.15)),
       syncDurationWithVoice: body.syncDurationWithVoice !== false,
       captionAnimation: body.captionAnimation || body.animation || 'word-by-word',
       highlightColor: body.highlightColor || 'yellow'
@@ -2843,8 +2903,8 @@ router.post('/combine-scenes', async (req, res) => {
     webhookUrl: body.webhookUrl || (req.query.webhookUrl as string) || (req.headers['x-webhook-url'] as string),
     tts: body.tts !== false,
     ttsLanguage: body.ttsLanguage || body.language || 'pl',
-    ttsVoice: body.ttsVoice,
-    ttsSpeed: typeof body.ttsSpeed === 'number' ? body.ttsSpeed : 1.15,
+    ttsVoice: body.ttsVoice || body.tts_voice || body.voice || body.lektor || body.glos,
+    ttsSpeed: typeof body.ttsSpeed === 'number' ? body.ttsSpeed : (typeof body.tts_speed === 'number' ? body.tts_speed : (typeof body.speed === 'number' ? body.speed : 1.15)),
     syncDurationWithVoice: body.syncDurationWithVoice !== false,
     captionAnimation: body.captionAnimation || body.animation || 'word-by-word',
     highlightColor: body.highlightColor || 'yellow'
@@ -3134,10 +3194,10 @@ router.delete('/webhook/logs', (req, res) => {
 router.get('/tts/voices', (req, res) => {
   res.json({
     success: true,
-    hasElevenLabsKey: !!(process.env.ELEVENLABS_API_KEY && process.env.ELEVENLABS_API_KEY.trim()),
+    hasElevenLabsKey: false,
     voices: NEURAL_VOICES_CATALOG,
-    defaultVoicePl: process.env.ELEVENLABS_API_KEY ? 'eleven_adam' : 'pl-PL-MarekNeural',
-    defaultVoiceEn: process.env.ELEVENLABS_API_KEY ? 'eleven_adam' : 'en-US-ChristopherNeural'
+    defaultVoicePl: 'pl-PL-MarekNeural',
+    defaultVoiceEn: 'en-US-ChristopherNeural'
   });
 });
 

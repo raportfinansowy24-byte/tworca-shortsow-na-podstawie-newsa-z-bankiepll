@@ -1207,78 +1207,87 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
                         >
                           {targetLanguage === 'Polski' ? (
                             <>
-                              <optgroup label="🌟 ElevenLabs Studio AI (Wielojęzyczne / Ultra-HD)">
-                                <option value="eleven_adam">✨ Adam — Męski głęboki, kinowy narrator (PL/EN)</option>
-                                <option value="eleven_antoni">✨ Antoni — Męski wyrazisty, autorytatywny lektor (PL/EN)</option>
-                                <option value="eleven_rachel">✨ Rachel — Żeński spokojny, profesjonalny (PL/EN)</option>
-                                <option value="eleven_bella">✨ Bella — Żeński młody, ekspresyjny (PL/EN)</option>
-                                <option value="eleven_josh">✨ Josh — Męski dynamiczny shorts (PL/EN)</option>
-                                <option value="eleven_george">✨ George — Męski kinowy storytelling (PL/EN)</option>
-                                <option value="eleven_liam">✨ Liam — Męski nowoczesny TikTok (PL/EN)</option>
+                              <optgroup label="⚡ Głosy Lektorskie AI (Neural HD — Zróżnicowane & Sprawdzone)">
+                                <option value="pl-PL-MarekNeural">🎙️ Marek — Męski dynamiczny (Rekomendowany do Shorts & Biznes)</option>
+                                <option value="pl-PL-ZofiaNeural">🎙️ Zofia — Żeński naturalny & wyrazisty (Ciepła narracja)</option>
+                                <option value="pl-PL-MarekNeural-deep">🎙️ Krzysztof — Męski głęboki bas (Kino, Storytelling & Raporty)</option>
+                                <option value="pl-PL-ZofiaNeural-expressive">✨ Maja — Żeński młody & ekspresyjny (Shorts, Virale & TikTok)</option>
+                                <option value="pl-PL-MarekNeural-energy">⚡ Patryk — Męski wysoka energia (TikTok, Agresywny Hook)</option>
+                                <option value="pl-PL-ZofiaNeural-pro">💼 Anna — Żeński spokojny & profesjonalny (Analizy B2B)</option>
                               </optgroup>
-                              <optgroup label="⚡ Microsoft Edge Neural (Szybkie / Bezpłatne)">
-                                <option value="pl-PL-MarekNeural">🎙️ Marek — Męski dynamiczny (Rekomendowany do Shorts)</option>
-                                <option value="pl-PL-ZofiaNeural">🎙️ Zofia — Żeński naturalny & wyrazisty</option>
+                              <optgroup label="🌟 Profile ElevenLabs (Autonomiczny inteligentny fallback)">
+                                <option value="eleven_adam">✨ Adam — Głęboki kinowy narrator (PL/EN)</option>
+                                <option value="eleven_antoni">✨ Antoni — Wyrazisty autorytatywny lektor (PL/EN)</option>
+                                <option value="eleven_rachel">✨ Rachel — Spokojna, profesjonalna lektorka (PL/EN)</option>
+                                <option value="eleven_bella">✨ Bella — Młoda, ekspresyjna narratorka (PL/EN)</option>
+                                <option value="eleven_josh">✨ Josh — Dynamiczny męski shorts (PL/EN)</option>
+                                <option value="eleven_george">✨ George — Kinowy storyteller (PL/EN)</option>
+                                <option value="eleven_liam">✨ Liam — Nowoczesny lektor TikTok (PL/EN)</option>
                               </optgroup>
                             </>
                           ) : targetLanguage === 'Angielski (EN)' ? (
                             <>
-                              <optgroup label="🌟 ElevenLabs Studio AI (Ultra-HD)">
+                              <optgroup label="⚡ Neural HD Voices (Fast, Clear & Natural)">
+                                <option value="en-US-ChristopherNeural">🎙️ Christopher — Male Energetic (Viral Shorts / MrBeast)</option>
+                                <option value="en-US-JennyNeural">🎙️ Jenny — Female Warm & Natural Storyteller</option>
+                                <option value="en-US-GuyNeural">🎙️ Guy — Male News Anchor (Authoritative / Bloomberg)</option>
+                                <option value="en-US-AvaNeural">✨ Ava — Female Expressive & Modern (Shorts / Reels)</option>
+                                <option value="en-US-AndrewNeural">🎙️ Andrew — Male Deep Cinematic Narrator</option>
+                                <option value="en-US-BrianNeural">🎙️ Brian — Male Natural Tech & Business</option>
+                                <option value="en-US-EmmaNeural">🎙️ Emma — Female Conversational & Crisp</option>
+                                <option value="en-GB-RyanNeural">🎙️ Ryan — Male British Accent (London)</option>
+                                <option value="en-GB-SoniaNeural">🎙️ Sonia — Female British Accent (BBC)</option>
+                              </optgroup>
+                              <optgroup label="🌟 ElevenLabs Studio Voices">
                                 <option value="eleven_adam">✨ Adam — Deep Cinematic Narrator</option>
                                 <option value="eleven_rachel">✨ Rachel — Professional Storyteller</option>
                                 <option value="eleven_josh">✨ Josh — Energetic Viral Shorts</option>
                                 <option value="eleven_bella">✨ Bella — Expressive Female</option>
                                 <option value="eleven_george">✨ George — Warm Storyteller</option>
                               </optgroup>
-                              <optgroup label="⚡ Microsoft Edge Neural">
-                                <option value="en-US-ChristopherNeural">🎙️ Christopher — Męski energiczny (MrBeast / Shorts)</option>
-                                <option value="en-US-AndrewMultilingualNeural">🎙️ Andrew — Męski kinowy & głęboki</option>
-                                <option value="en-US-JennyNeural">🎙️ Jenny — Żeński ciepły & narracyjny</option>
-                                <option value="en-US-GuyNeural">🎙️ Guy — Męski prezenter wiadomości</option>
-                                <option value="en-US-AvaNeural">🎙️ Ava — Żeński nowoczesny ekspresyjny</option>
-                              </optgroup>
                             </>
                           ) : targetLanguage === 'Niemiecki (DE)' ? (
                             <>
+                              <optgroup label="⚡ Microsoft Edge Neural (Deutsch)">
+                                <option value="de-DE-ConradNeural">🎙️ Conrad — Männlich Dynamic (Nachrichten & Wirtschaft)</option>
+                                <option value="de-DE-KatjaNeural">🎙️ Katja — Weiblich Natürlich & Professionell</option>
+                                <option value="de-DE-KillianNeural">⚡ Killian — Männlich Energetisch (Shorts / TikTok)</option>
+                              </optgroup>
                               <optgroup label="🌟 ElevenLabs Studio AI">
                                 <option value="eleven_adam">✨ Adam (Multilingual Deutsch)</option>
                                 <option value="eleven_rachel">✨ Rachel (Multilingual Deutsch)</option>
                               </optgroup>
-                              <optgroup label="⚡ Microsoft Edge Neural">
-                                <option value="de-DE-ConradNeural">🎙️ Conrad — Męski dynamiczny (Deutsch)</option>
-                                <option value="de-DE-KatjaNeural">🎙️ Katja — Żeński naturalny (Deutsch)</option>
-                              </optgroup>
                             </>
                           ) : targetLanguage === 'Hiszpański (ES)' ? (
                             <>
+                              <optgroup label="⚡ Microsoft Edge Neural (Español)">
+                                <option value="es-ES-AlvaroNeural">🎙️ Alvaro — Masculino Dinámico</option>
+                                <option value="es-ES-ElviraNeural">🎙️ Elvira — Femenino Natural</option>
+                              </optgroup>
                               <optgroup label="🌟 ElevenLabs Studio AI">
                                 <option value="eleven_adam">✨ Adam (Multilingual Español)</option>
                                 <option value="eleven_rachel">✨ Rachel (Multilingual Español)</option>
                               </optgroup>
-                              <optgroup label="⚡ Microsoft Edge Neural">
-                                <option value="es-ES-AlvaroNeural">🎙️ Alvaro — Męski (Español)</option>
-                                <option value="es-ES-ElviraNeural">🎙️ Elvira — Żeński (Español)</option>
-                              </optgroup>
                             </>
                           ) : targetLanguage === 'Francuski (FR)' ? (
                             <>
+                              <optgroup label="⚡ Microsoft Edge Neural (Français)">
+                                <option value="fr-FR-HenriNeural">🎙️ Henri — Masculin Élégant</option>
+                                <option value="fr-FR-DeniseNeural">🎙️ Denise — Féminin Naturel</option>
+                              </optgroup>
                               <optgroup label="🌟 ElevenLabs Studio AI">
                                 <option value="eleven_adam">✨ Adam (Multilingual Français)</option>
                                 <option value="eleven_rachel">✨ Rachel (Multilingual Français)</option>
                               </optgroup>
-                              <optgroup label="⚡ Microsoft Edge Neural">
-                                <option value="fr-FR-HenriNeural">🎙️ Henri — Męski (Français)</option>
-                                <option value="fr-FR-DeniseNeural">🎙️ Denise — Żeński (Français)</option>
-                              </optgroup>
                             </>
                           ) : (
                             <>
+                              <optgroup label="⚡ Microsoft Edge Neural (Українська)">
+                                <option value="uk-UA-OstapNeural">🎙️ Ostap — Чоловічий Динамічний</option>
+                                <option value="uk-UA-PolinaNeural">🎙️ Polina — Жіночий Природний</option>
+                              </optgroup>
                               <optgroup label="🌟 ElevenLabs Studio AI">
                                 <option value="eleven_adam">✨ Adam (Multilingual)</option>
-                              </optgroup>
-                              <optgroup label="⚡ Microsoft Edge Neural">
-                                <option value="uk-UA-OstapNeural">🎙️ Ostap — Męski (Українська)</option>
-                                <option value="uk-UA-PolinaNeural">🎙️ Polina — Żeński (Українська)</option>
                               </optgroup>
                             </>
                           )}

@@ -440,6 +440,8 @@ export const MakeHttpConnector: React.FC = () => {
       async: true, // Request async background processing for real-time tracking
       tts: globalTtsEnabled,
       ttsLanguage: globalTtsLanguage === 'Polski' ? 'pl' : 'en',
+      ttsVoice: globalTtsVoice,
+      ttsSpeed: globalTtsSpeed,
       syncDurationWithVoice: globalSyncDuration,
       captionAnimation: globalCaptionAnimation,
       highlightColor: globalHighlightColor
@@ -597,6 +599,8 @@ export const MakeHttpConnector: React.FC = () => {
           async: true,
           tts: globalTtsEnabled,
           ttsLanguage: globalTtsLanguage === 'Polski' ? 'pl' : 'en',
+          ttsVoice: globalTtsVoice,
+          ttsSpeed: globalTtsSpeed,
           syncDurationWithVoice: globalSyncDuration,
           captionAnimation: globalCaptionAnimation,
           highlightColor: globalHighlightColor,
@@ -618,6 +622,8 @@ export const MakeHttpConnector: React.FC = () => {
           async: true,
           tts: globalTtsEnabled,
           ttsLanguage: globalTtsLanguage === 'Polski' ? 'pl' : 'en',
+          ttsVoice: globalTtsVoice,
+          ttsSpeed: globalTtsSpeed,
           syncDurationWithVoice: globalSyncDuration,
           captionAnimation: globalCaptionAnimation,
           highlightColor: globalHighlightColor,
@@ -650,6 +656,8 @@ export const MakeHttpConnector: React.FC = () => {
         async: true,
         tts: globalTtsEnabled,
         ttsLanguage: globalTtsLanguage === 'Polski' ? 'pl' : 'en',
+        ttsVoice: globalTtsVoice,
+        ttsSpeed: globalTtsSpeed,
         syncDurationWithVoice: globalSyncDuration,
         captionAnimation: globalCaptionAnimation,
         highlightColor: globalHighlightColor,
@@ -1129,7 +1137,15 @@ export const MakeHttpConnector: React.FC = () => {
                           >
                             {globalTtsLanguage === 'Polski' ? (
                               <>
-                                <optgroup label="🌟 ElevenLabs Studio AI">
+                                <optgroup label="⚡ Głosy Lektorskie AI (Neural HD — Zróżnicowane & Sprawdzone)">
+                                  <option value="pl-PL-MarekNeural">🎙️ Marek — Męski dynamiczny (Biznes & Shorts)</option>
+                                  <option value="pl-PL-ZofiaNeural">🎙️ Zofia — Żeński naturalny & wyrazisty</option>
+                                  <option value="pl-PL-MarekNeural-deep">🎙️ Krzysztof — Męski głęboki bas (Kino / Raporty)</option>
+                                  <option value="pl-PL-ZofiaNeural-expressive">✨ Maja — Żeński młody & ekspresyjny (Virale / TikTok)</option>
+                                  <option value="pl-PL-MarekNeural-energy">⚡ Patryk — Męski wysoka energia (Hook / TikTok)</option>
+                                  <option value="pl-PL-ZofiaNeural-pro">💼 Anna — Żeński profesjonalny (B2B)</option>
+                                </optgroup>
+                                <optgroup label="🌟 Profile ElevenLabs (Autonomiczny inteligentny fallback)">
                                   <option value="eleven_adam">✨ Adam — Męski głęboki narrator (PL/EN)</option>
                                   <option value="eleven_antoni">✨ Antoni — Męski wyrazisty lektor (PL/EN)</option>
                                   <option value="eleven_rachel">✨ Rachel — Żeński spokojny (PL/EN)</option>
@@ -1138,24 +1154,24 @@ export const MakeHttpConnector: React.FC = () => {
                                   <option value="eleven_george">✨ George — Kinowy storytelling (PL/EN)</option>
                                   <option value="eleven_liam">✨ Liam — Młody lektor TikTok (PL/EN)</option>
                                 </optgroup>
-                                <optgroup label="⚡ Microsoft Edge Neural">
-                                  <option value="pl-PL-MarekNeural">🎙️ Marek (Męski - Dynamiczny)</option>
-                                  <option value="pl-PL-ZofiaNeural">🎙️ Zofia (Żeński - Naturalny)</option>
-                                </optgroup>
                               </>
                             ) : (
                               <>
-                                <optgroup label="🌟 ElevenLabs Studio AI">
+                                <optgroup label="⚡ Neural HD Voices (Fast, Clear & Natural)">
+                                  <option value="en-US-ChristopherNeural">🎙️ Christopher — Male Energetic (Shorts)</option>
+                                  <option value="en-US-JennyNeural">🎙️ Jenny — Female Warm & Natural</option>
+                                  <option value="en-US-GuyNeural">🎙️ Guy — Male News Anchor</option>
+                                  <option value="en-US-AvaNeural">✨ Ava — Female Expressive</option>
+                                  <option value="en-US-AndrewNeural">🎙️ Andrew — Male Deep Cinema</option>
+                                  <option value="en-US-BrianNeural">🎙️ Brian — Male Natural Tech</option>
+                                  <option value="en-US-EmmaNeural">🎙️ Emma — Female Conversational</option>
+                                  <option value="en-GB-RyanNeural">🎙️ Ryan — Male British Accent</option>
+                                  <option value="en-GB-SoniaNeural">🎙️ Sonia — Female British Accent</option>
+                                </optgroup>
+                                <optgroup label="🌟 ElevenLabs Studio Voices">
                                   <option value="eleven_adam">✨ Adam — Cinematic Deep Narrator</option>
                                   <option value="eleven_rachel">✨ Rachel — Professional Voice</option>
                                   <option value="eleven_josh">✨ Josh — Energetic Shorts</option>
-                                </optgroup>
-                                <optgroup label="⚡ Microsoft Edge Neural">
-                                  <option value="en-US-ChristopherNeural">🎙️ Christopher (Męski - Shorts)</option>
-                                  <option value="en-US-AndrewMultilingualNeural">🎙️ Andrew (Męski - Deep Cinema)</option>
-                                  <option value="en-US-JennyNeural">🎙️ Jenny (Żeński - Naturalny)</option>
-                                  <option value="en-US-GuyNeural">🎙️ Guy (Męski - News Anchor)</option>
-                                  <option value="en-US-AvaNeural">🎙️ Ava (Żeński - Modern)</option>
                                 </optgroup>
                               </>
                             )}
