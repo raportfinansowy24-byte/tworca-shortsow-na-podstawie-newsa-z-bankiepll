@@ -415,10 +415,11 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
     setIsRefreshingFootage(true);
     try {
       const keywords = generatedScript.scenes.map((s: any) => s.searchKeyword || topic);
+      const avoidIds = generatedScript.scenes.map((s: any) => s.pexelsId).filter(Boolean);
       const res = await fetch('/api/stock/fetch-scene-footage', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ keywords, topic })
+        body: JSON.stringify({ keywords, topic, avoidIds })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Nie udało się odświeżyć ujęć z Pexels');
@@ -432,7 +433,9 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
               videoUrl: fresh.videoUrl,
               thumbnailUrl: fresh.thumbnailUrl,
               source: fresh.source,
-              photographer: fresh.photographer
+              photographer: fresh.photographer,
+              pexelsId: fresh.pexelsId,
+              searchKeyword: fresh.searchKeyword || sc.searchKeyword
             };
           }
           return sc;
@@ -442,7 +445,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
           ...generatedScript,
           scenes: updatedScenes
         });
-        onToast?.('success', 'Odświeżono ujęcia Pexels', `Pobrano nowe miniatury i ujęcia dla ${updatedScenes.length} scen.`);
+        onToast?.('success', 'Odświeżono ujęcia Pexels ⚡', `Pobrano nowe, wysoce dynamiczne ujęcia i miniatury dla ${updatedScenes.length} scen.`);
       }
     } catch (err) {
       onToast?.('error', 'Błąd odświeżania ujęć', (err as Error).message);

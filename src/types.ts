@@ -114,6 +114,7 @@ export interface PexelsVideoItem {
   id: number;
   videoUrl: string;
   thumbnailUrl: string;
+  searchKeyword?: string;
   width?: number;
   height?: number;
   duration?: number;

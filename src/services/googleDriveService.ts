@@ -13,7 +13,7 @@ import firebaseConfig from '../../firebase-applet-config.json';
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 export const auth = getAuth(app);
 
-// All Google Drive scopes configured for this application
+// All Google Drive and Google Sheets scopes configured for this application
 export const SCOPES = [
   'https://www.googleapis.com/auth/drive',
   'https://www.googleapis.com/auth/drive.activity',
@@ -27,7 +27,9 @@ export const SCOPES = [
   'https://www.googleapis.com/auth/drive.metadata.readonly',
   'https://www.googleapis.com/auth/drive.photos.readonly',
   'https://www.googleapis.com/auth/drive.readonly',
-  'https://www.googleapis.com/auth/drive.scripts'
+  'https://www.googleapis.com/auth/drive.scripts',
+  'https://www.googleapis.com/auth/spreadsheets',
+  'https://www.googleapis.com/auth/spreadsheets.readonly'
 ];
 
 const provider = new GoogleAuthProvider();

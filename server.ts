@@ -90,15 +90,238 @@ export interface ResolvedStockVideo {
   photographerUrl?: string;
 }
 
-// Dynamically search vertical portrait (9:16) stock video from Pexels API with full metadata & thumbnail
-async function searchPexelsVideoDetailed(query: string): Promise<ResolvedStockVideo | null> {
+// Negative keywords that signal static, slow, or irrelevant footage
+const NEGATIVE_VIDEO_SLUG_TERMS = [
+  'eraser',
+  'writing-on-a-paper',
+  'writing-notes',
+  'taking-notes',
+  'drawing',
+  'gymnast',
+  'training',
+  'reading-a-book',
+  'doctor',
+  'medical',
+  'cooking',
+  'fitness',
+  'sport',
+  'wedding',
+  'beach-vacation',
+  'illustration',
+  'cartoon',
+  'blackboard',
+  'whiteboard',
+  'pencil',
+  'holding-coffee',
+  'hand-holding-pen',
+  'signing-paper',
+  'static-portrait',
+  'smiling-at-camera'
+];
+
+// Positive keywords that indicate high-energy, viral motion graphics & cinematic b-roll
+const DYNAMIC_VIRAL_BOOST_TERMS = [
+  'timelapse',
+  'hyperlapse',
+  'dynamic',
+  'animation',
+  'flashing',
+  'trading',
+  'candlestick',
+  'exchange',
+  'skyline',
+  'aerial',
+  'traffic',
+  'stream',
+  'cash',
+  'banknotes',
+  'drone',
+  'display',
+  'charts',
+  'night',
+  'vault',
+  'luxury'
+];
+
+// Intelligent keyword translator & enhancer: converts Polish domain terms into proven, dynamic vertical (9:16) Pexels queries
+function translateAndEnrichViralKeyword(
+  rawQuery: string,
+  sceneIndex: number = 0,
+  totalScenes: number = 2,
+  context?: string
+): string {
+  const combined = `${rawQuery || ''} ${context || ''}`.toLowerCase().trim();
+
+  // Polish finance & viral concept mapping to tested dynamic Pexels visual queries
+  if (
+    combined.includes('stóp') ||
+    combined.includes('stopy') ||
+    combined.includes('rpp') ||
+    combined.includes('nbp') ||
+    combined.includes('rada polityki') ||
+    combined.includes('odsetk')
+  ) {
+    if (sceneIndex === 0) return 'stock exchange screen numbers flashing';
+    if (sceneIndex === 1) return 'central bank gold vault bullion';
+    return 'dynamic financial stock market display animation';
+  }
+
+  if (
+    combined.includes('kredyt') ||
+    combined.includes('hipotek') ||
+    combined.includes('mieszkan') ||
+    combined.includes('deweloper') ||
+    combined.includes('nieruchom')
+  ) {
+    if (sceneIndex === 0) return 'city traffic night hyperlapse';
+    if (sceneIndex === 1) return 'aerial night view vibrant city skyline';
+    return 'modern architecture skyscraper drone';
+  }
+
+  if (
+    combined.includes('inflacj') ||
+    combined.includes('drożyzn') ||
+    combined.includes('drożej') ||
+    combined.includes('cen') ||
+    combined.includes('koszt')
+  ) {
+    if (sceneIndex === 0) return 'counting cash money bills dynamic';
+    if (sceneIndex === 1) return 'fast stock market trading chart timelapse';
+    return 'dynamic financial stock market display animation';
+  }
+
+  if (
+    combined.includes('podatek') ||
+    combined.includes('belk') ||
+    combined.includes('fiskus') ||
+    combined.includes('urząd skarbowy') ||
+    combined.includes('strat') ||
+    combined.includes('prowizj')
+  ) {
+    if (sceneIndex === 0) return 'stock exchange screen numbers flashing';
+    if (sceneIndex === 1) return 'counting cash money bills dynamic';
+    return 'corporate boardroom financial discussion glass office';
+  }
+
+  if (
+    combined.includes('akcj') ||
+    combined.includes('giełd') ||
+    combined.includes('gpw') ||
+    combined.includes('wig') ||
+    combined.includes('spółk') ||
+    combined.includes('orlen') ||
+    combined.includes('trading')
+  ) {
+    if (sceneIndex === 0) return 'stock exchange screen numbers flashing';
+    if (sceneIndex === 1) return 'fast stock market trading chart timelapse';
+    return 'dynamic financial stock market display animation';
+  }
+
+  if (
+    combined.includes('krypto') ||
+    combined.includes('bitcoin') ||
+    combined.includes('btc') ||
+    combined.includes('ethereum') ||
+    combined.includes('eth') ||
+    combined.includes('blockchain')
+  ) {
+    if (sceneIndex === 0) return 'crypto trading chart dynamic';
+    if (sceneIndex === 1) return 'dynamic cryptocurrency trading on tablets and screens';
+    return 'cyber digital network glowing';
+  }
+
+  if (
+    combined.includes('złot') ||
+    combined.includes('gold') ||
+    combined.includes('bullion') ||
+    combined.includes('kruszc') ||
+    combined.includes('sztabk')
+  ) {
+    if (sceneIndex === 0) return 'gold bullion shiny luxury';
+    if (sceneIndex === 1) return 'central bank gold vault bullion';
+    return 'counting cash money bills dynamic';
+  }
+
+  if (
+    combined.includes('walut') ||
+    combined.includes('dolar') ||
+    combined.includes('euro') ||
+    combined.includes('forex') ||
+    combined.includes('kurs')
+  ) {
+    if (sceneIndex === 0) return 'counting cash money bills dynamic';
+    if (sceneIndex === 1) return 'stock exchange screen numbers flashing';
+    return 'fast stock market trading chart timelapse';
+  }
+
+  if (
+    combined.includes('ai') ||
+    combined.includes('sztuczn') ||
+    combined.includes('technol') ||
+    combined.includes('kod') ||
+    combined.includes('cyfr') ||
+    combined.includes('robot') ||
+    combined.includes('automatyz')
+  ) {
+    if (sceneIndex === 0) return 'cyber digital network glowing';
+    if (sceneIndex === 1) return 'vibrant digital data stream animation';
+    return 'dynamic network connections abstract animation';
+  }
+
+  if (
+    combined.includes('sukces') ||
+    combined.includes('luksus') ||
+    combined.includes('mająt') ||
+    combined.includes('bogact') ||
+    combined.includes('milioner') ||
+    combined.includes('biznes') ||
+    combined.includes('przedsiębiorc')
+  ) {
+    if (sceneIndex === 0) return 'aerial night view vibrant city skyline';
+    if (sceneIndex === 1) return 'city traffic night hyperlapse';
+    return 'corporate boardroom financial discussion glass office';
+  }
+
+  // If query is in English, clean it and enrich with dynamic viral qualifiers
+  let clean = (rawQuery || 'finance stock market')
+    .replace(/[^\w\s-]/gi, ' ')
+    .replace(/\b(warning|mistake|illustration|draw|drawing|concept|documentation|compliance|bars|paper|notes|eraser|slide|tutorial)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!clean || clean.length < 3) {
+    clean = sceneIndex === 0 ? 'stock exchange screen numbers flashing' : 'dynamic financial stock market display animation';
+  }
+
+  // Ensure dynamic movement modifiers
+  const hasDynamic = /(dynamic|timelapse|hyperlapse|aerial|drone|flashing|animation|motion|speed|rush)/i.test(clean);
+  if (!hasDynamic) {
+    if (sceneIndex === 0) {
+      clean = `${clean} timelapse dynamic`;
+    } else {
+      clean = `${clean} dynamic animation`;
+    }
+  }
+
+  return clean;
+}
+
+// Dynamically search vertical portrait (9:16) stock video from Pexels API with viral candidate scoring & deduplication
+async function searchPexelsVideoDetailed(
+  query: string,
+  options?: { sceneIndex?: number; avoidVideoIds?: number[]; avoidUrls?: string[]; context?: string }
+): Promise<ResolvedStockVideo | null> {
   const pexelsKey = process.env.PEXELS_API_KEY;
   if (!pexelsKey || !pexelsKey.trim()) return null;
 
+  const sceneIndex = options?.sceneIndex ?? 0;
+  const avoidIds = options?.avoidVideoIds ?? [];
+  const avoidUrls = options?.avoidUrls ?? [];
+  const enrichedQuery = translateAndEnrichViralKeyword(query, sceneIndex, 2, options?.context);
+
   try {
-    const cleanQuery = (query || 'stock market chart').trim();
-    const searchUrl = `https://api.pexels.com/videos/search?query=${encodeURIComponent(cleanQuery)}&orientation=portrait&per_page=12`;
-    console.log(`[Pexels API] Szukanie ujęcia 9:16 dla hasła: "${cleanQuery}"...`);
+    const searchUrl = `https://api.pexels.com/videos/search?query=${encodeURIComponent(enrichedQuery)}&orientation=portrait&per_page=15`;
+    console.log(`[Pexels API] Szukanie dynamicznego ujęcia 9:16 dla hasła: "${enrichedQuery}" (Scena #${sceneIndex + 1})...`);
 
     const res = await fetch(searchUrl, {
       headers: {
@@ -114,19 +337,68 @@ async function searchPexelsVideoDetailed(query: string): Promise<ResolvedStockVi
 
     const data: any = await res.json();
     if (data.videos && Array.isArray(data.videos) && data.videos.length > 0) {
+      // Score and select the most dynamic, high-impact vertical video
+      const candidates: Array<{ video: any; verticalMp4: any; score: number }> = [];
+
       for (const video of data.videos) {
+        if (avoidIds.includes(video.id)) continue;
+
+        const slug = (video.url || '').toLowerCase();
+        const hasNegative = NEGATIVE_VIDEO_SLUG_TERMS.some((neg) => slug.includes(neg));
+        if (hasNegative) continue;
+
         if (Array.isArray(video.video_files)) {
-          // Look for 720p or 1080p vertical MP4 video file (height > width)
+          // Look for vertical MP4 (1080p, 720p)
           const verticalMp4 = video.video_files.find((f: any) =>
             f.file_type === 'video/mp4' && f.height > f.width && f.height >= 1280
           ) || video.video_files.find((f: any) =>
             f.file_type === 'video/mp4' && f.height > f.width
-          ) || video.video_files.find((f: any) =>
-            f.file_type === 'video/mp4' && f.link && f.link.endsWith('.mp4')
           );
 
           if (verticalMp4 && verticalMp4.link) {
-            console.log(`✓ [Pexels API Znaleziono] "${cleanQuery}" -> ${verticalMp4.link.slice(0, 60)}... (${verticalMp4.width}x${verticalMp4.height})`);
+            if (avoidUrls.includes(verticalMp4.link)) continue;
+
+            let score = 50;
+            for (const boost of DYNAMIC_VIRAL_BOOST_TERMS) {
+              if (slug.includes(boost)) score += 20;
+            }
+            // Prefer videos of optimal viral duration (8s to 45s)
+            if (video.duration >= 8 && video.duration <= 45) score += 15;
+            // Prefer 1080p / 2160p Full HD
+            if (verticalMp4.height >= 1920) score += 15;
+
+            candidates.push({ video, verticalMp4, score });
+          }
+        }
+      }
+
+      // Sort by score descending
+      candidates.sort((a, b) => b.score - a.score);
+
+      const picked = candidates[0];
+      if (picked) {
+        console.log(`✓ [Pexels API Wybrano Dynamiczne] "${enrichedQuery}" (score: ${picked.score}) -> ID ${picked.video.id} (${picked.verticalMp4.width}x${picked.verticalMp4.height}, ${picked.video.duration}s)`);
+        return {
+          videoUrl: picked.verticalMp4.link,
+          thumbnailUrl: picked.video.image || picked.video.video_pictures?.[0]?.picture || '',
+          pexelsId: picked.video.id,
+          width: picked.verticalMp4.width,
+          height: picked.verticalMp4.height,
+          duration: picked.video.duration,
+          photographer: picked.video.user?.name,
+          photographerUrl: picked.video.user?.url,
+          searchKeyword: enrichedQuery,
+          source: 'pexels'
+        };
+      }
+
+      // Fallback within Pexels if all candidates were filtered
+      for (const video of data.videos) {
+        if (Array.isArray(video.video_files)) {
+          const verticalMp4 = video.video_files.find((f: any) =>
+            f.file_type === 'video/mp4' && f.height > f.width
+          );
+          if (verticalMp4 && verticalMp4.link) {
             return {
               videoUrl: verticalMp4.link,
               thumbnailUrl: video.image || video.video_pictures?.[0]?.picture || '',
@@ -136,7 +408,7 @@ async function searchPexelsVideoDetailed(query: string): Promise<ResolvedStockVi
               duration: video.duration,
               photographer: video.user?.name,
               photographerUrl: video.user?.url,
-              searchKeyword: cleanQuery,
+              searchKeyword: enrichedQuery,
               source: 'pexels'
             };
           }
@@ -150,13 +422,18 @@ async function searchPexelsVideoDetailed(query: string): Promise<ResolvedStockVi
 }
 
 // Search multiple alternative clips for a given query (for gallery / swapping)
-async function searchPexelsMultiple(query: string, perPage: number = 8): Promise<ResolvedStockVideo[]> {
+async function searchPexelsMultiple(
+  query: string,
+  perPage: number = 8,
+  avoidVideoIds?: number[]
+): Promise<ResolvedStockVideo[]> {
   const pexelsKey = process.env.PEXELS_API_KEY;
   if (!pexelsKey || !pexelsKey.trim()) return [];
 
+  const enrichedQuery = translateAndEnrichViralKeyword(query, 0, 2);
+
   try {
-    const cleanQuery = (query || 'finance stock market').trim();
-    const searchUrl = `https://api.pexels.com/videos/search?query=${encodeURIComponent(cleanQuery)}&orientation=portrait&per_page=${perPage}`;
+    const searchUrl = `https://api.pexels.com/videos/search?query=${encodeURIComponent(enrichedQuery)}&orientation=portrait&per_page=${Math.max(perPage, 14)}`;
     const res = await fetch(searchUrl, {
       headers: {
         Authorization: pexelsKey.trim(),
@@ -168,34 +445,49 @@ async function searchPexelsMultiple(query: string, perPage: number = 8): Promise
     const data: any = await res.json();
     if (!data.videos || !Array.isArray(data.videos)) return [];
 
-    const results: ResolvedStockVideo[] = [];
+    const candidates: Array<{ video: any; verticalMp4: any; score: number }> = [];
+
     for (const video of data.videos) {
+      if (avoidVideoIds && avoidVideoIds.includes(video.id)) continue;
+
+      const slug = (video.url || '').toLowerCase();
+      const hasNegative = NEGATIVE_VIDEO_SLUG_TERMS.some((neg) => slug.includes(neg));
+      if (hasNegative) continue;
+
       if (Array.isArray(video.video_files)) {
         const verticalMp4 = video.video_files.find((f: any) =>
           f.file_type === 'video/mp4' && f.height > f.width && f.height >= 1280
         ) || video.video_files.find((f: any) =>
           f.file_type === 'video/mp4' && f.height > f.width
-        ) || video.video_files.find((f: any) =>
-          f.file_type === 'video/mp4' && f.link && f.link.endsWith('.mp4')
         );
 
         if (verticalMp4 && verticalMp4.link) {
-          results.push({
-            videoUrl: verticalMp4.link,
-            thumbnailUrl: video.image || video.video_pictures?.[0]?.picture || '',
-            pexelsId: video.id,
-            width: verticalMp4.width,
-            height: verticalMp4.height,
-            duration: video.duration,
-            photographer: video.user?.name,
-            photographerUrl: video.user?.url,
-            searchKeyword: cleanQuery,
-            source: 'pexels'
-          });
+          let score = 50;
+          for (const boost of DYNAMIC_VIRAL_BOOST_TERMS) {
+            if (slug.includes(boost)) score += 20;
+          }
+          if (video.duration >= 8 && video.duration <= 45) score += 15;
+          if (verticalMp4.height >= 1920) score += 15;
+
+          candidates.push({ video, verticalMp4, score });
         }
       }
     }
-    return results;
+
+    candidates.sort((a, b) => b.score - a.score);
+
+    return candidates.slice(0, perPage).map(({ video, verticalMp4 }) => ({
+      videoUrl: verticalMp4.link,
+      thumbnailUrl: video.image || video.video_pictures?.[0]?.picture || '',
+      pexelsId: video.id,
+      width: verticalMp4.width,
+      height: verticalMp4.height,
+      duration: video.duration,
+      photographer: video.user?.name,
+      photographerUrl: video.user?.url,
+      searchKeyword: enrichedQuery,
+      source: 'pexels' as const
+    }));
   } catch (err) {
     console.warn('[searchPexelsMultiple Błąd]', (err as Error).message);
     return [];
@@ -230,10 +522,17 @@ function getStockVideoUrl(query: string, index: number): string {
   return getStockVideoWithThumbnail(query, index).url;
 }
 
-// Asynchronous stock or Pexels video resolver with full metadata & thumbnail
-async function resolveStockOrPexelsVideoDetailed(query: string, index: number): Promise<ResolvedStockVideo> {
+// Asynchronous stock or Pexels video resolver with full metadata, dynamic scoring & deduplication
+async function resolveStockOrPexelsVideoDetailed(
+  query: string,
+  index: number = 0,
+  avoidVideoIds?: number[]
+): Promise<ResolvedStockVideo> {
   if (process.env.PEXELS_API_KEY && process.env.PEXELS_API_KEY.trim()) {
-    const pexelsResult = await searchPexelsVideoDetailed(query);
+    const pexelsResult = await searchPexelsVideoDetailed(query, {
+      sceneIndex: index,
+      avoidVideoIds
+    });
     if (pexelsResult) return pexelsResult;
   }
   const fallback = getStockVideoWithThumbnail(query, index);
@@ -246,8 +545,8 @@ async function resolveStockOrPexelsVideoDetailed(query: string, index: number): 
 }
 
 // Asynchronous stock or Pexels video resolver
-async function resolveStockOrPexelsVideo(query: string, index: number): Promise<string> {
-  const detailed = await resolveStockOrPexelsVideoDetailed(query, index);
+async function resolveStockOrPexelsVideo(query: string, index: number, avoidVideoIds?: number[]): Promise<string> {
+  const detailed = await resolveStockOrPexelsVideoDetailed(query, index, avoidVideoIds);
   return detailed.videoUrl;
 }
 
@@ -2047,46 +2346,46 @@ function buildSmartFallbackScript(
   if (count === 2 || count <= 0) {
     let s1Voiceover = '';
     let s2Voiceover = '';
-    let kw1 = theme;
-    let kw2 = 'business financial data growth';
+    let kw1 = 'stock exchange screen numbers flashing';
+    let kw2 = 'dynamic financial stock market display animation';
 
     if (isPl) {
       if (fullContext.includes('rpp') || fullContext.includes('stóp') || fullContext.includes('stopy') || fullContext.includes('nbp') || fullContext.includes('rada polityki') || fullContext.includes('kredyt')) {
         s1Voiceover = 'Banki nie chcą, żebyś o tym wiedział, ale najnowsze decyzje dotyczące stóp procentowych natychmiast uderzą w koszty kredytów i oszczędności. Dane z Bankier.pl potwierdzają gwałtowną zmianę kosztu pieniądza.';
         s2Voiceover = 'Zrozumienie mechanizmu stóp procentowych pozwala zabezpieczyć płynność i uniknąć niepotrzebnego drenażu domowego budżetu.';
-        kw1 = 'central bank gold interest rate';
-        kw2 = 'financial trading floor candlestick';
+        kw1 = 'stock exchange screen numbers flashing';
+        kw2 = 'central bank gold vault bullion';
       } else if (fullContext.includes('podatek') || fullContext.includes('belk') || fullContext.includes('fiskus') || fullContext.includes('błąd') || fullContext.includes('kar') || fullContext.includes('strat') || fullContext.includes('prowizj')) {
         s1Voiceover = 'Stop! Ten jeden błąd na Twoim koncie może kosztować Cię tysiące złotych rocznie. Najnowsze dane z Bankier.pl ujawniają, gdzie Polacy tracą najwięcej na podatkach i ukrytych prowizjach.';
         s2Voiceover = 'Świadoma weryfikacja opłat i optymalizacja kapitałowa to fundament długoterminowej ochrony majątku przed inflacją.';
-        kw1 = 'tax investment mistake warning';
-        kw2 = 'financial compliance documentation';
+        kw1 = 'stock exchange screen numbers flashing';
+        kw2 = 'counting cash money bills dynamic';
       } else if (fullContext.includes('akcj') || fullContext.includes('gpw') || fullContext.includes('wig') || fullContext.includes('orlen') || fullContext.includes('spółk') || fullContext.includes('giełd')) {
         s1Voiceover = 'Wstrząs na warszawskiej giełdzie przyciąga uwagę największych graczy instytucjonalnych. Opublikowane na Bankier.pl odczyty rynkowe diametralnie zmieniają wyceny kluczowych spółek.';
         s2Voiceover = 'Chłodna kalkulacja wskaźników fundamentalnych decyduje o zyskach w momentach podwyższonej zmienności rynkowej.';
-        kw1 = 'stock market trading chart candlestick';
-        kw2 = 'financial analytics corporate meeting';
+        kw1 = 'stock exchange screen numbers flashing';
+        kw2 = 'fast stock market trading chart timelapse';
       } else if (fullContext.includes('inflacj') || fullContext.includes('drożyzn') || fullContext.includes('cen')) {
         s1Voiceover = 'Stop! Nowe odczyty inflacji to alarm dla każdego, kto trzyma niepracujące oszczędności w gotówce. Realna siła nabywcza pieniądza topnieje w tempie, którego nie zrekompensują standardowe lokaty.';
         s2Voiceover = 'Strategiczna dywersyfikacja i inwestycje w twarde aktywa to jedyna skuteczna tarcza kapitałowa.';
-        kw1 = 'cash money inflation counting';
-        kw2 = 'business financial data growth';
+        kw1 = 'counting cash money bills dynamic';
+        kw2 = 'fast stock market trading chart timelapse';
       } else if (videoIndex === 2) {
         s1Voiceover = 'Rewolucja sztucznej inteligencji nie zastępuje ludzi, lecz bezwzględnie weryfikuje ich tempo adaptacji. Automatyzacja powtarzalnych procesów uwalnia setki godzin na myślenie strategiczne.';
         s2Voiceover = 'Prawdziwą przewagę zdobywają specjaliści, którzy potrafią efektywnie dyrygować autonomicznymi modelami cyfrowymi.';
-        kw1 = 'digital neural network cyber artificial intelligence';
-        kw2 = 'futuristic technology server room data center';
+        kw1 = 'cyber digital network glowing';
+        kw2 = 'vibrant digital data stream animation';
       } else {
         s1Voiceover = 'Rynki finansowe nie nagradzają emocji, lecz żelazną dyscyplinę i twarde fakty z Bankier.pl. Podczas gdy większość goni za szumem medialnym, zyski buduje się na chłodnej analizie danych.';
         s2Voiceover = 'Zrozumienie psychologii tłumu i precyzyjne zarządzanie ryzykiem to jedyna trwała przewaga w biznesie.';
-        kw1 = 'modern city skyline architecture skyscrapers';
-        kw2 = 'corporate executive strategic planning board';
+        kw1 = 'city traffic night hyperlapse';
+        kw2 = 'aerial night view vibrant city skyline';
       }
     } else {
       s1Voiceover = 'Financial markets never reward emotional impatience, but strict rational discipline. While average participants buy into hype, sustainable wealth is quietly accumulated during peak market fear.';
       s2Voiceover = 'Mastering risk management, cash flows and crowd psychology remains the ultimate competitive advantage in business.';
-      kw1 = 'financial trading floor charts';
-      kw2 = 'modern skyscraper corporate skyline';
+      kw1 = 'stock exchange screen numbers flashing';
+      kw2 = 'dynamic financial stock market display animation';
     }
 
     const s2WithCta = ensureRaportFinansowyCta(s2Voiceover, titleToUse);
@@ -2104,7 +2403,7 @@ function buildSmartFallbackScript(
           position: 'bottom' as const,
           animation: 'word-by-word' as const,
           highlightColor: 'yellow' as const,
-          fontColor: 'white',
+          fontColor: 'yellow',
           outlineColor: 'black',
           outlineWidth: 5,
           boxColor: 'black@0.6'
@@ -2322,12 +2621,12 @@ WYMÓG DYNAMIKI, FAKTÓW I JAKOŚCI VIRALOWEJ (DOKŁADNIE 2 uzupełniające się
   1. SCENA 1 (duration = 9.0s, ok. 20-24 słowa w języku ${language}):
      * Otwarcie: Błyskawiczny, hipnotyzujący hook (maksymalnie 12-14 słów), który natychmiast zatrzymuje kciuk użytkownika na ekranie.
      * Rozwinięcie: Twardy fakt lub szokująca liczba z artykułu Bankier.pl.
-     * Angielskie zapytanie "searchKeyword" do pierwszego ujęcia wideo Pexels dobrane wprost pod treść newsa (np. "stock market candlestick chart red", "bank central vault gold money", "poland inflation currency cash").
+     * Angielskie zapytanie "searchKeyword" do pierwszego ujęcia wideo Pexels dobrane wprost pod treść newsa o MAKSYMALNEJ DYNAMICE (np. "stock exchange screen numbers flashing", "city traffic night hyperlapse", "counting cash money bills dynamic", "fast stock market trading chart timelapse", "crypto trading chart dynamic"). Bezwzględny zakaz słów typu "illustration", "warning", "concept", "paper", "reading", "drawing".
   2. SCENA 2 (duration = 9.0s, ok. 20-24 słowa w języku ${language}):
      * Mechanizm przyczynowo-skutkowy, strategiczny wniosek dla portfela widza.
      * OBOWIĄZKOWE KOŃCOWE CTA NA SAMYM KOŃCU WYPOWIEDZI: Wypowiedź lektora ("voiceover_text" oraz "subtitles") na samym końcu MUSI zawierać płynnie wkomponowane wezwanie do odwiedzenia portalu:
        "Sprawdź pełną analizę na raport-finansowy24.pl." lub "Więcej raportów i kalkulatorów znajdziesz na raport-finansowy24.pl."
-     * Drugie, inne angielskie zapytanie "searchKeyword" do drugiego, komplementarnego ujęcia wideo Pexels (np. "digital network corporate skyline night", "financial analyst trading desk").
+     * Drugie, INNE angielskie zapytanie "searchKeyword" do drugiego, komplementarnego ujęcia wideo Pexels o wysokiej dynamice (np. "dynamic financial stock market display animation", "vibrant digital data stream animation", "aerial night view vibrant city skyline", "corporate boardroom financial discussion glass office").
 - Wymagane pola JSON:
   1. "title": Poważny, chwytliwy tytuł analityczny w języku (${language}) oparty na newsie z Bankier.pl
   2. "description": Krótki opis z hashtagami (#shorts #analiza #finanse | Sprawdź na https://raport-finansowy24.pl)
@@ -2364,7 +2663,7 @@ WYMÓG JAKOŚCI NARRACJI (inteligentna, dojrzała wypowiedź lektora):
        * Strategiczny wniosek dla widza.
        * Końcowe CTA: "Sprawdź na raport-finansowy24.pl." lub "Więcej danych znajdziesz na raport-finansowy24.pl."
      - "duration": 18.0
-     - "searchKeyword": Precyzyjne angielskie zapytanie dla wideo Pexels do pobrania ruchomej grafiki w tle (np. "stock market candlestick chart", "city skyscrapers night drone", "digital code neural network", "cash money counting")
+     - "searchKeyword": Precyzyjne, dynamiczne angielskie zapytanie dla wideo Pexels do pobrania ruchomej grafiki w tle (np. "stock exchange screen numbers flashing", "city traffic night hyperlapse", "cyber digital network glowing", "counting cash money bills dynamic")
   5. "backgroundMusicUrl": "https://assets.mixkit.co/music/preview/mixkit-tech-house-vibes-130.mp3"
   6. "audioVolume": 0.25`
       : `Jesteś ekspertem analitycznych filmów YouTube Shorts / TikTok. Stwórz porywający, merytoryczny scenariusz na krótki wideo-short (9:16) w języku: ${language} na temat: "${cleanTopic}" (Kategoria: ${niche}).
@@ -2414,38 +2713,45 @@ ${autonomousPromptInstructions}`;
     if (geminiResult && geminiResult.text) {
       const parsed = JSON.parse(geminiResult.text);
       if (parsed && Array.isArray(parsed.scenes) && parsed.scenes.length > 0) {
-        const scenesWithVideo = await Promise.all(
-          parsed.scenes.map(async (sc: any, idx: number) => {
-            const resolved = await resolveStockOrPexelsVideoDetailed(sc.searchKeyword, idx);
-            let textContent = sc.voiceover_text || sc.subtitles || '';
-            const isLast = idx === parsed.scenes.length - 1;
-            if (isLast) {
-              textContent = ensureRaportFinansowyCta(textContent, cleanTopic);
+        const usedPexelsIds: number[] = [];
+        const scenesWithVideo = [];
+
+        for (let idx = 0; idx < parsed.scenes.length; idx++) {
+          const sc = parsed.scenes[idx];
+          const resolved = await resolveStockOrPexelsVideoDetailed(sc.searchKeyword, idx, usedPexelsIds);
+          if (resolved.pexelsId) {
+            usedPexelsIds.push(resolved.pexelsId);
+          }
+
+          let textContent = sc.voiceover_text || sc.subtitles || '';
+          const isLast = idx === parsed.scenes.length - 1;
+          if (isLast) {
+            textContent = ensureRaportFinansowyCta(textContent, cleanTopic);
+          }
+
+          scenesWithVideo.push({
+            ...sc,
+            subtitles: textContent,
+            voiceover_text: textContent,
+            duration: sc.duration || (count === 1 ? 18.0 : 9.0),
+            videoUrl: resolved.videoUrl,
+            thumbnailUrl: resolved.thumbnailUrl,
+            source: resolved.source,
+            photographer: resolved.photographer,
+            photographerUrl: resolved.photographerUrl,
+            pexelsId: resolved.pexelsId,
+            searchKeyword: sc.searchKeyword || resolved.searchKeyword || 'stock exchange screen numbers flashing',
+            captionStyle: sc.captionStyle || {
+              position: 'bottom',
+              animation: 'word-by-word',
+              highlightColor: 'yellow',
+              fontColor: idx === 0 ? 'yellow' : 'white',
+              outlineColor: 'black',
+              outlineWidth: 5,
+              boxColor: 'black@0.6'
             }
-            return {
-              ...sc,
-              subtitles: textContent,
-              voiceover_text: textContent,
-              duration: sc.duration || (count === 1 ? 18.0 : 4.5),
-              videoUrl: resolved.videoUrl,
-              thumbnailUrl: resolved.thumbnailUrl,
-              source: resolved.source,
-              photographer: resolved.photographer,
-              photographerUrl: resolved.photographerUrl,
-              pexelsId: resolved.pexelsId,
-              searchKeyword: sc.searchKeyword || resolved.searchKeyword || 'finance chart',
-              captionStyle: sc.captionStyle || {
-                position: 'bottom',
-                animation: 'word-by-word',
-                highlightColor: 'yellow',
-                fontColor: idx === 0 ? 'yellow' : 'white',
-                outlineColor: 'black',
-                outlineWidth: 5,
-                boxColor: 'black@0.6'
-              }
-            };
-          })
-        );
+          });
+        }
 
         let finalDescription = parsed.description || `#shorts #${niche.toLowerCase()} #analiza`;
         if (!finalDescription.includes('raport-finansowy24.pl')) {
@@ -2468,7 +2774,33 @@ ${autonomousPromptInstructions}`;
     console.warn('⚠️ [Gemini Script Catch] Processing error (' + (err as Error).message + '). Generating optimized heuristic viral script.');
   }
 
-  return buildSmartFallbackScript(cleanTopic, niche, language, count, articleContext, bankierArticle);
+  const fallbackScript = buildSmartFallbackScript(cleanTopic, niche, language, count, articleContext, bankierArticle);
+  const usedPexelsIds: number[] = [];
+  const fallbackScenesWithVideo = [];
+
+  for (let idx = 0; idx < fallbackScript.scenes.length; idx++) {
+    const sc = fallbackScript.scenes[idx];
+    const resolved = await resolveStockOrPexelsVideoDetailed(sc.searchKeyword, idx, usedPexelsIds);
+    if (resolved.pexelsId) {
+      usedPexelsIds.push(resolved.pexelsId);
+    }
+
+    fallbackScenesWithVideo.push({
+      ...sc,
+      videoUrl: resolved.videoUrl,
+      thumbnailUrl: resolved.thumbnailUrl,
+      source: resolved.source,
+      photographer: resolved.photographer,
+      photographerUrl: resolved.photographerUrl,
+      pexelsId: resolved.pexelsId,
+      searchKeyword: resolved.searchKeyword || sc.searchKeyword
+    });
+  }
+
+  return {
+    ...fallbackScript,
+    scenes: fallbackScenesWithVideo
+  };
 }
 
 // Resilient Translation Generator (Tries Gemini Model Cascade, gracefully falls back on API error)
@@ -2549,37 +2881,44 @@ Wymagania JSON:
     if (geminiResult && geminiResult.text) {
       const parsed = JSON.parse(geminiResult.text);
       if (parsed && Array.isArray(parsed.scenes) && parsed.scenes.length > 0) {
-        const scenesWithVideo = await Promise.all(
-          parsed.scenes.map(async (sc: any, idx: number) => {
-            const resolved = await resolveStockOrPexelsVideoDetailed(sc.searchKeyword, idx);
-            let textContent = sc.voiceover_text || sc.subtitles || '';
-            const isLast = idx === parsed.scenes.length - 1;
-            if (isLast && targetLanguage.toLowerCase().includes('pol')) {
-              textContent = ensureRaportFinansowyCta(textContent, parsed.title || scriptText);
+        const usedPexelsIds: number[] = [];
+        const scenesWithVideo = [];
+
+        for (let idx = 0; idx < parsed.scenes.length; idx++) {
+          const sc = parsed.scenes[idx];
+          const resolved = await resolveStockOrPexelsVideoDetailed(sc.searchKeyword, idx, usedPexelsIds);
+          if (resolved.pexelsId) {
+            usedPexelsIds.push(resolved.pexelsId);
+          }
+
+          let textContent = sc.voiceover_text || sc.subtitles || '';
+          const isLast = idx === parsed.scenes.length - 1;
+          if (isLast && targetLanguage.toLowerCase().includes('pol')) {
+            textContent = ensureRaportFinansowyCta(textContent, parsed.title || scriptText);
+          }
+
+          scenesWithVideo.push({
+            subtitles: textContent,
+            voiceover_text: textContent,
+            duration: sc.duration || (count === 1 ? 18.0 : 9.0),
+            searchKeyword: sc.searchKeyword || resolved.searchKeyword || 'stock exchange screen numbers flashing',
+            videoUrl: resolved.videoUrl,
+            thumbnailUrl: resolved.thumbnailUrl,
+            source: resolved.source,
+            photographer: resolved.photographer,
+            photographerUrl: resolved.photographerUrl,
+            pexelsId: resolved.pexelsId,
+            captionStyle: {
+              position: 'bottom' as const,
+              animation: 'word-by-word' as const,
+              highlightColor: 'yellow' as const,
+              fontColor: idx === 0 ? 'yellow' : 'white',
+              outlineColor: 'black',
+              outlineWidth: 5,
+              boxColor: 'black@0.6'
             }
-            return {
-              subtitles: textContent,
-              voiceover_text: textContent,
-              duration: sc.duration || (count === 1 ? 18.0 : 4.5),
-              searchKeyword: sc.searchKeyword || resolved.searchKeyword || 'video background',
-              videoUrl: resolved.videoUrl,
-              thumbnailUrl: resolved.thumbnailUrl,
-              source: resolved.source,
-              photographer: resolved.photographer,
-              photographerUrl: resolved.photographerUrl,
-              pexelsId: resolved.pexelsId,
-              captionStyle: {
-                position: 'bottom' as const,
-                animation: 'word-by-word' as const,
-                highlightColor: 'yellow' as const,
-                fontColor: idx === 0 ? 'yellow' : 'white',
-                outlineColor: 'black',
-                outlineWidth: 5,
-                boxColor: 'black@0.6'
-              }
-            };
-          })
-        );
+          });
+        }
 
         let finalDescription = parsed.description || `#shorts #translation #${targetLanguage.toLowerCase()}`;
         if (!finalDescription.includes('raport-finansowy24.pl')) {
@@ -3440,26 +3779,32 @@ router.get('/stock/curated', (req, res) => {
 // Endpoint: Fetch Fresh Stock Footage for Multiple Scenes (/api/stock/fetch-scene-footage)
 router.post('/stock/fetch-scene-footage', async (req, res) => {
   try {
-    const { keywords = [], topic = '' } = req.body;
+    const { keywords = [], topic = '', avoidIds = [] } = req.body;
     const queries: string[] = Array.isArray(keywords) && keywords.length > 0
       ? keywords
       : [topic || 'finance stock market', 'business corporate data'];
 
-    const resolved = await Promise.all(
-      queries.map(async (query: string, idx: number) => {
-        const item = await resolveStockOrPexelsVideoDetailed(query, idx);
-        return {
-          sceneIndex: idx,
-          searchKeyword: query,
-          videoUrl: item.videoUrl,
-          thumbnailUrl: item.thumbnailUrl,
-          source: item.source,
-          photographer: item.photographer,
-          photographerUrl: item.photographerUrl,
-          duration: item.duration || 9.0
-        };
-      })
-    );
+    const usedPexelsIds: number[] = Array.isArray(avoidIds) ? [...avoidIds] : [];
+    const resolved = [];
+
+    for (let idx = 0; idx < queries.length; idx++) {
+      const query = queries[idx];
+      const item = await resolveStockOrPexelsVideoDetailed(query, idx, usedPexelsIds);
+      if (item.pexelsId) {
+        usedPexelsIds.push(item.pexelsId);
+      }
+      resolved.push({
+        sceneIndex: idx,
+        searchKeyword: item.searchKeyword || query,
+        videoUrl: item.videoUrl,
+        thumbnailUrl: item.thumbnailUrl,
+        source: item.source,
+        photographer: item.photographer,
+        photographerUrl: item.photographerUrl,
+        pexelsId: item.pexelsId,
+        duration: item.duration || 9.0
+      });
+    }
 
     return res.json({
       success: true,

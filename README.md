@@ -9,7 +9,7 @@ Zaawansowany silnik automatyzacji produkcji wideo pionowego (Shorts, TikTok, Ins
 - [Architektura systemu](#architektura-systemu)
 - [Główne funkcje i moduły](#główne-funkcje-i-moduły)
 - [Silnik Lektora TTS i Profile Głosowe](#silnik-lektora-tts-i-profile-głosowe)
-- [Integracja Google Drive (Google Workspace)](#integracja-google-drive-google-workspace)
+- [Integracja Google Drive & Google Sheets (Workspace)](#integracja-google-drive--google-sheets-workspace)
 - [Automatyzacja Make.com i n8n](#automatyzacja-makecom-i-n8n)
 - [Kontrakty API i Endpointy](#kontrakty-api-i-endpointy)
   - [1. POST /api/combine-scenes](#1-post-apicombine-scenes)
@@ -86,13 +86,24 @@ Jeśli w payloadzie przekazano profil `eleven_*`, a klucz API nie jest skonfigur
 
 ---
 
-## 📁 Integracja Google Drive (Google Workspace)
+## 📁 Integracja Google Drive & Google Sheets (Workspace)
 
-Aplikacja posiada certyfikowaną integrację z Google Drive API:
-- **Logowanie klienta**: Bezpieczny przepływ OAuth 2.0 bez ujawniania sekretów po stronie klienta.
+Aplikacja posiada pełną integrację z **Google Workspace APIs (Drive & Sheets v4)**:
+- **Logowanie klienta**: Bezpieczny przepływ OAuth 2.0 bez ujawniania sekretów po stronie klienta z tokenem w pamięci operacyjnej.
 - **Bezpośredni eksport wyrenderowanych wideo**: Zapis plików MP4 prosto do dedykowanego folderu `RaportFinansowy24 Videos` na Dysku Google użytkownika.
 - **Przeglądarka plików Dysku**: Wyszukiwanie, podgląd rozmiaru i pobieranie wideo z Dysku do scen w kreatorze.
 - **Kopia scenariuszy**: Zapisywanie wygenerowanych przez AI skryptów i transkrypcji w formacie Markdown bezpośrednio na Dysku Google.
+
+### 📊 Integracja z Google Sheets API (v4):
+- **Dynamiczna eksploracja arkuszy**: Pobieranie metadanych bez sztywnego założenia o nazwie "Sheet1" — obsługa dowolnych zakładek i arkuszy kalkulacyjnych.
+- **Siatka danych na żywo**: Podgląd komórek, kolumn (A-Z) i numerowanych wierszy z podglądem linków.
+- **Dopisywanie danych**: Formularz dodawania wierszy do wybranej zakładki arkusza.
+- **Automatyczna synchronizacja logów wideo**: 1-kliknięcie przenosi ukończone rendery (jobId, URL wideo, lektor, liczba scen, status) bezpośrednio do wybranego arkusza Google Sheets.
+- **Predefiniowane szablony biznesowe RaportFinansowy24**:
+  1. 📅 **Kalendarz Publikacji Shorts** — data, tytuł, hook, lektor, status publikacji.
+  2. 📈 **Monitoring Kursów & RRSO** — bank, produkt, oprocentowanie, prowizja, status oferty.
+  3. 💰 **Logi Renderów & Analityka ROI** — job ID, czas trwania, URL wyrenderowanego MP4, kliknięcia afiliacyjne.
+- **Bezpieczeństwo operacji niszczących (Destructive Confirmation Dialog)**: Obowiązkowe okno modalne z prośbą o jednoznaczne zatwierdzenie usunięcia arkusza lub wyczyszczenia zakresu komórek.
 
 ---
 

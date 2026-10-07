@@ -40,7 +40,8 @@ import {
   VolumeX,
   History,
   HardDrive,
-  Cloud
+  Cloud,
+  FileSpreadsheet
 } from 'lucide-react';
 import { Scene, SystemHealth, JobStatusResponse, ToastItem } from '../types';
 import { AiViralAutoPilot } from './AiViralAutoPilot';
@@ -49,6 +50,7 @@ import { ToastContainer } from './Toast';
 import { RecentJobsSidePanel } from './RecentJobsSidePanel';
 import { JobHistoryDashboard } from './JobHistoryDashboard';
 import { GoogleDriveManager } from './GoogleDriveManager';
+import { GoogleSheetsManager } from './GoogleSheetsManager';
 
 
 // Preset high quality public test video clips
@@ -84,7 +86,7 @@ const SAMPLE_MUSIC = [
 ];
 
 export const MakeHttpConnector: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'autopilot' | 'editor' | 'make' | 'n8n' | 'webhook' | 'jobs' | 'history' | 'docs' | 'drive'>('autopilot');
+  const [activeTab, setActiveTab] = useState<'autopilot' | 'editor' | 'make' | 'n8n' | 'webhook' | 'jobs' | 'history' | 'docs' | 'drive' | 'sheets'>('autopilot');
   const [health, setHealth] = useState<SystemHealth | null>(null);
 
   const [healthLoading, setHealthLoading] = useState<boolean>(true);
@@ -938,6 +940,18 @@ export const MakeHttpConnector: React.FC = () => {
           >
             <HardDrive className="w-4 h-4 text-sky-400" />
             ☁️ Dysk Google (Workspace)
+          </button>
+
+          <button
+            onClick={() => setActiveTab('sheets')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold transition border-b-2 whitespace-nowrap ${
+              activeTab === 'sheets'
+                ? 'border-emerald-500 text-emerald-400 bg-emerald-500/10 rounded-t-lg'
+                : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-900/50'
+            }`}
+          >
+            <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+            📊 Google Sheets
           </button>
         </div>
       </div>
@@ -2186,6 +2200,17 @@ export const MakeHttpConnector: React.FC = () => {
           <GoogleDriveManager
             recentJobs={recentJobs}
             onSelectVideoForScene={handleSelectDriveVideoForScene}
+            onToast={addToast}
+          />
+        )}
+
+        {/* TAB 8: GOOGLE SHEETS WORKSPACE INTEGRATION */}
+        {activeTab === 'sheets' && (
+          <GoogleSheetsManager
+            recentJobs={recentJobs}
+            onImportSceneHook={(hook, title) => {
+              addToast('info', 'Zaimportowano hook', `Wybrano "${title}" do produkcji wideo.`);
+            }}
             onToast={addToast}
           />
         )}

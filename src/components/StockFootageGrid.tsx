@@ -67,6 +67,7 @@ export const StockFootageGrid: React.FC<StockFootageGridProps> = ({
   const [searchResults, setSearchResults] = useState<PexelsVideoItem[]>([]);
   const [searchingPexels, setSearchingPexels] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [quickSwappingIndex, setQuickSwappingIndex] = useState<number | null>(null);
 
   // Initialize all scenes as verified by default (or let user toggle)
   useEffect(() => {
@@ -88,6 +89,44 @@ export const StockFootageGrid: React.FC<StockFootageGridProps> = ({
 
   const allVerified = scenes.length > 0 && scenes.every((_, idx) => verifiedScenes[idx] !== false);
   const verifiedCount = scenes.filter((_, idx) => verifiedScenes[idx] !== false).length;
+
+  // Instant 1-click Viral Boost swap: fetches top-scoring dynamic clip from Pexels for a scene
+  const handleQuickDynamicSwap = async (sceneIndex: number) => {
+    const scene = scenes[sceneIndex];
+    if (!scene) return;
+    setQuickSwappingIndex(sceneIndex);
+    try {
+      const isHook = sceneIndex === 0;
+      const viralBase = isHook ? 'stock exchange screen numbers flashing' : 'dynamic financial stock market display animation';
+      const q = scene.searchKeyword || viralBase;
+      const res = await fetch(`/api/stock/search-pexels?query=${encodeURIComponent(q)}&per_page=12`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Błąd pobierania ujęć z Pexels');
+      
+      const videos: PexelsVideoItem[] = data.videos || [];
+      if (videos.length > 0) {
+        // Pick a video with different URL from current scene
+        const otherVideos = videos.filter((v) => v.videoUrl !== scene.videoUrl);
+        const selected = otherVideos.length > 0 ? otherVideos[0] : videos[0];
+        
+        onUpdateSceneVideo?.(sceneIndex, {
+          videoUrl: selected.videoUrl,
+          thumbnailUrl: selected.thumbnailUrl,
+          searchKeyword: selected.searchKeyword || q,
+          photographer: selected.photographer,
+          source: selected.source || 'pexels'
+        });
+        setVerifiedScenes((prev) => ({ ...prev, [sceneIndex]: true }));
+        onToast?.('success', '⚡ Viral Boost Aktywowany', `Scena #${sceneIndex + 1} otrzymała dynamiczne, wyselekcjonowane ujęcie 9:16 z Pexels!`);
+      } else {
+        onToast?.('info', 'Brak alternatyw', 'Pexels nie zwrócił dodatkowych ujęć dla tego zapytania.');
+      }
+    } catch (err) {
+      onToast?.('error', 'Błąd Viral Boost', (err as Error).message);
+    } finally {
+      setQuickSwappingIndex(null);
+    }
+  };
 
   // Open swap modal and trigger initial search for the scene's keyword
   const handleOpenSwapModal = async (sceneIndex: number) => {
@@ -356,25 +395,38 @@ export const StockFootageGrid: React.FC<StockFootageGridProps> = ({
                       searchKeyword: scene.searchKeyword,
                       photographer: scene.photographer
                     })}
-                    className="flex-1 py-2 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold transition flex items-center justify-center gap-1.5 border border-slate-700/70"
+                    className="py-2 px-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold transition flex items-center justify-center gap-1 border border-slate-700/70"
+                    title="Odtwórz pełne wideo 9:16"
                   >
                     <Eye className="w-3.5 h-3.5 text-indigo-400" />
-                    <span>Odtwórz wideo</span>
+                    <span className="hidden sm:inline">Podgląd</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleQuickDynamicSwap(idx)}
+                    disabled={quickSwappingIndex === idx}
+                    className="flex-1 py-2 px-2.5 bg-gradient-to-r from-amber-600/30 to-orange-600/30 hover:from-amber-600/50 hover:to-orange-600/50 text-amber-300 hover:text-amber-200 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 border border-amber-500/40 shadow-sm disabled:opacity-50"
+                    title="Automatycznie pobierz inne, ultra-dynamiczne ujęcie 9:16 z Pexels dla tej sceny"
+                  >
+                    <Zap className={`w-3.5 h-3.5 text-amber-400 fill-amber-400 ${quickSwappingIndex === idx ? 'animate-bounce' : ''}`} />
+                    <span>{quickSwappingIndex === idx ? 'Dobieranie...' : '⚡ Viral Boost'}</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => handleOpenSwapModal(idx)}
-                    className="flex-1 py-2 px-3 bg-indigo-950/70 hover:bg-indigo-900 text-indigo-300 hover:text-indigo-200 rounded-xl text-xs font-semibold transition flex items-center justify-center gap-1.5 border border-indigo-500/30"
+                    className="py-2 px-2.5 bg-indigo-950/70 hover:bg-indigo-900 text-indigo-300 hover:text-indigo-200 rounded-xl text-xs font-semibold transition flex items-center justify-center gap-1 border border-indigo-500/30"
+                    title="Przeszukaj bazę Pexels ręcznie"
                   >
-                    <RefreshCw className="w-3.5 h-3.5 text-indigo-400" />
-                    <span>Wymień ujęcie (Pexels)</span>
+                    <Search className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>Szukaj</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => toggleVerify(idx)}
-                    className={`p-2 rounded-xl border text-xs font-bold transition flex items-center justify-center ${
+                    className={`p-2 rounded-xl border text-xs font-bold transition flex items-center justify-center shrink-0 ${
                       isVerified
                         ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/30'
                         : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'
@@ -577,26 +629,27 @@ export const StockFootageGrid: React.FC<StockFootageGridProps> = ({
 
               {/* Quick Preset Keywords */}
               <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                <span className="text-[11px] text-slate-400 font-semibold">Popularne:</span>
+                <span className="text-[11px] text-slate-400 font-semibold">Viral Presety:</span>
                 {[
-                  'stock market chart',
-                  'gold bars vault',
-                  'city skyline night',
-                  'money cash counting',
-                  'crypto bitcoin trading',
-                  'corporate office executive',
-                  'neural network AI tech'
-                ].map((tag) => (
+                  { label: '⚡ Flashing Charts & Liczby', query: 'stock exchange screen numbers flashing' },
+                  { label: '🏙️ Nocny Hyperlapse Miasta', query: 'city traffic night hyperlapse' },
+                  { label: '💵 Liczenie Banknotów (Gotówka)', query: 'counting cash money bills dynamic' },
+                  { label: '📊 Dynamiczny Wykres 3D', query: 'dynamic financial stock market display animation' },
+                  { label: '🌐 Cyfrowy Matrix & AI', query: 'vibrant digital data stream animation' },
+                  { label: '💎 Kryptowaluty & Trading', query: 'crypto trading chart dynamic' },
+                  { label: '🚁 Dron Nad Wieżowcami', query: 'aerial night view vibrant city skyline' },
+                  { label: '🏦 Złoto & Skarbiec NBP', query: 'central bank gold vault bullion' }
+                ].map((preset) => (
                   <button
-                    key={tag}
+                    key={preset.query}
                     type="button"
                     onClick={() => {
-                      setSearchQuery(tag);
-                      fetchPexelsAlternatives(tag);
+                      setSearchQuery(preset.query);
+                      fetchPexelsAlternatives(preset.query);
                     }}
-                    className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] transition"
+                    className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[11px] font-medium transition border border-slate-700/60"
                   >
-                    {tag}
+                    {preset.label}
                   </button>
                 ))}
               </div>
