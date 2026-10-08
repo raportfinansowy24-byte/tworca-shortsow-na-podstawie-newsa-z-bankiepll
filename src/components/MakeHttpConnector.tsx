@@ -38,7 +38,6 @@ import {
   Mic,
   Pause,
   VolumeX,
-  History,
   HardDrive,
   Cloud,
   FileSpreadsheet
@@ -48,7 +47,6 @@ import { AiViralAutoPilot } from './AiViralAutoPilot';
 import { RenderingQueue } from './RenderingQueue';
 import { ToastContainer } from './Toast';
 import { RecentJobsSidePanel } from './RecentJobsSidePanel';
-import { JobHistoryDashboard } from './JobHistoryDashboard';
 import { GoogleDriveManager } from './GoogleDriveManager';
 import { GoogleSheetsManager } from './GoogleSheetsManager';
 
@@ -86,7 +84,7 @@ const SAMPLE_MUSIC = [
 ];
 
 export const MakeHttpConnector: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'autopilot' | 'editor' | 'make' | 'n8n' | 'webhook' | 'jobs' | 'history' | 'docs' | 'drive' | 'sheets'>('autopilot');
+  const [activeTab, setActiveTab] = useState<'autopilot' | 'make' | 'n8n' | 'webhook' | 'jobs' | 'docs' | 'drive' | 'sheets'>('autopilot');
   const [health, setHealth] = useState<SystemHealth | null>(null);
 
   const [healthLoading, setHealthLoading] = useState<boolean>(true);
@@ -832,19 +830,42 @@ export const MakeHttpConnector: React.FC = () => {
             }`}
           >
             <Zap className="w-4 h-4 text-yellow-300 fill-yellow-300 animate-pulse" />
-            ⚡ AI Auto-Pilot Shorts
+            ⚡ AI Auto-Pilot Shorts (Pełny Automat)
           </button>
 
           <button
-            onClick={() => setActiveTab('editor')}
-            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition border-b-2 whitespace-nowrap ${
-              activeTab === 'editor'
+            onClick={() => setActiveTab('jobs')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold transition border-b-2 whitespace-nowrap ${
+              activeTab === 'jobs'
+                ? 'border-emerald-500 text-emerald-400 bg-emerald-500/10 rounded-t-lg'
+                : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-900/50'
+            }`}
+          >
+            <Activity className="w-4 h-4 text-emerald-400" />
+            📡 Live Feed Zadań
+            {recentJobs.some((j) => j.status === 'processing' || j.status === 'queued') && (
+              <span className="flex h-2 w-2 relative">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={() => setActiveTab('webhook')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold transition border-b-2 whitespace-nowrap ${
+              activeTab === 'webhook'
                 ? 'border-indigo-500 text-indigo-400 bg-indigo-500/10 rounded-t-lg'
                 : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-900/50'
             }`}
           >
-            <Sliders className="w-4 h-4" />
-            Kreator Scen & Progress Bar
+            <Webhook className="w-4 h-4 text-indigo-400" />
+            🪝 Centrum Webhooków
+            {webhookLogs.length > 0 && (
+              <span className="px-1.5 py-0.5 text-[10px] font-bold bg-indigo-500/20 text-indigo-300 rounded-full border border-indigo-500/30">
+                {webhookLogs.length}
+              </span>
+            )}
           </button>
 
           <button
@@ -869,53 +890,6 @@ export const MakeHttpConnector: React.FC = () => {
           >
             <FileCode className="w-4 h-4" />
             Szablon n8n Node
-          </button>
-
-          <button
-            onClick={() => setActiveTab('webhook')}
-            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold transition border-b-2 whitespace-nowrap ${
-              activeTab === 'webhook'
-                ? 'border-indigo-500 text-indigo-400 bg-indigo-500/10 rounded-t-lg'
-                : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-900/50'
-            }`}
-          >
-            <Webhook className="w-4 h-4 text-indigo-400" />
-            🪝 Centrum Webhooków
-            {webhookLogs.length > 0 && (
-              <span className="px-1.5 py-0.5 text-[10px] font-bold bg-indigo-500/20 text-indigo-300 rounded-full border border-indigo-500/30">
-                {webhookLogs.length}
-              </span>
-            )}
-          </button>
-
-          <button
-            onClick={() => setActiveTab('jobs')}
-            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold transition border-b-2 whitespace-nowrap ${
-              activeTab === 'jobs'
-                ? 'border-emerald-500 text-emerald-400 bg-emerald-500/10 rounded-t-lg'
-                : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-900/50'
-            }`}
-          >
-            <Activity className="w-4 h-4 text-emerald-400" />
-            📡 Live Feed Zadań Make.com
-            {recentJobs.some((j) => j.status === 'processing' || j.status === 'queued') && (
-              <span className="flex h-2 w-2 relative">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-              </span>
-            )}
-          </button>
-
-          <button
-            onClick={() => setActiveTab('history')}
-            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold transition border-b-2 whitespace-nowrap ${
-              activeTab === 'history'
-                ? 'border-red-500 text-red-400 bg-red-500/10 rounded-t-lg'
-                : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-900/50'
-            }`}
-          >
-            <History className="w-4 h-4 text-red-400" />
-            📜 Job History (Dashboard)
           </button>
 
           <button
@@ -958,731 +932,19 @@ export const MakeHttpConnector: React.FC = () => {
 
       {/* Main Content Body */}
       <div className="max-w-7xl mx-auto">
-        {/* TAB 0: AI AUTO-PILOT SHORTS */}
+        {/* TAB 0: AI AUTO-PILOT SHORTS (PEŁNA AUTOMATYZACJA) */}
         {activeTab === 'autopilot' && (
           <AiViralAutoPilot
             onLoadScriptToEditor={(newScenes, musicUrl) => {
               setScenes(newScenes);
               if (musicUrl) setBackgroundMusicUrl(musicUrl);
-              setActiveTab('editor');
+              addToast('success', 'Scenariusz gotowy', `Zaktualizowano ${newScenes.length} scen w projekcie.`);
             }}
             onJobStarted={(jobId) => {
               console.log('AutoPilot started job:', jobId);
             }}
             onToast={addToast}
           />
-        )}
-
-        {/* TAB 1: SCENE EDITOR & REAL-TIME PROGRESS */}
-        {activeTab === 'editor' && (
-
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-            {/* Left Column: Scene Editor & Settings */}
-            <div className="lg:col-span-7 space-y-6">
-              {/* Global Settings Panel */}
-              <div className="p-5 bg-slate-900/90 rounded-2xl border border-slate-800 backdrop-blur-sm">
-                <h3 className="text-base font-semibold text-white mb-4 flex items-center gap-2">
-                  <Settings className="w-4 h-4 text-indigo-400" />
-                  Ustawienia Globalne Projektu
-                </h3>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-medium text-slate-400 mb-1.5">
-                      Rozdzielczość Wyjściowa
-                    </label>
-                    <select
-                      value={outputResolution}
-                      onChange={(e) => setOutputResolution(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500"
-                    >
-                      <option value="720x1280">720x1280 (Pionowe 9:16 - 720p HD Domyślne / Szybki render)</option>
-                      <option value="1080x1920">1080x1920 (Pionowe 9:16 - 1080p Full HD)</option>
-                      <option value="1280x720">1280x720 (Poziome 16:9 - 720p HD)</option>
-                      <option value="1920x1080">1920x1080 (Poziome 16:9 - 1080p Full HD)</option>
-                      <option value="720x720">720x720 (Kwadrat 1:1 - 720p)</option>
-                      <option value="1080x1080">1080x1080 (Kwadrat 1:1 - 1080p)</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-slate-400 mb-1.5">
-                      Klatki na sekundę (FPS)
-                    </label>
-                    <select
-                      value={fps}
-                      onChange={(e) => setFps(Number(e.target.value))}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500"
-                    >
-                      <option value={30}>30 FPS (Standard)</option>
-                      <option value={60}>60 FPS (Płynne)</option>
-                    </select>
-                  </div>
-
-                  <div className="sm:col-span-2">
-                    <label className="block text-xs font-medium text-slate-400 mb-1.5">
-                      Muzyka w Tle (Audio URL)
-                    </label>
-                    <div className="flex gap-2">
-                      <input
-                        type="url"
-                        placeholder="https://domena.pl/sciezka-do-audio.mp3"
-                        value={backgroundMusicUrl}
-                        onChange={(e) => setBackgroundMusicUrl(e.target.value)}
-                        className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500"
-                      />
-                      {backgroundMusicUrl && (
-                        <div className="flex items-center gap-2 px-3 bg-slate-950 border border-slate-800 rounded-xl">
-                          <Volume2 className="w-4 h-4 text-indigo-400" />
-                          <input
-                            type="range"
-                            min="0.1"
-                            max="1.0"
-                            step="0.1"
-                            value={audioVolume}
-                            onChange={(e) => setAudioVolume(parseFloat(e.target.value))}
-                            className="w-16 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer"
-                            title={`Głośność muzyki: ${Math.round(audioVolume * 100)}%`}
-                          />
-                          <span className="text-xs text-slate-400 w-8">{Math.round(audioVolume * 100)}%</span>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-2 mt-2">
-                      <span className="text-xs text-slate-500">Przykładowe audio:</span>
-                      {SAMPLE_MUSIC.map((track, i) => (
-                        <button
-                          key={i}
-                          onClick={() => setBackgroundMusicUrl(track.url)}
-                          className="text-xs text-indigo-400 hover:text-indigo-300 underline underline-offset-2"
-                        >
-                          {track.name}
-                        </button>
-                      ))}
-                      {backgroundMusicUrl && (
-                        <button
-                          onClick={() => setBackgroundMusicUrl('')}
-                          className="text-xs text-rose-400 hover:text-rose-300 ml-auto"
-                        >
-                          Usuń muzykę
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Global Lektor AI & Subtitles Controls */}
-                <div className="mt-5 pt-4 border-t border-slate-800/80 space-y-4">
-                  {/* TTS Row */}
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-slate-950/60 border border-slate-800 rounded-xl">
-                    <div className="flex items-center gap-3">
-                      <div className={`p-2 rounded-lg border ${globalTtsEnabled ? 'bg-indigo-600/20 border-indigo-500/40 text-indigo-300' : 'bg-slate-900 border-slate-800 text-slate-500'}`}>
-                        <Mic className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-white">Lektor Text-to-Speech (TTS)</span>
-                          <span className="px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 text-[10px] font-mono">
-                            {globalTtsLanguage}
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-slate-400">Automatyczny dubbing scen audio z wyciszaniem muzyki</p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 shrink-0">
-                      <select
-                        value={globalTtsLanguage}
-                        onChange={(e) => setGlobalTtsLanguage(e.target.value)}
-                        className="bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs text-white"
-                      >
-                        <option value="Polski">🇵🇱 Polski</option>
-                        <option value="English">🇬🇧 English</option>
-                        <option value="Español">🇪🇸 Español</option>
-                        <option value="Deutsch">🇩🇪 Deutsch</option>
-                      </select>
-
-                      <button
-                        type="button"
-                        onClick={handleToggleVoicePreview}
-                        disabled={voicePreviewLoading || !globalTtsEnabled}
-                        className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-xs font-medium text-slate-200 rounded-lg border border-slate-700 flex items-center gap-1 transition"
-                      >
-                        {voicePreviewLoading ? (
-                          <RefreshCw className="w-3 h-3 animate-spin text-indigo-400" />
-                        ) : voicePreviewPlaying ? (
-                          <Pause className="w-3 h-3 text-rose-400" />
-                        ) : (
-                          <Volume2 className="w-3 h-3 text-indigo-400" />
-                        )}
-                        <span>{voicePreviewPlaying ? 'Stop' : 'Odsłuchaj'}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setGlobalTtsEnabled(!globalTtsEnabled)}
-                        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                          globalTtsEnabled ? 'bg-indigo-600' : 'bg-slate-800'
-                        }`}
-                      >
-                        <span
-                          className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
-                            globalTtsEnabled ? 'translate-x-4' : 'translate-x-1'
-                          }`}
-                        />
-                      </button>
-                    </div>
-                  </div>
-
-                  {globalTtsEnabled && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-slate-950/40 border border-slate-800/80 rounded-xl text-xs">
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-[11px] font-medium text-slate-300">
-                            Profil głosu AI (Neural Voice):
-                          </label>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <select
-                            value={globalTtsVoice}
-                            onChange={(e) => setGlobalTtsVoice(e.target.value)}
-                            className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
-                          >
-                            {globalTtsLanguage === 'Polski' ? (
-                              <>
-                                <optgroup label="⚡ Głosy Lektorskie AI (Neural HD — Zróżnicowane & Sprawdzone)">
-                                  <option value="pl-PL-MarekNeural">🎙️ Marek — Męski dynamiczny (Biznes & Shorts)</option>
-                                  <option value="pl-PL-ZofiaNeural">🎙️ Zofia — Żeński naturalny & wyrazisty</option>
-                                  <option value="pl-PL-MarekNeural-deep">🎙️ Krzysztof — Męski głęboki bas (Kino / Raporty)</option>
-                                  <option value="pl-PL-ZofiaNeural-expressive">✨ Maja — Żeński młody & ekspresyjny (Virale / TikTok)</option>
-                                  <option value="pl-PL-MarekNeural-energy">⚡ Patryk — Męski wysoka energia (Hook / TikTok)</option>
-                                  <option value="pl-PL-ZofiaNeural-pro">💼 Anna — Żeński profesjonalny (B2B)</option>
-                                </optgroup>
-                                <optgroup label="🌟 Profile ElevenLabs (Autonomiczny inteligentny fallback)">
-                                  <option value="eleven_adam">✨ Adam — Męski głęboki narrator (PL/EN)</option>
-                                  <option value="eleven_antoni">✨ Antoni — Męski wyrazisty lektor (PL/EN)</option>
-                                  <option value="eleven_rachel">✨ Rachel — Żeński spokojny (PL/EN)</option>
-                                  <option value="eleven_bella">✨ Bella — Żeński młody ekspresyjny (PL/EN)</option>
-                                  <option value="eleven_josh">✨ Josh — Męski dynamiczny shorts (PL/EN)</option>
-                                  <option value="eleven_george">✨ George — Kinowy storytelling (PL/EN)</option>
-                                  <option value="eleven_liam">✨ Liam — Młody lektor TikTok (PL/EN)</option>
-                                </optgroup>
-                              </>
-                            ) : (
-                              <>
-                                <optgroup label="⚡ Neural HD Voices (Fast, Clear & Natural)">
-                                  <option value="en-US-ChristopherNeural">🎙️ Christopher — Male Energetic (Shorts)</option>
-                                  <option value="en-US-JennyNeural">🎙️ Jenny — Female Warm & Natural</option>
-                                  <option value="en-US-GuyNeural">🎙️ Guy — Male News Anchor</option>
-                                  <option value="en-US-AvaNeural">✨ Ava — Female Expressive</option>
-                                  <option value="en-US-AndrewNeural">🎙️ Andrew — Male Deep Cinema</option>
-                                  <option value="en-US-BrianNeural">🎙️ Brian — Male Natural Tech</option>
-                                  <option value="en-US-EmmaNeural">🎙️ Emma — Female Conversational</option>
-                                  <option value="en-GB-RyanNeural">🎙️ Ryan — Male British Accent</option>
-                                  <option value="en-GB-SoniaNeural">🎙️ Sonia — Female British Accent</option>
-                                </optgroup>
-                                <optgroup label="🌟 ElevenLabs Studio Voices">
-                                  <option value="eleven_adam">✨ Adam — Cinematic Deep Narrator</option>
-                                  <option value="eleven_rachel">✨ Rachel — Professional Voice</option>
-                                  <option value="eleven_josh">✨ Josh — Energetic Shorts</option>
-                                </optgroup>
-                              </>
-                            )}
-                          </select>
-
-                          <button
-                            type="button"
-                            onClick={handleToggleVoicePreview}
-                            disabled={voicePreviewLoading || !globalTtsEnabled}
-                            className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border flex items-center gap-1 shrink-0 transition ${
-                              voicePreviewPlaying
-                                ? 'bg-rose-600/20 border-rose-500/50 text-rose-300 hover:bg-rose-600/30'
-                                : 'bg-indigo-600 hover:bg-indigo-500 border-indigo-500 text-white'
-                            } disabled:opacity-40`}
-                            title="Odsłuchaj próbkę wybranego głosu"
-                          >
-                            {voicePreviewLoading ? (
-                              <RefreshCw className="w-3 h-3 animate-spin text-white" />
-                            ) : voicePreviewPlaying ? (
-                              <>
-                                <Pause className="w-3 h-3 text-rose-300 animate-pulse" />
-                                <span>Stop</span>
-                              </>
-                            ) : (
-                              <>
-                                <Volume2 className="w-3 h-3" />
-                                <span>Listen</span>
-                              </>
-                            )}
-                          </button>
-                        </div>
-                      </div>
-
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-[11px] font-medium text-slate-400">
-                            Tempo mowy (TTS Speed)
-                          </label>
-                          <span className="text-indigo-400 font-mono text-[11px] font-bold">{globalTtsSpeed.toFixed(2)}x</span>
-                        </div>
-                        <div className="grid grid-cols-4 gap-1">
-                          {[1.0, 1.15, 1.25, 1.4].map((spd) => (
-                            <button
-                              key={spd}
-                              type="button"
-                              onClick={() => setGlobalTtsSpeed(spd)}
-                              className={`py-1 rounded text-[10px] font-medium border ${
-                                Math.abs(globalTtsSpeed - spd) < 0.01
-                                  ? 'bg-indigo-600 border-indigo-400 text-white'
-                                  : 'bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800'
-                              }`}
-                            >
-                              {spd}x
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Animation & Highlight Settings */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-[11px] font-medium text-slate-400 mb-1">
-                        Domyślny Styl Animacji Napisów
-                      </label>
-                      <select
-                        value={globalCaptionAnimation}
-                        onChange={(e) => setGlobalCaptionAnimation(e.target.value as any)}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200"
-                      >
-                        <option value="word-by-word">Word-by-Word (Podświetlanie słowo po słowie)</option>
-                        <option value="single-word">Pojedyncze Wyrazy (Duże dynamiczne)</option>
-                        <option value="classic">Klasyczne (Statyczny blok tekstu)</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-medium text-slate-400 mb-1">
-                        Kolor Wyróżnienia Słowa (Highlight)
-                      </label>
-                      <select
-                        value={globalHighlightColor}
-                        onChange={(e) => setGlobalHighlightColor(e.target.value as any)}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200"
-                      >
-                        <option value="yellow">Złoty / Żółty Neon (#FFD700)</option>
-                        <option value="lime">Limonkowy Neon (#00FF66)</option>
-                        <option value="cyan">Błękitny Cyan (#00E5FF)</option>
-                        <option value="red">Koralowy Czerwony (#FF3366)</option>
-                        <option value="white">Czysta Biel (#FFFFFF)</option>
-                      </select>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Scene Builder Section */}
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-white flex items-center gap-2">
-                    <Layers className="w-5 h-5 text-purple-400" />
-                    Sekwencja Scen Wideo ({scenes.length})
-                  </h3>
-                  <button
-                    onClick={addScene}
-                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-medium flex items-center gap-1.5 transition shadow-md shadow-indigo-600/20"
-                  >
-                    <Plus className="w-4 h-4" />
-                    Dodaj Scenę
-                  </button>
-                </div>
-
-                {/* Scenes List */}
-                <div className="space-y-4">
-                  {scenes.map((scene, idx) => (
-                    <div
-                      key={scene.id}
-                      className="p-5 bg-slate-900 border border-slate-800 rounded-2xl relative group transition hover:border-slate-700"
-                    >
-                      <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-800">
-                        <div className="flex items-center gap-2">
-                          <span className="w-6 h-6 rounded-full bg-indigo-500/20 text-indigo-400 text-xs font-bold flex items-center justify-center">
-                            {idx + 1}
-                          </span>
-                          <span className="text-sm font-semibold text-slate-200">Scena {idx + 1}</span>
-                        </div>
-                        {scenes.length > 1 && (
-                          <button
-                            onClick={() => removeScene(scene.id)}
-                            className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition"
-                            title="Usuń scenę"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-
-                      <div className="space-y-3">
-                        <div>
-                          <label className="block text-xs text-slate-400 mb-1">URL Pliku Wideo / Obrazu</label>
-                          <input
-                            type="url"
-                            value={scene.videoUrl}
-                            onChange={(e) => updateScene(scene.id, { videoUrl: e.target.value })}
-                            placeholder="https://.../video.mp4"
-                            className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-indigo-500"
-                          />
-                          <div className="flex items-center gap-2 mt-1.5 overflow-x-auto pb-1">
-                            <span className="text-[11px] text-slate-500 whitespace-nowrap">Przykłady:</span>
-                            {SAMPLE_CLIPS.map((clip, i) => (
-                              <button
-                                key={i}
-                                onClick={() => updateScene(scene.id, { videoUrl: clip.url })}
-                                className="text-[11px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-0.5 rounded-md whitespace-nowrap transition"
-                              >
-                                {clip.name}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-
-                        <div>
-                          <label className="block text-xs text-slate-400 mb-1 flex items-center justify-between">
-                            <span>Napisy / Subtitles (Czcionka Montserrat)</span>
-                            <span className="text-[11px] text-amber-400">Montserrat-Bold.ttf</span>
-                          </label>
-                          <input
-                            type="text"
-                            value={scene.subtitles}
-                            onChange={(e) => updateScene(scene.id, { subtitles: e.target.value })}
-                            placeholder="Wpisz tekst do nałożenia na wideo..."
-                            className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-100 font-bold focus:outline-none focus:border-purple-500"
-                          />
-                        </div>
-
-                        {/* Optional Voiceover Text for TTS */}
-                        <div>
-                          <label className="block text-xs text-slate-400 mb-1 flex items-center justify-between">
-                            <span className="flex items-center gap-1.5">
-                              <Mic className="w-3.5 h-3.5 text-indigo-400" />
-                              Tekst dla Lektora AI (Audio Dubbing)
-                            </span>
-                            <span className="text-[10px] text-slate-500">Puste = czyta napis sceny</span>
-                          </label>
-                          <input
-                            type="text"
-                            value={scene.voiceover_text || ''}
-                            onChange={(e) => updateScene(scene.id, { voiceover_text: e.target.value })}
-                            placeholder={scene.subtitles || 'Wpisz tekst czytany przez lektora...'}
-                            className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-indigo-200 focus:outline-none focus:border-indigo-500"
-                          />
-                        </div>
-
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
-                          <div>
-                            <label className="block text-[11px] text-slate-400 mb-1">Pozycja Napisu</label>
-                            <select
-                              value={scene.captionStyle.position || 'bottom'}
-                              onChange={(e) =>
-                                updateCaptionStyle(scene.id, { position: e.target.value as any })
-                              }
-                              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-300"
-                            >
-                              <option value="bottom">Dół (Bottom)</option>
-                              <option value="center">Środek (Center)</option>
-                              <option value="top">Góra (Top)</option>
-                            </select>
-                          </div>
-
-                          <div>
-                            <label className="block text-[11px] text-slate-400 mb-1">Animacja Napisu</label>
-                            <select
-                              value={scene.captionStyle.animation || globalCaptionAnimation}
-                              onChange={(e) => updateCaptionStyle(scene.id, { animation: e.target.value as any })}
-                              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-300"
-                            >
-                              <option value="word-by-word">Word-by-Word</option>
-                              <option value="single-word">Pojedyncze Słowo</option>
-                              <option value="classic">Klasyczne</option>
-                            </select>
-                          </div>
-
-                          <div>
-                            <label className="block text-[11px] text-slate-400 mb-1">Start Klipu (s)</label>
-                            <input
-                              type="number"
-                              min={0}
-                              value={scene.trimStart ?? 0}
-                              onChange={(e) => updateScene(scene.id, { trimStart: parseFloat(e.target.value) || 0 })}
-                              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-300"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-[11px] text-slate-400 mb-1">Koniec Klipu (s)</label>
-                            <input
-                              type="number"
-                              min={1}
-                              value={scene.trimEnd ?? 4}
-                              onChange={(e) => updateScene(scene.id, { trimEnd: parseFloat(e.target.value) || 4 })}
-                              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-300"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Right Column: Real-Time Progress Bar & Render Console */}
-            <div className="lg:col-span-5 space-y-6">
-              <div className="p-6 bg-slate-900 border border-slate-800 rounded-2xl sticky top-6 space-y-6">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-                  <div>
-                    <h3 className="text-lg font-semibold text-white flex items-center gap-2">
-                      <Activity className="w-5 h-5 text-indigo-400" />
-                      Panel Real-Time Progress
-                    </h3>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      Przetwarzanie FFmpeg ze strumieniowaniem statusu
-                    </p>
-                  </div>
-
-                  <button
-                    onClick={handleStartRender}
-                    disabled={isRendering}
-                    className={`px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 transition shadow-lg ${
-                      isRendering
-                        ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
-                        : 'bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 text-white hover:opacity-95 shadow-indigo-500/25 active:scale-95'
-                    }`}
-                  >
-                    {isRendering ? (
-                      <>
-                        <RefreshCw className="w-4 h-4 animate-spin" />
-                        Przetwarzanie...
-                      </>
-                    ) : (
-                      <>
-                        <Play className="w-4 h-4 fill-white" />
-                        Uruchom Render
-                      </>
-                    )}
-                  </button>
-                </div>
-
-                {/* Stream Protocol Mode Selector */}
-                <div className="flex items-center justify-between px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs">
-                  <span className="text-slate-400 flex items-center gap-1.5">
-                    <Radio className="w-3.5 h-3.5 text-indigo-400" />
-                    Tryb Połączenia:
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setPreferredMode('sse')}
-                      className={`px-2 py-1 rounded-md text-[11px] font-medium transition ${
-                        preferredMode === 'sse'
-                          ? 'bg-indigo-600 text-white'
-                          : 'bg-slate-800 text-slate-400 hover:text-slate-200'
-                      }`}
-                    >
-                      SSE Stream
-                    </button>
-                    <button
-                      onClick={() => setPreferredMode('polling')}
-                      className={`px-2 py-1 rounded-md text-[11px] font-medium transition ${
-                        preferredMode === 'polling'
-                          ? 'bg-purple-600 text-white'
-                          : 'bg-slate-800 text-slate-400 hover:text-slate-200'
-                      }`}
-                    >
-                      Polling (500ms)
-                    </button>
-                  </div>
-                </div>
-
-                {/* Active Connection Indicator */}
-                {isRendering && (
-                  <div className="flex items-center justify-between text-xs px-1">
-                    <div className="flex items-center gap-2">
-                      <span className="relative flex h-2.5 w-2.5">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
-                      </span>
-                      <span className="text-emerald-400 font-medium">
-                        {connectionStatus === 'sse'
-                          ? 'Strumień SSE Aktywny'
-                          : connectionStatus === 'polling'
-                          ? 'Odpytywanie Polling (500ms)'
-                          : 'Inicjalizacja...'}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 text-slate-400 font-mono text-[11px]">
-                      <Clock className="w-3 h-3 text-slate-500" />
-                      <span>{elapsedSeconds}s</span>
-                    </div>
-                  </div>
-                )}
-
-                {/* REAL-TIME PROGRESS BAR DISPLAY */}
-                {currentJob && (
-                  <div className="p-4 bg-slate-950 border border-indigo-500/30 rounded-2xl space-y-4 shadow-inner">
-                    {/* Step & Progress % */}
-                    <div className="flex justify-between items-start gap-2">
-                      <div>
-                        <span className="text-xs font-semibold text-indigo-400 block mb-0.5">
-                          {currentJob.step || 'Przetwarzanie FFmpeg'}
-                        </span>
-                        <span className="text-[11px] text-slate-400 font-mono">
-                          ID: {currentJob.id}
-                        </span>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400 font-mono">
-                          {currentJob.progress}%
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Animated Progress Bar */}
-                    <div className="w-full bg-slate-900 rounded-full h-3 overflow-hidden border border-slate-800 p-0.5">
-                      <motion.div
-                        className="bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 h-full rounded-full shadow-lg shadow-indigo-500/50"
-                        initial={{ width: 0 }}
-                        animate={{ width: `${currentJob.progress}%` }}
-                        transition={{ duration: 0.2, ease: 'easeOut' }}
-                      />
-                    </div>
-
-                    {/* Live Metrics Grid (Frames, FPS, Time, Speed) */}
-                    <div className="grid grid-cols-4 gap-2 pt-1 border-t border-slate-900 text-center">
-                      <div className="bg-slate-900/80 p-1.5 rounded-lg border border-slate-800">
-                        <span className="text-[10px] text-slate-500 block uppercase tracking-wider">Frame</span>
-                        <span className="text-xs font-mono font-bold text-slate-200">
-                          {currentJob.frame ?? '-'}
-                        </span>
-                      </div>
-
-                      <div className="bg-slate-900/80 p-1.5 rounded-lg border border-slate-800">
-                        <span className="text-[10px] text-slate-500 block uppercase tracking-wider">FPS</span>
-                        <span className="text-xs font-mono font-bold text-indigo-400">
-                          {currentJob.fps ?? '-'}
-                        </span>
-                      </div>
-
-                      <div className="bg-slate-900/80 p-1.5 rounded-lg border border-slate-800">
-                        <span className="text-[10px] text-slate-500 block uppercase tracking-wider">Time</span>
-                        <span className="text-xs font-mono font-bold text-purple-400">
-                          {currentJob.time ? currentJob.time.split('.')[0] : '-'}
-                        </span>
-                      </div>
-
-                      <div className="bg-slate-900/80 p-1.5 rounded-lg border border-slate-800">
-                        <span className="text-[10px] text-slate-500 block uppercase tracking-wider">Speed</span>
-                        <span className="text-xs font-mono font-bold text-emerald-400">
-                          {currentJob.speed ?? '-'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Real-time FFmpeg Terminal Logs */}
-                {currentJob?.logs && currentJob.logs.length > 0 && (
-                  <div className="border border-slate-800 bg-slate-950 rounded-xl overflow-hidden">
-                    <button
-                      onClick={() => setShowLogsTerminal(!showLogsTerminal)}
-                      className="w-full px-3 py-2 bg-slate-900 hover:bg-slate-850 flex items-center justify-between text-xs text-slate-400 font-mono transition"
-                    >
-                      <span className="flex items-center gap-1.5 text-slate-300">
-                        <Terminal className="w-3.5 h-3.5 text-emerald-400" />
-                        FFmpeg Log Console ({currentJob.logs.length})
-                      </span>
-                      {showLogsTerminal ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                    </button>
-
-                    {showLogsTerminal && (
-                      <div
-                        ref={logsContainerRef}
-                        className="p-3 font-mono text-[11px] text-slate-300 space-y-1 max-h-40 overflow-y-auto bg-slate-950 select-text"
-                      >
-                        {currentJob.logs.map((log, i) => (
-                          <div key={i} className="leading-tight text-slate-400">
-                            {log}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Error Box */}
-                {renderError && (
-                  <div className="p-4 bg-rose-500/10 border border-rose-500/30 rounded-xl flex items-start gap-3">
-                    <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
-                    <div>
-                      <p className="text-xs font-semibold text-rose-400 mb-0.5">Błąd Renderowania FFmpeg</p>
-                      <p className="text-xs text-rose-300/80 font-mono">{renderError}</p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Rendered Video Result Player */}
-                {renderedVideoUrl ? (
-                  <div className="space-y-4 pt-2">
-                    <div className="relative rounded-xl overflow-hidden bg-black border border-slate-800 aspect-[9/16] max-h-[380px] mx-auto flex items-center justify-center shadow-2xl">
-                      <video
-                        src={renderedVideoUrl}
-                        controls
-                        autoPlay
-                        loop
-                        className="w-full h-full object-contain"
-                      />
-                    </div>
-
-                    <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between text-xs">
-                      <div>
-                        <p className="text-emerald-400 font-medium flex items-center gap-1">
-                          <CheckCircle2 className="w-3.5 h-3.5" /> Wideo wygenerowane pomyślnie
-                        </p>
-                        {currentJob?.fileSize && (
-                          <p className="text-slate-400 text-[11px] mt-0.5">
-                            Rozmiar pliku: {(currentJob.fileSize / (1024 * 1024)).toFixed(2)} MB
-                          </p>
-                        )}
-                      </div>
-
-                      <a
-                        href={renderedVideoUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        download
-                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-medium flex items-center gap-1.5 transition"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        Pobierz MP4
-                      </a>
-                    </div>
-                  </div>
-                ) : (
-                  !isRendering && !currentJob && (
-                    <div className="border-2 border-dashed border-slate-800 rounded-xl p-8 text-center text-slate-500 space-y-3">
-                      <Film className="w-10 h-10 mx-auto text-slate-600" />
-                      <p className="text-xs">
-                        Kliknij <strong className="text-slate-300">"Uruchom Render"</strong> aby przetestować
-                        wskaźnik progress bar w czasie rzeczywistym
-                      </p>
-                    </div>
-                  )
-                )}
-              </div>
-            </div>
-          </div>
         )}
 
         {/* TAB 2: MAKE.COM CONFIGURATION & BLUEPRINT */}
@@ -2155,12 +1417,7 @@ export const MakeHttpConnector: React.FC = () => {
           />
         )}
 
-        {/* TAB 5: JOB HISTORY DASHBOARD (LOCAL STATE MOCK) */}
-        {activeTab === 'history' && (
-          <JobHistoryDashboard onToast={addToast} />
-        )}
-
-        {/* TAB 6: API DOCUMENTATION & REAL-TIME SPECIFICATION */}
+        {/* TAB 5: API DOCUMENTATION & REAL-TIME SPECIFICATION */}
         {activeTab === 'docs' && (
           <div className="space-y-6">
             <div className="p-6 bg-slate-900 border border-slate-800 rounded-2xl space-y-6">

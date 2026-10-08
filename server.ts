@@ -116,7 +116,37 @@ const NEGATIVE_VIDEO_SLUG_TERMS = [
   'hand-holding-pen',
   'signing-paper',
   'static-portrait',
-  'smiling-at-camera'
+  'smiling-at-camera',
+  'exhausted',
+  'tired',
+  'depressed',
+  'sad-man',
+  'sad-woman',
+  'sitting-at-desk',
+  'person-using-laptop',
+  'working-on-laptop',
+  'typing-on-keyboard',
+  'typing',
+  'man-in-front-of-laptop',
+  'talking-on-phone',
+  'drinking-coffee',
+  'drinking',
+  'eating',
+  'sleeping',
+  'staring-at-screen',
+  'office-worker-sitting',
+  'casual-meeting',
+  'interview',
+  'portrait',
+  'looking-at-camera',
+  'bored',
+  'senior',
+  'elderly',
+  'couch',
+  'sofa',
+  'slow',
+  'walk',
+  'walking-slowly'
 ];
 
 // Positive keywords that indicate high-energy, viral motion graphics & cinematic b-roll
@@ -140,7 +170,17 @@ const DYNAMIC_VIRAL_BOOST_TERMS = [
   'charts',
   'night',
   'vault',
-  'luxury'
+  'luxury',
+  'speed',
+  'fast',
+  'matrix',
+  'cyber',
+  'digital',
+  'neon',
+  'rush',
+  'glitch',
+  'ticker',
+  'crypto'
 ];
 
 // Intelligent keyword translator & enhancer: converts Polish domain terms into proven, dynamic vertical (9:16) Pexels queries
@@ -320,8 +360,8 @@ async function searchPexelsVideoDetailed(
   const enrichedQuery = translateAndEnrichViralKeyword(query, sceneIndex, 2, options?.context);
 
   try {
-    const searchUrl = `https://api.pexels.com/videos/search?query=${encodeURIComponent(enrichedQuery)}&orientation=portrait&per_page=15`;
-    console.log(`[Pexels API] Szukanie dynamicznego ujęcia 9:16 dla hasła: "${enrichedQuery}" (Scena #${sceneIndex + 1})...`);
+    const searchUrl = `https://api.pexels.com/videos/search?query=${encodeURIComponent(enrichedQuery)}&orientation=portrait&per_page=25`;
+    console.log(`[Pexels API] Szukanie ultra-dynamicznego ujęcia 9:16 dla hasła: "${enrichedQuery}" (Scena #${sceneIndex + 1})...`);
 
     const res = await fetch(searchUrl, {
       headers: {
@@ -359,13 +399,14 @@ async function searchPexelsVideoDetailed(
             if (avoidUrls.includes(verticalMp4.link)) continue;
 
             let score = 50;
+            // Reward high-energy motion b-roll keywords
             for (const boost of DYNAMIC_VIRAL_BOOST_TERMS) {
-              if (slug.includes(boost)) score += 20;
+              if (slug.includes(boost)) score += 25;
             }
-            // Prefer videos of optimal viral duration (8s to 45s)
-            if (video.duration >= 8 && video.duration <= 45) score += 15;
+            // Prefer videos of optimal viral duration (8s to 30s)
+            if (video.duration >= 8 && video.duration <= 30) score += 20;
             // Prefer 1080p / 2160p Full HD
-            if (verticalMp4.height >= 1920) score += 15;
+            if (verticalMp4.height >= 1920) score += 20;
 
             candidates.push({ video, verticalMp4, score });
           }
@@ -377,7 +418,7 @@ async function searchPexelsVideoDetailed(
 
       const picked = candidates[0];
       if (picked) {
-        console.log(`✓ [Pexels API Wybrano Dynamiczne] "${enrichedQuery}" (score: ${picked.score}) -> ID ${picked.video.id} (${picked.verticalMp4.width}x${picked.verticalMp4.height}, ${picked.video.duration}s)`);
+        console.log(`✓ [Pexels API Wybrano Dynamiczne 9:16] "${enrichedQuery}" (score: ${picked.score}) -> ID ${picked.video.id} (${picked.verticalMp4.width}x${picked.verticalMp4.height}, ${picked.video.duration}s)`);
         return {
           videoUrl: picked.verticalMp4.link,
           thumbnailUrl: picked.video.image || picked.video.video_pictures?.[0]?.picture || '',
@@ -2607,35 +2648,78 @@ ${articleContext.trim()}
 
   const autonomousPromptInstructions = `
 AUTONOMICZNA SYNTEZA VIRALOWA NA PODSTAWIE NEWSA Z BANKIER.PL (GEMINI AI):
-Zero manualnego wyboru po stronie użytkownika. Jako elitarny analityk finansowy i twórca wirali dla portalu raport-finansowy24.pl (format Shorts/Reels/TikTok 9:16), przeanalizuj treść newsa z Bankier.pl, wyodrębnij kluczowe liczby i fakty, zidentyfikuj główne źródło napięcia emocjonalnego i SAMODZIELNIE dopasuj najsilniejszą psychologicznie formułę hooka w pierwszych 2 sekundach (Zasada 1-sekundowej decyzji widza):
-1. OSTRZEŻENIE PRZED STRATĄ (MISTAKE WARNING): Jeśli artykuł dotyczy podatków, inflacji, strat, opłat bankowych, spadków giełdowych lub kosztownych błędów (np. "Stop! Jeśli masz konto w polskim banku...", "Stop! Te nowe przepisy zabiorą Ci tysiące rocznie...").
-2. CONTRARIAN CLAIM / UJAWNIENIE PRAWDY: Jeśli news dotyczy banków, stóp procentowych RPP, decyzji NBP, instytucji państwowych lub ukrytych mechanizmów rynkowych (np. "Banki NIE chcą, żebyś o tym wiedział...", "Prawda o stopach procentowych, o której milczą główne media...").
-3. RANKING / ZESTAWIENIE GIEŁDOWE: Jeśli news to zestawienie spółek z GPW, walut, surowców, nieruchomości lub wskaźników rynkowych (np. "Oto 3 spółki z GPW, które właśnie...", "Ranking miejsc, gdzie Polacy tracą najwięcej oszczędności...").
-4. PRZED I PO / KONTRAST DANYCH: Jeśli news dotyczy zysków, budowania majątku, ETF-ów, emerytury lub procentu składanego (np. "Zamiast trzymać 1000 zł w banku na 4%, zobacz co się dzieje...").
-5. OBALANIE MITU: Jeśli news obala powszechne przekonanie rynkowe (np. "Obalamy największy mit o bezpiecznych lokatach bankowych w dobie realnej inflacji...").
+Zero kompromisów. Działasz jako światowej klasy scenarzysta wiralowy i analityk finansowy (standard: Hormozi, Bloomberg Quicktake, Morning Brew, Vox), tworząc ultra-angażujące wideo w formacie pionowym 9:16 (YouTube Shorts, Instagram Reels, TikTok) dla portalu raport-finansowy24.pl.
 
-WYMÓG DYNAMIKI, FAKTÓW I JAKOŚCI VIRALOWEJ (DOKŁADNIE 2 uzupełniające się sceny po 9s = 18.0s filmu):
-- Całkowity ZAKAZ taniego clickbaitu bez pokrycia, infantylnych powitań ('Cześć!', 'Czy wiesz że?'), banałów i wykrzykników.
-- ZAKOTWICZENIE W FAKTACH Z BANKIER.PL: W Scenie 1 i 2 MUSI paść twardy fakt, wskaźnik lub konkretna liczba wyjęta wprost z artykułu z Bankier.pl!
+TWOJE NAJWAŻNIEJSZE ZADANIE: MAKSYMALIZACJA RETENCJI W PIERWSZYCH 3 SEKUNDACH (3-SECOND RETENTION RULE)
+Współczesny algorytm social media podejmuje decyzję o wiralowości w ułamku sekundy. Widz podejmuje decyzję o przesunięciu palcem (swipe) w ciągu pierwszych 2-3 sekund. 
+Dlatego pierwsze 3 sekundy (pierwsze 8-12 słów sceny 1) MUSZĄ natychmiast wybić widza ze stanu hipnozy przewijania ekranu (Pattern Interrupt) i uruchomić silną pętlę ciekawości (Curiosity Loop).
+
+TECHNIKI STORYTELLINGU O WYSOKIEJ RETENCJI DLA PIERWSZYCH 3 SEKUND (WYBIERZ NAJLEPSZĄ W ZALEŻNOŚCI OD TREŚCI):
+1. PATTERN INTERRUPT + DIRECT STAKES (Bezpośrednie ryzyko dla portfela widza):
+   Użyj natychmiastowego uderzenia w status quo lub błąd, o którym widz nie ma pojęcia.
+   Przykłady hooka na pierwsze 3 sekundy:
+   - "Ten jeden błąd w Twoim banku kosztuje Cię właśnie fortunę."
+   - "Przestań natychmiast ignorować ten komunikat, jeśli masz kredyt lub oszczędności."
+   - "Właśnie zapadła decyzja, która po cichu uszczupli Twoje oszczędności."
+
+2. CONTRARIAN TRUTH BOMB / PARADOKS POZORNY (Złamanie powszechnego przekonania):
+   Postaw tezę, która wydaje się nielogiczna, wywołując natychmiastowy Dysonans Poznawczy (Cognitive Dissonance), który zmusza mózg do obejrzenia do końca.
+   Przykłady hooka na pierwsze 3 sekundy:
+   - "Większość ludzi myśli, że te akcje to okazja. W rzeczywistości to pułapka."
+   - "Trzymanie pieniędzy na lokacie wcale Cię nie chroni – oto dlaczego."
+   - "To nie inflacja zabiera Ci najwięcej – to ten ukryty mechanizm bankowy."
+
+3. THE TICKING CLOCK / NOWE ZASADY GRY (Natychmiastowa pilność):
+   Powołaj się na świeży odczyt, zmianę przepisów lub zwrot na rynku z Bankier.pl z precyzyjną liczbą.
+   Przykłady hooka na pierwsze 3 sekundy:
+   - "Te nowe dane z giełdy wywołały panikę wśród zarządzających funduszami."
+   - "Od dziś zasady się zmieniły: ten wskaźnik wzrósł o konkretne wartości."
+   - "Oficjalny komunikat: rynki właśnie zareagowały na tę jedną liczbę."
+
+4. THE "INSIDER SECRET" (Asymetria informacji):
+   Postaw widza w pozycji uprzywilejowanego obserwatora, który dowiaduje się czegoś przed tłumem.
+   Przykłady hooka na pierwsze 3 sekundy:
+   - "Instytucje finansowe od miesięcy przygotowywały się na ten scenariusz."
+   - "Oto co najwięksi gracze na GPW robią tuż przed publikacją tego raportu."
+
+ŻELAZNE ZASADY NARRACJI HIGH-RETENTION DLA FORMACJI SHORTÓW (2 SCENY PO 9s = 18.0s ŁĄCZNIE):
+- ZAKAZ WYPEŁNIACZY: Całkowity zakaz "Cześć!", "Witajcie", "Czy wiedziałeś że?", "W dzisiejszym odcinku", sztucznych powitań i banałów. Pierwsze słowo musi być częścią uderzeniowego hooka.
+- CURIOSITY GAP (OTWARTA PĘTLA): Hook w pierwszych 3 sekundach otwiera pętlę ("dlaczego?", "co to oznacza?"), a Scena 2 dostarcza satysfakcjonującej odpowiedzi i rozwiązania.
+- TWARDE DANE: Wpleć konkretną liczbę, procent, datę lub nazwisko/instytucję wyciągniętą wprost z newsa Bankier.pl. Liczby budują autorytet i zatrzymują uwagę.
+- DYNAMIKA RYTMU: Pisz krótkimi, dobitnymi zdaniami (staccato), które lektor wypowie z pewnością siebie i energią.
 - STRUKTURA 2 SCEN:
-  1. SCENA 1 (duration = 9.0s, ok. 20-24 słowa w języku ${language}):
-     * Otwarcie: Błyskawiczny, hipnotyzujący hook (maksymalnie 12-14 słów), który natychmiast zatrzymuje kciuk użytkownika na ekranie.
-     * Rozwinięcie: Twardy fakt lub szokująca liczba z artykułu Bankier.pl.
-     * Angielskie zapytanie "searchKeyword" do pierwszego ujęcia wideo Pexels dobrane wprost pod treść newsa o MAKSYMALNEJ DYNAMICE (np. "stock exchange screen numbers flashing", "city traffic night hyperlapse", "counting cash money bills dynamic", "fast stock market trading chart timelapse", "crypto trading chart dynamic"). Bezwzględny zakaz słów typu "illustration", "warning", "concept", "paper", "reading", "drawing".
-  2. SCENA 2 (duration = 9.0s, ok. 20-24 słowa w języku ${language}):
-     * Mechanizm przyczynowo-skutkowy, strategiczny wniosek dla portfela widza.
-     * OBOWIĄZKOWE KOŃCOWE CTA NA SAMYM KOŃCU WYPOWIEDZI: Wypowiedź lektora ("voiceover_text" oraz "subtitles") na samym końcu MUSI zawierać płynnie wkomponowane wezwanie do odwiedzenia portalu:
-       "Sprawdź pełną analizę na raport-finansowy24.pl." lub "Więcej raportów i kalkulatorów znajdziesz na raport-finansowy24.pl."
-     * Drugie, INNE angielskie zapytanie "searchKeyword" do drugiego, komplementarnego ujęcia wideo Pexels o wysokiej dynamice (np. "dynamic financial stock market display animation", "vibrant digital data stream animation", "aerial night view vibrant city skyline", "corporate boardroom financial discussion glass office").
-- Wymagane pola JSON:
-  1. "title": Poważny, chwytliwy tytuł analityczny w języku (${language}) oparty na newsie z Bankier.pl
-  2. "description": Krótki opis z hashtagami (#shorts #analiza #finanse | Sprawdź na https://raport-finansowy24.pl)
-  3. "hook": Pierwsze zdanie wypowiedzi ze sceny 1 (dokładny hook)
-  4. "scenes": Tablica z DOKŁADNIE 2 obiektami:
-     - Scena 1: { "subtitles": string, "voiceover_text": string, "duration": 9.0, "searchKeyword": string }
-     - Scena 2: { "subtitles": string, "voiceover_text": string, "duration": 9.0, "searchKeyword": string } (kończy się CTA do raport-finansowy24.pl)
-  5. "backgroundMusicUrl": "https://assets.mixkit.co/music/preview/mixkit-tech-house-vibes-130.mp3"
-  6. "audioVolume": 0.25`;
+  * SCENA 1 (9.0s, ok. 20-23 słowa):
+    - Sekundy 0-3 (8-12 słów): Agresywny Hook o wysokiej retencji (Pattern Interrupt / Contrarian Hook / Ticking Clock).
+    - Sekundy 4-9 (12-14 słów): Rozwinięcie tła i twardy fakt / liczba z artykułu Bankier.pl, który uzasadnia wagę hooka.
+    - searchKeyword: Angielskie słowo kluczowe dla ultra-dynamicznego wideo Pexels w tle (np. "stock exchange screen numbers flashing", "city traffic night hyperlapse", "counting cash money bills dynamic", "fast stock market trading chart timelapse", "crypto trading chart dynamic").
+  * SCENA 2 (9.0s, ok. 20-23 słowa):
+    - Sekundy 9-15 (14-16 słów): Rozwiązanie pętli, logiczna konsekwencja dla portfela widza i strategiczny wniosek.
+    - Sekundy 16-18 (5-7 słów): Płynne, obligatoryjne Call-To-Action (CTA):
+      "Sprawdź pełną analizę na raport-finansowy24.pl." lub "Więcej raportów i danych na raport-finansowy24.pl."
+    - searchKeyword: Drugie, odmienne angielskie słowo kluczowe dla Pexels (np. "dynamic financial stock market display animation", "aerial night view vibrant city skyline", "corporate boardroom financial discussion glass office", "vibrant digital data stream animation").
+
+WYMAGANY FORMAT JSON:
+{
+  "title": "Chwytliwy, zwięzły tytuł YouTube Shorts (maks 45 znaków)",
+  "description": "#shorts #finanse #analiza #inwestowanie | Sprawdź na https://raport-finansowy24.pl",
+  "hook": "Dokładne pierwsze zdanie ze sceny 1 (zoptymalizowany 3-sekundowy hook)",
+  "scenes": [
+    {
+      "subtitles": "Pełny tekst sceny 1 zaczynający się od 3-sekundowego hooka...",
+      "voiceover_text": "Dokładnie taki sam tekst jak w subtitles dla sceny 1",
+      "duration": 9.0,
+      "searchKeyword": "dynamic pexels search query in english"
+    },
+    {
+      "subtitles": "Tekst sceny 2 z wnioskiem i końcowym CTA: Sprawdź na raport-finansowy24.pl.",
+      "voiceover_text": "Dokładnie taki sam tekst jak w subtitles dla sceny 2 kończący się CTA",
+      "duration": 9.0,
+      "searchKeyword": "second distinct dynamic pexels search query in english"
+    }
+  ],
+  "backgroundMusicUrl": "https://assets.mixkit.co/music/preview/mixkit-tech-house-vibes-130.mp3",
+  "audioVolume": 0.25
+}`;
 
   try {
     const prompt = count === 2
@@ -2644,26 +2728,23 @@ Stwórz wysoce merytoryczny, porywający scenariusz na 18-sekundowy film (DOKŁA
 ${bankierNewsSection}
 ${autonomousPromptInstructions}`
       : count === 1
-      ? `Jesteś elitarnym analitykiem biznesowym, publicystą ekonomiczno-technologicznym i lektorem topowych formatów wiedzy (w stylu Bloomberg Originals, Vox, CNBC).
+      ? `Jesteś elitarnym twórcą viralowych formatów wideo i analitykiem finansowym (standard: Hormozi, Vox, Bloomberg Quicktake).
 Stwórz wysoce merytoryczny, gotowy scenariusz na 1 spójną, 18-sekundową scenę (DOKŁADNIE 1 scena, czas duration = 18.0) w języku: ${language} na temat: "${cleanTopic}" (Kategoria: ${niche}).
 ${bankierNewsSection}
-WYMÓG JAKOŚCI NARRACJI (inteligentna, dojrzała wypowiedź lektora):
-- Całkowity ZAKAZ taniego clickbaitu, infantylnych powitań ('Cześć!', 'Czy wiesz że?'), banałów i wykrzykników.
-- OBOWIĄZKOWE CTA NA SAMYM KOŃCU WYPOWIEDZI: Wypowiedź lektora ("voiceover_text" oraz "subtitles") na samym końcu MUSI zawierać naturalnie wkomponowane CTA dopasowane do tematu kierujące do portalu: np. "Sprawdź pełną analizę na raport-finansowy24.pl." lub "Szczegółowe wskaźniki spółek znajdziesz na raport-finansowy24.pl." lub "Więcej raportów i danych sprawdzisz na raport-finansowy24.pl."
+ZASADY HIGH-RETENTION W PIERWSZYCH 3 SEKUNDACH (3-SECOND RETENTION HOOK):
+- Sekundy 0-3 (pierwsze 8-12 słów): Bezwzględny zakaz powitań i banałów. Natychmiastowy Pattern Interrupt / Contrarian Truth / Direct Risk dla portfela widza, zatrzymujący scrollowanie.
+- Sekundy 4-12: Twardy fakt lub szokująca liczba z newsa Bankier.pl + mechanizm przyczynowo-skutkowy.
+- Sekundy 13-16: Strategiczny wniosek dla widza.
+- Sekundy 17-18: Końcowe CTA: "Sprawdź na raport-finansowy24.pl." lub "Więcej danych na raport-finansowy24.pl."
 - Wymagane pola JSON:
   1. "title": Poważny, chwytliwy tytuł analityczny w języku (${language})
   2. "description": Krótki opis z hashtagami (#shorts #analiza #${niche.toLowerCase().replace(/\s+/g, '')} #wiedza | Sprawdź na https://raport-finansowy24.pl)
-  3. "hook": Pierwsze zdanie wypowiedzi, które stawia mocną, frapującą tezę analityczną
+  3. "hook": Dokładne pierwsze zdanie (zoptymalizowany 3-sekundowy hook)
   4. "scenes": Tablica z DOKŁADNIE 1 obiektem:
      - "subtitles": Dokładnie ta sama treść co "voiceover_text" (zostanie zsynchronizowana z lektorem i animowana słowo po słowie)
-     - "voiceover_text": Kompletna, przemyślana, mądra wypowiedź lektora (DOKŁADNIE 40 do 48 słów w języku ${language}, zakończona CTA do raport-finansowy24.pl), którą profesjonalny lektor przeczyta płynnie w 18 sekund.
-       Struktura merytoryczna:
-       * Zaskakująca, rzetelna teza analityczna lub twardy fakt gospodarczy/technologiczny z newsa Bankier.pl.
-       * Konkretny mechanizm przyczynowo-skutkowy lub dane.
-       * Strategiczny wniosek dla widza.
-       * Końcowe CTA: "Sprawdź na raport-finansowy24.pl." lub "Więcej danych znajdziesz na raport-finansowy24.pl."
+     - "voiceover_text": Kompletna wypowiedź lektora (DOKŁADNIE 40 do 46 słów w języku ${language}, zakończona CTA do raport-finansowy24.pl).
      - "duration": 18.0
-     - "searchKeyword": Precyzyjne, dynamiczne angielskie zapytanie dla wideo Pexels do pobrania ruchomej grafiki w tle (np. "stock exchange screen numbers flashing", "city traffic night hyperlapse", "cyber digital network glowing", "counting cash money bills dynamic")
+     - "searchKeyword": Precyzyjne, ultra-dynamiczne angielskie zapytanie dla wideo Pexels do pobrania ruchomej grafiki w tle (np. "stock exchange screen numbers flashing", "city traffic night hyperlapse", "cyber digital network glowing", "counting cash money bills dynamic")
   5. "backgroundMusicUrl": "https://assets.mixkit.co/music/preview/mixkit-tech-house-vibes-130.mp3"
   6. "audioVolume": 0.25`
       : `Jesteś ekspertem analitycznych filmów YouTube Shorts / TikTok. Stwórz porywający, merytoryczny scenariusz na krótki wideo-short (9:16) w języku: ${language} na temat: "${cleanTopic}" (Kategoria: ${niche}).

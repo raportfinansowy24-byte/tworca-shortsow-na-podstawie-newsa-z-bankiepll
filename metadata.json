@@ -1,5 +1,5 @@
 {
-  "name": "Make Video Scene Combiner Connector",
+  "name": "Make Video Scene Combiner Connector tworca shortsow na podstawie newsa z bankier.pl",
   "description": "Automated 18-second viral video generation and scene combiner for Make.com and n8n with Pexels motion backgrounds, intelligent neural voiceover narration, animated word-by-word subtitles, and a job history side panel.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

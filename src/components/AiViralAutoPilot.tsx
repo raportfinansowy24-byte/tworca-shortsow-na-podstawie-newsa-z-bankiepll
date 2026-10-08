@@ -200,12 +200,13 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
     backgroundMusicUrl: string;
   } | null>(null);
 
-  // Stock Footage Verification & Preview state
-  const [verifyFootageBeforeRender, setVerifyFootageBeforeRender] = useState<boolean>(true);
+  // Stock Footage Verification & Preview state (false by default for 100% full zero-touch automation)
+  const [verifyFootageBeforeRender, setVerifyFootageBeforeRender] = useState<boolean>(false);
   const [isRefreshingFootage, setIsRefreshingFootage] = useState<boolean>(false);
 
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [jobStatus, setJobStatus] = useState<JobStatusResponse | null>(null);
+  const progressSectionRef = useRef<HTMLDivElement | null>(null);
 
   const [copiedPayload, setCopiedPayload] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
@@ -458,7 +459,18 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
   const handleStartRenderWithVerifiedScenes = async (scenesToRender: ViralScene[]) => {
     setAutoPilotLoading(true);
     setError(null);
-    setJobStatus(null);
+    setJobStatus({
+      id: 'pending',
+      status: 'processing',
+      progress: 10,
+      step: 'Przesyłanie scen do silnika FFmpeg (audio, lektor neuralny i napisy Montserrat-Bold)...',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
+
+    setTimeout(() => {
+      progressSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
 
     try {
       const payloadScenes = scenesToRender.map((s) => ({
@@ -603,11 +615,21 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
       return;
     }
 
-    // Direct one-shot render (when verification is disabled)
+    // Direct one-shot render (100% full zero-touch automation)
     setAutoPilotLoading(true);
     setError(null);
-    setJobStatus(null);
-    setGeneratedScript(null);
+    setJobStatus({
+      id: 'pending',
+      status: 'processing',
+      progress: 6,
+      step: 'Inicjalizacja 18s wirusa: analiza newsa Bankier.pl i dobieranie dynamicznych kadrów Pexels 9:16...',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
+
+    setTimeout(() => {
+      progressSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
 
     try {
       if (activeMode === 'translate') {
@@ -762,7 +784,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
       }));
 
       onLoadScriptToEditor(appScenes, data.backgroundMusicUrl);
-      onToast?.('success', 'Scenariusz AI wygenerowany!', 'Nowo utworzone sceny z lektorem i animowanymi napisami zostały załadowane do edytora.');
+      onToast?.('success', 'Scenariusz AI wygenerowany!', 'Sceny z lektorem i animowanymi napisami zostały przygotowane do automatycznego montażu.');
     } catch (err) {
       const msg = (err as Error).message || 'Wystąpił błąd podczas generowania scenariusza';
       setError(msg);
@@ -1556,11 +1578,11 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
                 className="rounded border-slate-700 bg-slate-900 text-indigo-600 focus:ring-0 w-4 h-4"
               />
               <span className="font-semibold text-white">
-                Wyświetl siatkę miniatur Pexels do weryfikacji przed renderem
+                Opcjonalny podgląd kadrów Pexels przed montażem (domyślnie wyłączony dla pełnej automatyzacji)
               </span>
             </label>
             <span className="text-[11px] text-emerald-400 font-medium">
-              ✓ Podgląd kadrów i podmiana klipów Pexels
+              ⚡ 100% Pełna Automatyzacja
             </span>
           </div>
 
@@ -1569,24 +1591,22 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
             <button
               onClick={handleAutoPilotRun}
               disabled={autoPilotLoading || generatingScript}
-              className="w-full sm:flex-1 py-3.5 px-6 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold rounded-xl text-sm shadow-lg shadow-indigo-950 transition flex items-center justify-center gap-2 disabled:opacity-50"
+              className="w-full sm:flex-1 py-4 px-6 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 hover:from-indigo-500 hover:to-purple-500 text-white font-black rounded-xl text-sm shadow-xl shadow-indigo-950/50 transition flex items-center justify-center gap-2.5 disabled:opacity-50 cursor-pointer"
             >
               {autoPilotLoading ? (
                 <>
                   <RefreshCw className="w-4 h-4 animate-spin text-white" />
-                  Uruchamianie Renderera FFmpeg...
+                  Renderowanie FFmpeg w toku...
                 </>
               ) : generatingScript ? (
                 <>
                   <RefreshCw className="w-4 h-4 animate-spin text-white" />
-                  Pobieranie materiałów z Pexels...
+                  Dobieranie dynamicznych kadrów Pexels...
                 </>
               ) : (
                 <>
                   <Zap className="w-4 h-4 text-yellow-300 fill-yellow-300 animate-pulse" />
-                  {generatedScript && generatedScript.scenes?.length > 0
-                    ? '🚀 Zatwierdź & Renderuj Film (FFmpeg)'
-                    : '⚡ Generuj i Zweryfikuj Ujęcia Pexels'}
+                  🚀 Generuj i Zmontuj Wirusowy Short (100% Pełny Automat)
                 </>
               )}
             </button>
@@ -1595,20 +1615,11 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
               type="button"
               onClick={handleFetchAndVerifyFootage}
               disabled={autoPilotLoading || generatingScript}
-              className="w-full sm:w-auto py-3.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold rounded-xl text-xs border border-slate-700 transition flex items-center justify-center gap-2 disabled:opacity-50"
-              title="Pobierz ujęcia z Pexels do weryfikacji"
+              className="w-full sm:w-auto py-4 px-4 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold rounded-xl text-xs border border-slate-700 transition flex items-center justify-center gap-2 disabled:opacity-50"
+              title="Pobierz i zobacz kadry z Pexels"
             >
               <Film className="w-4 h-4 text-cyan-400" />
-              <span>Podgląd Ujęć Pexels</span>
-            </button>
-
-            <button
-              onClick={handleGenerateScriptOnly}
-              disabled={autoPilotLoading || generatingScript}
-              className="w-full sm:w-auto py-3.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold rounded-xl text-xs border border-slate-700 transition flex items-center justify-center gap-2 disabled:opacity-50"
-            >
-              <Sparkles className="w-4 h-4 text-indigo-400" />
-              <span>Do Edytora</span>
+              <span>Podgląd Kadrów</span>
             </button>
           </div>
         </div>
@@ -1671,6 +1682,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
       {/* Generated Result & Real-Time Render Player */}
       {(generatedScript || jobStatus) && (
         <motion.div
+          ref={progressSectionRef}
           initial={{ opacity: 0, y: 15 }}
           animate={{ opacity: 1, y: 0 }}
           className="bg-slate-900 border border-indigo-500/30 rounded-3xl p-6 sm:p-8 space-y-6 shadow-2xl"
