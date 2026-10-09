@@ -1,0 +1,22 @@
+{
+  "enabled": true,
+  "dailySlots": [
+    "06:00",
+    "11:00",
+    "16:00",
+    "21:00"
+  ],
+  "category": "wiadomosci",
+  "voice": "pl-PL-MarekNeural",
+  "sceneCount": 2,
+  "resolution": "720x1280",
+  "niche": "Finanse & Biznes",
+  "lastExecutedSlot": null,
+  "lastRunTime": null,
+  "lastRunStatus": "idle",
+  "lastRunArticle": null,
+  "lastRunJobId": null,
+  "runsCount": 0,
+  "history": [],
+  "processedUrls": []
+}

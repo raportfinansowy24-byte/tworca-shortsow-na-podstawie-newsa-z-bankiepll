@@ -29,12 +29,27 @@ import {
   Newspaper,
   X,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Clock,
+  Bot,
+  PlayCircle,
+  ToggleLeft,
+  ToggleRight,
+  History,
+  Cpu,
+  Wand2,
+  HelpCircle,
+  Target,
+  TrendingUp,
+  BarChart3
 } from 'lucide-react';
-import { Scene, JobStatusResponse, CaptionStyle, BankierArticle, ViralScene } from '../types';
+import { Scene, JobStatusResponse, CaptionStyle, BankierArticle, ViralScene, AutopilotSchedulerState, AiViralDecisions, ProfitMonitorState, VideoProfitLog, ViralityScore } from '../types';
 import { BankierNewsFeed } from './BankierNewsFeed';
 import { VideoPreview } from './VideoPreview';
 import { StockFootageGrid } from './StockFootageGrid';
+import { NewsKeywordScenePairer } from './NewsKeywordScenePairer';
+import { TrendsMonitorPanel } from './TrendsMonitorPanel';
+import { ProfitMonitor } from './ProfitMonitor';
 
 interface AiViralAutoPilotProps {
   onLoadScriptToEditor: (scenes: Scene[], musicUrl?: string) => void;
@@ -154,16 +169,19 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
   const [selectedBankierArticle, setSelectedBankierArticle] = useState<BankierArticle | null>(null);
   const [showBankierFeed, setShowBankierFeed] = useState<boolean>(true);
   const [includeBankierContext, setIncludeBankierContext] = useState<boolean>(true);
+  const [pairedKeywords, setPairedKeywords] = useState<string[]>([]);
 
   const handleSelectBankierArticle = (article: BankierArticle) => {
     setSelectedBankierArticle(article);
     setTopic(article.title);
     setNiche(`Finanse & Biznes (${article.category || 'Bankier.pl'})`);
+    setPairedKeywords([]);
     onToast?.('success', 'Pobrano z Bankier.pl', `Ustawiono temat: "${article.title.slice(0, 50)}..."`);
   };
 
   const handleClearBankierArticle = () => {
     setSelectedBankierArticle(null);
+    setPairedKeywords([]);
   };
 
   const buildArticleContextString = (article: BankierArticle | null): string | undefined => {
@@ -237,6 +255,14 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
     }
   }, [targetLanguage]);
 
+  // AI Director Autonomous Decision Mode (True by default - SI decyduje o doborze niszy, głosu, tempa, kolorystyki i hooka dla wiralowych zasięgów)
+  const [aiDirectorMode, setAiDirectorMode] = useState<boolean>(true);
+  const [liveAiDecisions, setLiveAiDecisions] = useState<AiViralDecisions | null>(null);
+  const [liveViralityScore, setLiveViralityScore] = useState<ViralityScore | null>(null);
+  const [aiDecisionsLoading, setAiDecisionsLoading] = useState<boolean>(false);
+  const [expandedRationaleId, setExpandedRationaleId] = useState<string | null>(null);
+  const [showAllHistory, setShowAllHistory] = useState<boolean>(false);
+
   // Animated Subtitles (Word-by-Word Hormozi / MrBeast style) State
   const [captionAnimation, setCaptionAnimation] = useState<'word-by-word' | 'single-word' | 'classic'>('word-by-word');
   const [highlightColor, setHighlightColor] = useState<'yellow' | 'lime' | 'cyan' | 'red' | 'white'>('yellow');
@@ -252,6 +278,80 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
     }, 420);
     return () => clearInterval(timer);
   }, [previewWords.length]);
+
+  // Synchronizacja Autonomicznego Reżysera SI i algorytmu Virality Score z bieżącym tematem / artykułem
+  useEffect(() => {
+    const currentTopicText = selectedBankierArticle?.title || topic || 'GPW giełda finanse osobiste';
+    const currentDescText = selectedBankierArticle?.description || '';
+    const currentCatText = selectedBankierArticle?.category || niche;
+
+    let isMounted = true;
+    setAiDecisionsLoading(true);
+
+    Promise.all([
+      fetch('/api/autopilot/ai-decisions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          topic: currentTopicText,
+          description: currentDescText,
+          category: currentCatText
+        })
+      }).then((res) => (res.ok ? res.json() : null)).catch(() => null),
+      fetch('/api/autopilot/predict-virality', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: currentTopicText,
+          description: currentDescText,
+          category: currentCatText
+        })
+      }).then((res) => (res.ok ? res.json() : null)).catch(() => null)
+    ])
+      .then(([decisionsData, viralityData]) => {
+        if (!isMounted) return;
+        if (viralityData?.score) {
+          setLiveViralityScore(viralityData.score as ViralityScore);
+        }
+        if (decisionsData?.decisions) {
+          const d = decisionsData.decisions as AiViralDecisions;
+          setLiveAiDecisions(d);
+
+          // Jeśli tryb Autonomicznego Reżysera jest aktywny, automatycznie synchronizuj parametry w UI!
+          if (aiDirectorMode) {
+            if (d.detectedNiche && d.detectedNiche !== niche) {
+              setNiche(d.detectedNiche);
+            }
+            if (d.optimalVoice && d.optimalVoice !== ttsVoice && targetLanguage === 'Polski') {
+              setTtsVoice(d.optimalVoice);
+            }
+            if (d.voiceSpeed && Math.abs(d.voiceSpeed - ttsSpeed) > 0.01) {
+              setTtsSpeed(d.voiceSpeed);
+            }
+            if (d.highlightColor && d.highlightColor !== highlightColor) {
+              setHighlightColor(d.highlightColor);
+            }
+            if (d.captionAnimation && d.captionAnimation !== captionAnimation) {
+              setCaptionAnimation(d.captionAnimation);
+            }
+            if (d.sceneCount && d.sceneCount !== sceneCount) {
+              setSceneCount(d.sceneCount);
+            }
+            if (d.resolution && d.resolution !== resolution) {
+              setResolution(d.resolution);
+            }
+          }
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (isMounted) setAiDecisionsLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedBankierArticle?.id, topic, aiDirectorMode]);
 
   // Voice Preview Playback Handler
   const handleToggleVoicePreview = async () => {
@@ -364,6 +464,208 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
         }
       } catch {}
     }, 1200);
+  };
+
+  // 4x/Day Autonomous Scheduler State & Handlers
+  const [schedulerState, setSchedulerState] = useState<AutopilotSchedulerState | null>(null);
+  const [schedulerLoading, setSchedulerLoading] = useState<boolean>(false);
+  const [triggeringSchedulerRun, setTriggeringSchedulerRun] = useState<boolean>(false);
+
+  // Hidden 'Profit Monitor' State Variable tracking progress toward 10,000 EUR monthly goal
+  const [profitMonitorState, setProfitMonitorState] = useState<ProfitMonitorState>({
+    targetGoalEur: 10000,
+    totalProjectedEur: 0,
+    progressPercent: 0,
+    remainingEur: 10000,
+    totalCompletedVideos: 0,
+    dailyProjectedEur: 0,
+    avgEurPerVideo: 0,
+    videosNeededToGoal: 222,
+    logs: []
+  });
+
+  // Calculate and update Profit Monitor metrics from history whenever schedulerState changes
+  useEffect(() => {
+    if (!schedulerState || !schedulerState.history) return;
+
+    const historyItems = schedulerState.history;
+    const completedItems = historyItems.filter((h) => h.status === 'completed' || h.videoUrl);
+
+    let totalEur = 0;
+    const logs: VideoProfitLog[] = historyItems.map((item) => {
+      const pe = item.projectedEarnings || {
+        estViews: 5000,
+        estCtrPercent: 1.8,
+        estClicksToBio: 90,
+        estConversionRatePercent: 2.5,
+        estApplications: 2.2,
+        avgCpaEur: 45.0,
+        projectedEur: 99.0,
+        monetizationProduct: 'Konta Osobiste & Kredyty (CPA 45€)'
+      };
+
+      if (item.status === 'completed' || item.videoUrl) {
+        totalEur += pe.projectedEur;
+      }
+
+      return {
+        id: item.id || item.jobId,
+        timestamp: item.timestamp,
+        videoTitle: item.articleTitle,
+        slot: item.slot,
+        jobId: item.jobId,
+        status: item.status,
+        estViews: pe.estViews,
+        estClicksToBio: pe.estClicksToBio,
+        estApplications: pe.estApplications,
+        avgCpaEur: pe.avgCpaEur,
+        projectedEur: pe.projectedEur,
+        productCategory: pe.monetizationProduct
+      };
+    });
+
+    const targetGoalEur = 10000;
+    const progressPercent = Math.min(Number(((totalEur / targetGoalEur) * 100).toFixed(1)), 100);
+    const remainingEur = Math.max(Number((targetGoalEur - totalEur).toFixed(2)), 0);
+    const totalCompleted = completedItems.length;
+    const avgEurPerVideo = totalCompleted > 0 ? Number((totalEur / totalCompleted).toFixed(2)) : 90.0;
+    // 4 filmy dziennie x średnia prowizja
+    const dailyProjectedEur = Number((avgEurPerVideo * 4).toFixed(2));
+    const videosNeededToGoal = avgEurPerVideo > 0 ? Math.ceil(remainingEur / avgEurPerVideo) : Math.ceil(targetGoalEur / 90);
+
+    setProfitMonitorState({
+      targetGoalEur,
+      totalProjectedEur: Number(totalEur.toFixed(2)),
+      progressPercent,
+      remainingEur,
+      totalCompletedVideos: totalCompleted,
+      dailyProjectedEur,
+      avgEurPerVideo,
+      videosNeededToGoal,
+      logs
+    });
+  }, [schedulerState]);
+
+  const fetchSchedulerState = async () => {
+    try {
+      const res = await fetch('/api/autopilot/scheduler');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.state) {
+          setSchedulerState(data.state);
+        }
+      }
+    } catch (err) {
+      console.warn('Nie udało się pobrać stanu harmonogramu:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchSchedulerState();
+    const interval = setInterval(fetchSchedulerState, 15000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleTriggerSchedulerRunNow = async () => {
+    setTriggeringSchedulerRun(true);
+    try {
+      const res = await fetch('/api/autopilot/scheduler/run-now', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || data.message || 'Nie udało się uruchomić autonomicznego cyklu');
+      }
+
+      onToast?.(
+        'success',
+        'Autonomiczny cykl uruchomiony!',
+        `Pobrano najświeższy news: "${data.article?.title?.slice(0, 50)}...". Renderowanie FFmpeg rozpoczęte.`
+      );
+      if (data.jobId) {
+        trackJob(data.jobId);
+        setTimeout(() => {
+          progressSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 100);
+      }
+      fetchSchedulerState();
+    } catch (err) {
+      const msg = (err as Error).message;
+      onToast?.('error', 'Błąd uruchomienia cyklu', msg);
+    } finally {
+      setTriggeringSchedulerRun(false);
+    }
+  };
+
+  const handleToggleScheduler = async () => {
+    if (!schedulerState) return;
+    setSchedulerLoading(true);
+    try {
+      const res = await fetch('/api/autopilot/scheduler/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: !schedulerState.enabled })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setSchedulerState((prev) => (prev ? { ...prev, enabled: data.enabled } : null));
+        onToast?.(
+          'info',
+          data.enabled ? 'Harmonogram 4x/dobę włączony' : 'Harmonogram wstrzymany',
+          data.enabled
+            ? 'System będzie uruchamiał się samoczynnie o 06:00, 11:00, 16:00 i 21:00'
+            : 'Automatyczne starty zostały wstrzymane.'
+        );
+      }
+    } catch (err) {
+      onToast?.('error', 'Błąd zmiany harmonogramu', (err as Error).message);
+    } finally {
+      setSchedulerLoading(false);
+    }
+  };
+
+  const handleRunNowWithArticle = async (article: BankierArticle) => {
+    setSelectedBankierArticle(article);
+    setTopic(article.title);
+    setNiche(`Finanse & Biznes (${article.category || 'Bankier.pl'})`);
+    setAutoPilotLoading(true);
+    try {
+      const res = await fetch('/api/auto-pilot-shorts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          topic: article.title,
+          niche: `Finanse & Biznes (${article.category || 'Bankier.pl'})`,
+          articleContext: `Tytuł artykułu z Bankier.pl: "${article.title}"\nPodsumowanie i fakty: ${article.description}`,
+          bankierArticle: article,
+          language: targetLanguage,
+          outputResolution: resolution,
+          async: true,
+          aiDirectorMode,
+          tts: ttsEnabled,
+          ttsLanguage: targetLanguage,
+          ttsVoice,
+          ttsSpeed,
+          syncDurationWithVoice,
+          captionAnimation,
+          highlightColor
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Błąd uruchomienia Auto-Pilota');
+
+      setGeneratedScript(data.script);
+      onToast?.('success', 'Auto-Pilot uruchomiony!', `Zmontowano scenariusz z wybranego newsa i uruchomiono renderowanie (ID: ${data.jobId})`);
+      trackJob(data.jobId);
+      setTimeout(() => {
+        progressSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
+    } catch (err) {
+      onToast?.('error', 'Błąd montażu', (err as Error).message);
+    } finally {
+      setAutoPilotLoading(false);
+    }
   };
 
   // Update video for a single scene in the visual grid
@@ -558,7 +860,8 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
             articleContext: buildArticleContextString(selectedBankierArticle),
             bankierArticle: selectedBankierArticle,
             language: targetLanguage,
-            sceneCount
+            sceneCount,
+            pairedKeywords: pairedKeywords.length > 0 ? pairedKeywords : undefined
           })
         });
         data = await res.json();
@@ -695,13 +998,15 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
             language: targetLanguage,
             outputResolution: resolution,
             async: true,
+            aiDirectorMode,
             tts: ttsEnabled,
             ttsLanguage: targetLanguage,
             ttsVoice,
             ttsSpeed,
             syncDurationWithVoice,
             captionAnimation,
-            highlightColor
+            highlightColor,
+            pairedKeywords: pairedKeywords.length > 0 ? pairedKeywords : undefined
           })
         });
 
@@ -755,7 +1060,8 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
             articleContext: buildArticleContextString(selectedBankierArticle),
             bankierArticle: selectedBankierArticle,
             language: targetLanguage,
-            sceneCount
+            sceneCount,
+            pairedKeywords: pairedKeywords.length > 0 ? pairedKeywords : undefined
           })
         });
         data = await res.json();
@@ -831,6 +1137,315 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
           <p className="text-slate-300 text-sm leading-relaxed">
             Sztuczna inteligencja Gemini pisze scenariusz, dobiera wideo w tle w wysokiej rozdzielczości, nakłada chwytliwe napisy czcionką <strong>Montserrat-Bold</strong>, miksuje ścieżkę muzyczną i wywołuje silnik FFmpeg bez żadnego wysiłku!
           </p>
+        </div>
+      </div>
+
+      {/* 4x/Day Autonomous Video Production Command Center */}
+      <div className="relative overflow-hidden bg-slate-900/90 border border-amber-500/40 p-6 sm:p-7 rounded-3xl shadow-2xl space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <span className="p-2 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/40">
+                <Bot className="w-5 h-5" />
+              </span>
+              <h3 className="text-lg font-extrabold text-white tracking-tight">
+                Autonomiczny Generator Wideo 4x na Dobę (Bankier.pl → AI Shorts)
+              </h3>
+              <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold flex items-center gap-1.5 ${
+                schedulerState?.enabled
+                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                  : 'bg-slate-800 text-slate-400 border border-slate-700'
+              }`}>
+                <span className={`w-2 h-2 rounded-full ${schedulerState?.enabled ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}`} />
+                {schedulerState?.enabled ? 'HARMONOGRAM AKTYWNY' : 'WSTRZYMANY'}
+              </span>
+            </div>
+            <p className="text-xs text-slate-300">
+              Wycofano wymóg ręcznego klikania w wiadomości. System samoczynnie 4 razy na dobę pobiera najświeższy news gospodarczy, pisze scenariusz Gemini, dopasowuje wideo 9:16 i montuje film MP4.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+            <button
+              type="button"
+              onClick={handleToggleScheduler}
+              disabled={schedulerLoading}
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 border ${
+                schedulerState?.enabled
+                  ? 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
+                  : 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500'
+              }`}
+            >
+              {schedulerState?.enabled ? <ToggleRight className="w-4 h-4 text-emerald-400" /> : <ToggleLeft className="w-4 h-4" />}
+              <span>{schedulerState?.enabled ? 'Wstrzymaj automat' : 'Włącz automat'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleTriggerSchedulerRunNow}
+              disabled={triggeringSchedulerRun || schedulerState?.lastRunStatus === 'running'}
+              className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-extrabold text-xs transition flex items-center gap-2 shadow-lg shadow-amber-500/25 active:scale-95 disabled:opacity-50"
+            >
+              {triggeringSchedulerRun ? (
+                <RefreshCw className="w-4 h-4 animate-spin text-slate-950" />
+              ) : (
+                <PlayCircle className="w-4 h-4 text-slate-950" />
+              )}
+              <span>Uruchom cykl teraz (Wymuś start)</span>
+            </button>
+          </div>
+        </div>
+
+        {/* 4 Scheduled Slots & Next Run Countdown */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+          {[
+            { slot: '06:00', title: 'Otwarcie rynków', desc: 'Poranny przegląd przed sesją GPW' },
+            { slot: '11:00', title: 'Raport południowy', desc: 'Śródsesyjne analizy i trendy' },
+            { slot: '16:00', title: 'Zamknięcie GPW', desc: 'Finisz sesji i kluczowe spółki' },
+            { slot: '21:00', title: 'Podsumowanie dnia', desc: 'Wieczorny przegląd rynków & walut' },
+          ].map((item, idx) => {
+            const isNext = schedulerState?.nextRun?.slot === item.slot;
+            return (
+              <div
+                key={idx}
+                className={`p-3 rounded-2xl border transition ${
+                  isNext
+                    ? 'bg-amber-500/15 border-amber-500/80 ring-1 ring-amber-500/50 shadow-md shadow-amber-950/40'
+                    : 'bg-slate-950/60 border-slate-800'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-1 mb-1">
+                  <span className={`text-sm font-black font-mono ${isNext ? 'text-amber-400' : 'text-slate-300'}`}>
+                    {item.slot}
+                  </span>
+                  {isNext && (
+                    <span className="px-1.5 py-0.5 rounded bg-amber-500 text-slate-950 text-[9px] font-extrabold">
+                      NASTĘPNY ({schedulerState?.nextRun?.countdownFormatted})
+                    </span>
+                  )}
+                </div>
+                <div className="text-xs font-bold text-white line-clamp-1">{item.title}</div>
+                <div className="text-[10px] text-slate-400 line-clamp-1">{item.desc}</div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Current Queued News / Candidate Info */}
+        <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div className="space-y-1.5 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[10px] uppercase font-bold text-amber-400 flex items-center gap-1.5">
+                <Sparkles className="w-3 h-3" />
+                Aktualny news Bankier.pl zaplanowany do automatycznego montażu:
+              </span>
+              {schedulerState?.candidateViralityScore && (
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold flex items-center gap-1 border ${
+                    schedulerState.candidateViralityScore.totalScore >= 90
+                      ? 'bg-purple-500/20 text-purple-300 border-purple-500/40'
+                      : schedulerState.candidateViralityScore.totalScore >= 80
+                      ? 'bg-pink-500/20 text-pink-300 border-pink-500/40'
+                      : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                  }`}
+                >
+                  <Flame className="w-3 h-3 text-pink-400" />
+                  Virality: {schedulerState.candidateViralityScore.totalScore}/100 ({schedulerState.candidateViralityScore.rating})
+                </span>
+              )}
+            </div>
+            <p className="text-sm font-bold text-white line-clamp-1">
+              {schedulerState?.candidateArticle?.title || 'Najświeższy artykuł z kanału RSS Bankier.pl'}
+            </p>
+            {schedulerState?.candidateArticle?.description && (
+              <p className="text-[11px] text-slate-400 line-clamp-1">
+                {schedulerState.candidateArticle.description}
+              </p>
+            )}
+            {schedulerState?.candidateViralityScore && (
+              <div className="flex items-center gap-2 flex-wrap pt-0.5 text-[10px]">
+                <span className="text-indigo-300 font-semibold">
+                  📈 #{schedulerState.candidateViralityScore.trendAlignment.trendRank || 'Trend'}: {schedulerState.candidateViralityScore.trendAlignment.matchedKeyword}
+                </span>
+                <span className="text-slate-600">•</span>
+                <span className="text-amber-300">
+                  {schedulerState.candidateViralityScore.sentiment.label}
+                </span>
+                <span className="text-slate-600">•</span>
+                <span className="text-emerald-300 font-mono font-bold">
+                  Lejek: +{schedulerState.candidateViralityScore.monetizationFit.projectedCpaEur}€ CPA
+                </span>
+              </div>
+            )}
+          </div>
+
+          {schedulerState?.candidateArticle?.link && (
+            <a
+              href={schedulerState.candidateArticle.link}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[11px] text-amber-400 hover:text-amber-300 flex items-center gap-1 shrink-0 font-medium self-end sm:self-auto"
+            >
+              <span>Zobacz na Bankier.pl</span>
+              <ExternalLink className="w-3 h-3" />
+            </a>
+          )}
+        </div>
+
+        {/* Recent Automated Releases History */}
+        {schedulerState?.history && schedulerState.history.length > 0 && (
+          <div className="space-y-2.5 pt-2 border-t border-slate-800/80">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                <History className="w-3.5 h-3.5 text-indigo-400" />
+                Historia wydań wideo (Uzasadnienie SI & Virality Score):
+              </span>
+              <div className="flex items-center gap-3">
+                <span className="text-[11px] text-slate-500 font-mono">
+                  Łącznie: {schedulerState.runsCount}
+                </span>
+                {schedulerState.history.length > 3 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllHistory(!showAllHistory)}
+                    className="text-[11px] text-indigo-400 hover:text-indigo-300 font-semibold transition"
+                  >
+                    {showAllHistory ? 'Pokaż mniej (3)' : `Wszystkie (${schedulerState.history.length})`}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {schedulerState.history.slice(0, showAllHistory ? 12 : 3).map((item) => (
+                <div
+                  key={item.id}
+                  className="p-3.5 rounded-xl bg-slate-950/80 border border-slate-800/90 text-xs flex flex-col justify-between gap-2.5 shadow-md hover:border-slate-700/80 transition"
+                >
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-1 text-[10px]">
+                      <div className="flex items-center gap-1.5">
+                        <span className="px-1.5 py-0.5 rounded bg-slate-800 font-mono text-amber-400 font-bold">
+                          {item.slot === 'manual' ? 'Wymuszone' : item.slot}
+                        </span>
+                        <span className={item.status === 'completed' ? 'text-emerald-400 font-semibold' : item.status === 'failed' ? 'text-red-400' : 'text-amber-400'}>
+                          {item.status === 'completed' ? '✓ Gotowe' : item.status === 'failed' ? 'Błąd' : 'Renderowanie...'}
+                        </span>
+                      </div>
+
+                      {item.viralityScore ? (
+                        <span
+                          className={`px-2 py-0.5 rounded-full font-mono font-bold text-[10px] flex items-center gap-1 border shadow-xs ${
+                            item.viralityScore.totalScore >= 90
+                              ? 'bg-purple-500/20 text-purple-300 border-purple-500/40'
+                              : item.viralityScore.totalScore >= 80
+                              ? 'bg-pink-500/20 text-pink-300 border-pink-500/40'
+                              : item.viralityScore.totalScore >= 70
+                              ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
+                              : 'bg-slate-800 text-slate-300 border-slate-700'
+                          }`}
+                          title={`Virality Score: ${item.viralityScore.totalScore}/100 (${item.viralityScore.rating})`}
+                        >
+                          <Flame className="w-3 h-3 text-pink-400" />
+                          {item.viralityScore.totalScore}/100 Virality
+                        </span>
+                      ) : (
+                        <span className="px-1.5 py-0.5 rounded bg-slate-900 text-slate-500 font-mono text-[9px]">
+                          Analiza AI
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="font-semibold text-white line-clamp-2 leading-snug" title={item.articleTitle}>
+                      {item.articleTitle}
+                    </div>
+
+                    {item.viralityScore && (
+                      <div className="flex items-center gap-1.5 flex-wrap pt-0.5 text-[9px]">
+                        <span className={`px-1.5 py-0.5 rounded border ${
+                          item.viralityScore.sentiment.type === 'alert'
+                            ? 'bg-red-950/50 text-red-300 border-red-800/40'
+                            : item.viralityScore.sentiment.type === 'positive'
+                            ? 'bg-emerald-950/50 text-emerald-300 border-emerald-800/40'
+                            : 'bg-amber-950/50 text-amber-300 border-amber-800/40'
+                        }`}>
+                          {item.viralityScore.sentiment.type === 'alert' ? '🚨' : item.viralityScore.sentiment.type === 'positive' ? '💰' : '⚡'} {item.viralityScore.sentiment.label.split('(')[0].trim()}
+                        </span>
+                        <span className="px-1.5 py-0.5 rounded bg-indigo-950/50 text-indigo-300 border border-indigo-800/40">
+                          📈 #{item.viralityScore.trendAlignment.trendRank || 'Trend'}: {item.viralityScore.trendAlignment.matchedKeyword.split('&')[0].trim()}
+                        </span>
+                        {item.projectedEarnings && (
+                          <span className="px-1.5 py-0.5 rounded bg-slate-900 text-emerald-400 font-mono border border-slate-800 font-bold">
+                            +{item.projectedEarnings.projectedEur.toFixed(0)}€
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {item.aiDecisions && (
+                      <div className="flex items-center gap-1.5 flex-wrap text-[9px]">
+                        <span className="px-1.5 py-0.2 rounded bg-slate-900 text-slate-400 border border-slate-800">
+                          🎯 {item.aiDecisions.detectedNiche}
+                        </span>
+                        <span className="px-1.5 py-0.2 rounded bg-slate-900 text-slate-400 border border-slate-800 font-mono">
+                          ⚡ {item.aiDecisions.voiceSpeed}x
+                        </span>
+                        <span className="px-1.5 py-0.2 rounded bg-slate-900 text-slate-400 border border-slate-800">
+                          🎨 {item.aiDecisions.highlightColor}
+                        </span>
+                      </div>
+                    )}
+
+                    {item.viralityScore?.rationale && (
+                      <div className="pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setExpandedRationaleId(expandedRationaleId === item.id ? null : item.id)}
+                          className="text-[10px] text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-medium transition"
+                        >
+                          <HelpCircle className="w-3 h-3" />
+                          <span>{expandedRationaleId === item.id ? 'Zwiń uzasadnienie SI' : 'Dlaczego SI wybrała ten news?'}</span>
+                          {expandedRationaleId === item.id ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                        </button>
+
+                        {expandedRationaleId === item.id && (
+                          <div className="mt-1.5 p-2 rounded-lg bg-slate-900/90 border border-indigo-500/20 text-[10px] text-slate-300 leading-relaxed">
+                            <p className="text-indigo-200 font-semibold mb-0.5">Uzasadnienie algorytmu (Cel: 10 000 €/mc):</p>
+                            {item.viralityScore.rationale}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {item.videoUrl && (
+                    <div className="flex items-center justify-between pt-1.5 border-t border-slate-900 text-[11px]">
+                      <span className="text-slate-400 text-[10px]">
+                        {item.duration ? `${item.duration}s` : '18s'}
+                      </span>
+                      <a
+                        href={item.videoUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-amber-400 hover:text-amber-300 font-bold flex items-center gap-1"
+                      >
+                        <Download className="w-3 h-3" />
+                        <span>Pobierz MP4</span>
+                      </a>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Hidden Profit Monitor Component (Tracking Projected Earnings toward 10,000 EUR Goal) */}
+        <div className="pt-2">
+          <ProfitMonitor
+            profitState={profitMonitorState}
+            initiallyHidden={true}
+          />
         </div>
       </div>
 
@@ -999,16 +1614,9 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
                         <span className="px-2 py-0.5 rounded bg-amber-500 text-slate-950 font-bold text-[10px] uppercase">
                           Bankier.pl • {selectedBankierArticle.category || 'Wiadomości'}
                         </span>
-                        {selectedBankierArticle.isGrounded ? (
-                          <span className="px-2 py-0.5 rounded bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 font-semibold text-[10px] flex items-center gap-1">
-                            <Sparkles className="w-2.5 h-2.5" />
-                            SEARCH GROUNDED
-                          </span>
-                        ) : (
-                          <span className="text-[11px] text-amber-300 font-medium">
-                            Wybrany artykuł źródłowy
-                          </span>
-                        )}
+                        <span className="text-[11px] text-amber-300 font-medium">
+                          Wybrany artykuł źródłowy z portalu Bankier.pl
+                        </span>
                       </div>
                       <button
                         type="button"
@@ -1060,14 +1668,49 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
                   </div>
                 )}
 
+                {/* News Content Analysis & Pexels Keywords Scene Segment Pairing */}
+                {selectedBankierArticle ? (
+                  <NewsKeywordScenePairer
+                    article={selectedBankierArticle}
+                    sceneCount={sceneCount}
+                    niche={niche}
+                    onKeywordsPaired={(kw) => setPairedKeywords(kw)}
+                    onToast={onToast}
+                  />
+                ) : (
+                  topic.trim().length > 15 && (
+                    <NewsKeywordScenePairer
+                      article={null}
+                      newsText={topic}
+                      sceneCount={sceneCount}
+                      niche={niche}
+                      onKeywordsPaired={(kw) => setPairedKeywords(kw)}
+                      onToast={onToast}
+                    />
+                  )
+                )}
+
                 {/* Bankier.pl Live Feed Component */}
                 {showBankierFeed && (
                   <BankierNewsFeed
                     selectedArticleId={selectedBankierArticle?.id}
                     onSelectArticle={handleSelectBankierArticle}
                     onToast={onToast}
+                    processedUrls={schedulerState?.processedUrls}
+                    candidateArticleLink={schedulerState?.candidateArticle?.link}
+                    onRunNowWithArticle={handleRunNowWithArticle}
                   />
                 )}
+
+                {/* Trends Monitor Panel (Top 5 Bankier Keywords + Narrative Justification + 10k EUR Goal) */}
+                <TrendsMonitorPanel
+                  onSelectKeywordNarrative={(kw, cat) => {
+                    setTopic(`Pilna analiza: ${kw}`);
+                    setNiche(cat);
+                    onToast?.('info', 'Zastosowano trend rynkowy', `Ustawiono słowo kluczowe "${kw}" jako wiodący temat wirusowy.`);
+                  }}
+                  defaultExpanded={false}
+                />
               </div>
             </>
           ) : (
@@ -1088,6 +1731,158 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
               </p>
             </div>
           )}
+
+          {/* Autonomiczny Reżyser SI (Viral Director 2026) - Pełna automatyzacja opcji */}
+          <div className="bg-gradient-to-r from-purple-950/40 via-indigo-950/45 to-slate-950 border border-purple-500/30 rounded-2xl p-4 sm:p-5 space-y-4 shadow-xl">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className={`p-2.5 rounded-xl border transition ${
+                  aiDirectorMode
+                    ? 'bg-purple-600/20 border-purple-400/50 text-purple-300 shadow-lg shadow-purple-900/30'
+                    : 'bg-slate-900 border-slate-800 text-slate-500'
+                }`}>
+                  <Wand2 className="w-5 h-5 animate-pulse" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-extrabold text-white flex items-center gap-1.5">
+                      Autonomiczny Reżyser SI <span className="text-purple-400 font-mono text-xs">(Zero-Decision Viral Engine)</span>
+                    </span>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border uppercase tracking-wider ${
+                      aiDirectorMode
+                        ? 'bg-purple-500/20 text-purple-300 border-purple-400/40'
+                        : 'bg-slate-800 text-slate-400 border-slate-700'
+                    }`}>
+                      {aiDirectorMode ? '⚡ SI Decyduje o Wszystkim' : 'Tryb Ręczny'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400">
+                    Sztuczna inteligencja analizuje newsa i automatycznie dobiera niszę, tempo głosu, barwę napisów libass i hook dla maksymalnej retencji (85%+) i monetyzacji afiliacyjnej.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setAiDirectorMode(!aiDirectorMode)}
+                  className={`px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 border ${
+                    aiDirectorMode
+                      ? 'bg-purple-600 hover:bg-purple-500 text-white border-purple-400 shadow-md shadow-purple-900/40'
+                      : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-700'
+                  }`}
+                >
+                  <Cpu className="w-4 h-4" />
+                  <span>{aiDirectorMode ? 'SI Aktywna (Zalecane)' : 'Włącz Reżysera SI'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* AI Real-Time Decision Matrix Badges */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2 border-t border-purple-900/30">
+              <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 text-xs">
+                <span className="text-[10px] text-slate-400 uppercase font-bold block mb-1">
+                  1. Wykryta Nisza & Hook
+                </span>
+                <span className="font-bold text-purple-300 block truncate" title={liveAiDecisions?.detectedNiche || niche}>
+                  {liveAiDecisions?.detectedNiche || niche}
+                </span>
+                <span className="text-[10px] text-slate-400 block truncate">
+                  Hook: {liveAiDecisions?.hookStrategy || 'Wstrząs & Liczby (Pattern Interrupt)'}
+                </span>
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 text-xs">
+                <span className="text-[10px] text-slate-400 uppercase font-bold block mb-1">
+                  2. Lektor & Tempo Retencji
+                </span>
+                <span className="font-bold text-amber-300 block truncate">
+                  {liveAiDecisions?.optimalVoice?.includes('Marek') ? '🎙️ Marek Neural (Autorytet)' : liveAiDecisions?.optimalVoice?.includes('Zofia') ? '🎙️ Zofia Neural (Konsument)' : ttsVoice}
+                </span>
+                <span className="text-[10px] text-slate-400 block">
+                  Tempo: <strong className="text-white font-mono">{liveAiDecisions?.voiceSpeed?.toFixed(2) || ttsSpeed.toFixed(2)}x</strong> (Dynamiczne cięcie)
+                </span>
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 text-xs">
+                <span className="text-[10px] text-slate-400 uppercase font-bold block mb-1">
+                  3. Napisy libass & Barwa
+                </span>
+                <span className="font-bold text-white flex items-center gap-1.5">
+                  <span
+                    className="w-2.5 h-2.5 rounded-full inline-block"
+                    style={{
+                      backgroundColor:
+                        (liveAiDecisions?.highlightColor || highlightColor) === 'yellow' ? '#FFD700' :
+                        (liveAiDecisions?.highlightColor || highlightColor) === 'lime' ? '#00FF66' :
+                        (liveAiDecisions?.highlightColor || highlightColor) === 'red' ? '#FF3366' :
+                        (liveAiDecisions?.highlightColor || highlightColor) === 'cyan' ? '#00E5FF' : '#FFFFFF'
+                    }}
+                  />
+                  <span>
+                    {(liveAiDecisions?.highlightColor || highlightColor) === 'red' ? 'Czerwony Alarm' : (liveAiDecisions?.highlightColor || highlightColor) === 'lime' ? 'Zieleń Zysku' : 'Złoty Neon'}
+                  </span>
+                </span>
+                <span className="text-[10px] text-slate-400 block">
+                  Animacja: {liveAiDecisions?.captionAnimation || captionAnimation}
+                </span>
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 text-xs">
+                <span className="text-[10px] text-slate-400 uppercase font-bold block mb-1">
+                  4. Format Wideo & Długość
+                </span>
+                <span className="font-bold text-cyan-300 block">
+                  9:16 (720x1280 HD)
+                </span>
+                <span className="text-[10px] text-slate-400 block">
+                  2 dynamiczne sceny (18.0s) + CTA do portalu
+                </span>
+              </div>
+            </div>
+
+            {/* Live Predicted Virality Score Badge for current topic */}
+            {liveViralityScore && (
+              <div className="p-3 rounded-xl bg-slate-950/80 border border-purple-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-1.5 rounded-lg bg-pink-500/20 text-pink-300 border border-pink-500/40">
+                    <Flame className="w-4 h-4 text-pink-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-white">
+                        Przewidywany Virality Score: <strong className="text-pink-400 font-mono text-sm">{liveViralityScore.totalScore}/100</strong>
+                      </span>
+                      <span className="px-2 py-0.2 rounded-full bg-pink-500/20 text-pink-300 text-[10px] font-bold border border-pink-500/30">
+                        {liveViralityScore.rating}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 line-clamp-1" title={liveViralityScore.rationale}>
+                      {liveViralityScore.rationale}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0 text-[10px] font-mono">
+                  <span className="px-2 py-1 rounded bg-slate-900 border border-slate-800 text-amber-300">
+                    Sentyment: {liveViralityScore.sentiment.label.split('(')[0].trim()}
+                  </span>
+                  <span className="px-2 py-1 rounded bg-slate-900 border border-slate-800 text-emerald-300 font-bold">
+                    Afiliacja: +{liveViralityScore.monetizationFit.projectedCpaEur}€ CPA
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {aiDirectorMode && (
+              <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1">
+                <span className="flex items-center gap-1 text-purple-300">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Poniższe parametry są ustawiane automatycznie przez algorytm wiralowy. Możesz je zmienić ręcznie wyłączając przełącznik.
+                </span>
+              </div>
+            )}
+          </div>
 
           {/* Configuration Options Bar */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
