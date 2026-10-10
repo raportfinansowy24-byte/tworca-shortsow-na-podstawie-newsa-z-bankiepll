@@ -41,8 +41,9 @@ provider.setCustomParameters({
   prompt: 'select_account'
 });
 
-// Flag to track sign-in status
+// Flag and promise lock to track sign-in status and prevent concurrent popup collisions
 let isSigningIn = false;
+let activeSignInPromise: Promise<{ user: User; accessToken: string } | null> | null = null;
 // Strictly in-memory token cache (never stored in localStorage or sessionStorage)
 let cachedAccessToken: string | null = null;
 
@@ -91,24 +92,47 @@ export const initAuth = (
   });
 };
 
-// Sign in with Google Popup
+// Sign in with Google Popup (guarded against concurrent popups and iframe timeout assertions)
 export const googleSignIn = async (): Promise<{ user: User; accessToken: string } | null> => {
-  try {
-    isSigningIn = true;
-    const result = await signInWithPopup(auth, provider);
-    const credential = GoogleAuthProvider.credentialFromResult(result);
-    if (!credential?.accessToken) {
-      throw new Error('Nie udało się uzyskać tokenu dostępu Google Drive z logowania.');
-    }
-
-    cachedAccessToken = credential.accessToken;
-    return { user: result.user, accessToken: cachedAccessToken };
-  } catch (error: any) {
-    console.error('[Google Drive Auth] Błąd logowania:', error);
-    throw error;
-  } finally {
-    isSigningIn = false;
+  if (activeSignInPromise) {
+    return activeSignInPromise;
   }
+
+  activeSignInPromise = (async () => {
+    try {
+      isSigningIn = true;
+      const result = await signInWithPopup(auth, provider);
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      if (!credential?.accessToken) {
+        throw new Error('Nie udało się uzyskać tokenu dostępu Google Drive z logowania.');
+      }
+
+      cachedAccessToken = credential.accessToken;
+      return { user: result.user, accessToken: cachedAccessToken };
+    } catch (error: any) {
+      const errMsg = String(error?.message || error || '');
+      const errCode = error?.code || '';
+
+      // Gracefully handle closed/cancelled popups and internal Firebase assertion timeouts in iframes
+      if (
+        errCode === 'auth/popup-closed-by-user' ||
+        errCode === 'auth/cancelled-popup-request' ||
+        errMsg.includes('Pending promise was never set') ||
+        errMsg.includes('popup-closed-by-user')
+      ) {
+        console.warn('[Google Drive Auth] Logowanie zostało przerwane lub okno logowania zostało zamknięte.');
+        return null;
+      }
+
+      console.error('[Google Drive Auth] Błąd logowania:', error);
+      throw error;
+    } finally {
+      isSigningIn = false;
+      activeSignInPromise = null;
+    }
+  })();
+
+  return activeSignInPromise;
 };
 
 export const getAccessToken = async (): Promise<string | null> => {

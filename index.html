@@ -7,6 +7,26 @@
     <meta name="description" content="Automated 18-second viral video generation and scene combiner for Make.com and n8n with Pexels motion backgrounds, intelligent neural voiceover narration, animated word-by-word subtitles, and a job history side panel." />
     <meta property="og:title" content="Make Video Scene Combiner Connector" />
     <meta property="og:description" content="Automated 18-second viral video generation and scene combiner for Make.com and n8n with Pexels motion backgrounds, intelligent neural voiceover narration, animated word-by-word subtitles, and a job history side panel." />
+    <script>
+      // Global guard against Firebase Auth internal popup timeout assertion bug in iframe environment
+      window.addEventListener('error', function(event) {
+        var msg = (event && event.message) ? event.message : '';
+        if (msg.indexOf('Pending promise was never set') !== -1) {
+          event.preventDefault();
+          if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+          return true;
+        }
+      }, true);
+      window.addEventListener('unhandledrejection', function(event) {
+        var reason = event && event.reason;
+        var msg = (reason && reason.message) ? reason.message : String(reason || '');
+        if (msg.indexOf('Pending promise was never set') !== -1) {
+          event.preventDefault();
+          if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+          return true;
+        }
+      }, true);
+    </script>
   </head>
   <body>
     <div id="root"></div>

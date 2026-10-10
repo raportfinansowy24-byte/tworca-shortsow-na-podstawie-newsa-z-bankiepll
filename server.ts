@@ -853,9 +853,9 @@ async function ensureMontserratFont(): Promise<boolean> {
 
   console.log('⏳ Montserrat-Bold.ttf not found. Downloading font...');
   const fontUrls = [
+    'https://fonts.gstatic.com/s/montserrat/v31/JTUHjIg1_i6t8kCHKm4532VJOt5-QNFgpCuM70w-.ttf',
     'https://cdn.jsdelivr.net/fontsource/fonts/montserrat@latest/latin-700-normal.ttf',
-    'https://cdn.jsdelivr.net/npm/@fontsource/montserrat/files/montserrat-latin-700-normal.ttf',
-    'https://fonts.gstatic.com/s/montserrat/v29/JTUHjIg1_i6t8kCHKm453WzAfrCUrU9gRV91.ttf'
+    'https://cdn.jsdelivr.net/npm/@fontsource/montserrat/files/montserrat-latin-700-normal.ttf'
   ];
 
   for (const fontUrl of fontUrls) {
@@ -1521,18 +1521,14 @@ function generateWordByWordAss(
   if (words.length === 0) return '';
 
   const safeDuration = Math.max(duration, 1.0);
-  const highlightColor =
-    (options.highlightColor === 'green' || options.highlightColor === 'lime') ? '&H0022C55E&' :
-    options.highlightColor === 'cyan' ? '&H00FFFF00&' :
-    options.highlightColor === 'red' ? '&H002222FF&' :
-    options.highlightColor === 'white' ? '&H00FFFFFF&' :
-    '&H0000E6FF&'; // Default signature electric gold/yellow
+  // Styl: single-word na sztywno czerwone (format ASS: &HAABBGGRR - nasycona czerwień)
+  const highlightColor = '&H002222FF&'; // Czysty, wyrazisty czerwony
 
-  const mode = options.animation || 'word-by-word';
+  // Wymuszenie stylu 'single-word' na stale (Montserrat-Bold + libass, czerwone podswietlenie)
   const position = options.position || 'bottom';
   const alignment = position === 'center' ? 5 : position === 'top' ? 8 : 2;
   const marginV = position === 'center' ? 0 : position === 'top' ? 160 : 220;
-  const fontSize = options.fontSize || 54;
+  const fontSize = options.fontSize || 56;
   const outlineWidth = options.outlineWidth || 6;
 
   let totalChars = 0;
@@ -1548,46 +1544,13 @@ function generateWordByWordAss(
     wordTimings.push({ word: w, start, end });
   });
 
+  // Styl: single-word na sztywno czerwone (1 wyraz na ekranie z dynamicznym powiekszeniem)
   let dialogues = '';
-
-  if (mode === 'single-word') {
-    // Punchy 1-word pop-up (MrBeast style)
-    wordTimings.forEach(({ word, start, end }) => {
-      const s = formatAssTime(start);
-      const e = formatAssTime(end);
-      dialogues += `Dialogue: 0,${s},${e},HormoziStyle,,0,0,0,,{\\c${highlightColor}\\fscx124\\fscy124\\b1}${word.toUpperCase()}\\N\n`;
-    });
-  } else if (mode === 'classic') {
-    // Static clean subtitle across duration
-    const s = formatAssTime(0);
-    const e = formatAssTime(safeDuration);
-    dialogues += `Dialogue: 0,${s},${e},HormoziStyle,,0,0,0,,{\\c&H00FFFFFF&\\b1}${words.join(' ').toUpperCase()}\\N\n`;
-  } else {
-    // Default: 'word-by-word' active word enlargement and vibrant highlight (Hormozi style)
-    const chunkSize = 4;
-    for (let c = 0; c < words.length; c += chunkSize) {
-      const chunkWords = words.slice(c, c + chunkSize);
-      const chunkIndices = chunkWords.map((_, idx) => c + idx);
-
-      chunkIndices.forEach((activeIdx) => {
-        const timing = wordTimings[activeIdx];
-        const s = formatAssTime(timing.start);
-        const e = formatAssTime(timing.end);
-
-        const lineFormatted = chunkWords
-          .map((w, idx) => {
-            const globalIdx = c + idx;
-            if (globalIdx === activeIdx) {
-              return `{\\c${highlightColor}\\fscx118\\fscy118\\b1}${w.toUpperCase()}{\\r\\c&H00FFFFFF&\\b1}`;
-            }
-            return `{\\c&H00FFFFFF&\\b1}${w.toUpperCase()}`;
-          })
-          .join(' ');
-
-        dialogues += `Dialogue: 0,${s},${e},HormoziStyle,,0,0,0,,${lineFormatted}\\N\n`;
-      });
-    }
-  }
+  wordTimings.forEach(({ word, start, end }) => {
+    const s = formatAssTime(start);
+    const e = formatAssTime(end);
+    dialogues += `Dialogue: 0,${s},${e},HormoziStyle,,0,0,0,,{\\c${highlightColor}\\fscx126\\fscy126\\b1}${word.toUpperCase()}\\N\n`;
+  });
 
   return `[Script Info]
 ScriptType: v4.00+
@@ -1597,7 +1560,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: HormoziStyle,Montserrat,${fontSize},&H00FFFFFF,&H000000FF,&H00000000,&H90000000,-1,0,0,0,100,100,0,0,1,${outlineWidth},2,${alignment},24,24,${marginV},1
+Style: HormoziStyle,Montserrat-Bold,${fontSize},&H002222FF,&H000000FF,&H00000000,&H90000000,-1,0,0,0,100,100,0,0,1,${outlineWidth},2,${alignment},24,24,${marginV},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -1748,8 +1711,8 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
     const ttsLanguage = normalizeLanguageCode(payload.ttsLanguage || (payload as any).language || 'pl');
     const ttsVoice = payload.ttsVoice || (payload as any).tts_voice || (payload as any).voice || (payload as any).lektor || (payload as any).glos || resolveNeuralVoice(undefined, ttsLanguage);
     const ttsSpeed = typeof payload.ttsSpeed === 'number' && payload.ttsSpeed > 0 ? payload.ttsSpeed : (typeof (payload as any).tts_speed === 'number' ? (payload as any).tts_speed : 1.15);
-    const defaultCaptionAnim = payload.captionAnimation || 'word-by-word';
-    const defaultHighlightCol = payload.highlightColor || 'yellow';
+    const defaultCaptionAnim = 'single-word';
+    const defaultHighlightCol = 'red';
 
     // Process each scene
     for (let index = 0; index < scenes.length; index++) {
@@ -2598,7 +2561,6 @@ function buildSmartFallbackScript(
 
 // Resilient Gemini Model Cascade: Prioritizes fast, modern, reliable models with automated failover
 const GEMINI_MODEL_CASCADE = [
-  'gemini-2.5-flash',
   'gemini-3.8-flash',
   'gemini-flash-latest',
   'gemini-3.1-flash-lite'
@@ -3049,12 +3011,12 @@ function deriveAiViralDecisions(
     hookStrategy,
     optimalVoice,
     voiceSpeed,
-    highlightColor,
-    captionAnimation: 'word-by-word',
+    highlightColor: 'red',
+    captionAnimation: 'single-word',
     sceneCount: 2,
     resolution: '720x1280',
     musicMood: 'Tech House Dynamic Beat (-70% ducking pod mowę)',
-    explanation: `SI dobrała profil "${optimalVoice}" (tempo ${voiceSpeed}x), podświetlenie ${highlightColor === 'yellow' ? 'Złoty Neon' : highlightColor === 'lime' ? 'Zieleń Neon' : 'Koral Czerwień'} oraz 2 sceny 18s dla maksymalnej retencji algorytmu Shorts.`
+    explanation: `SI dobrała profil "${optimalVoice}" (tempo ${voiceSpeed}x), styl napisów "single-word na sztywno czerwone" (Montserrat-Bold + libass) oraz 2 sceny 18s dla maksymalnej retencji algorytmu Shorts.`
   };
 }
 
@@ -5102,6 +5064,176 @@ function calculateViralityScore(title: string, description: string = '', categor
   };
 }
 
+// Candidate selection caching (prevents excessive API calls on frequent scheduler polling)
+let cachedCandidateDecision: {
+  timestamp: number;
+  article: any;
+  viralityScore: ViralityScore;
+  source: 'gemini' | 'heuristic';
+} | null = null;
+const CANDIDATE_CACHE_TTL = 3 * 60 * 1000; // 3 minuty
+
+// AI Virality Selector: Evaluates candidate fresh Bankier.pl articles with Gemini AI to choose the single strongest viral news
+// with maximum conversion to credit & bank account affiliate funnels (CPA 42-200 EUR) for the 10,000 EUR/month goal.
+async function selectMostViralBankierArticleWithGemini(
+  articles: any[]
+): Promise<{
+  selectedArticle: any;
+  viralityScore: ViralityScore;
+  selectionSource: 'gemini' | 'heuristic';
+}> {
+  if (!articles || articles.length === 0) {
+    throw new Error('Brak artykułów do analizy wiralowej.');
+  }
+
+  // Filter out articles already processed if possible
+  const pool = articles.filter(a => !schedulerState.processedUrls.includes(a.link));
+  const candidatePool = (pool.length > 0 ? pool : articles).slice(0, 12);
+
+  if (candidatePool.length === 1) {
+    const only = candidatePool[0];
+    const score = calculateViralityScore(only.title, only.description, only.category);
+    return {
+      selectedArticle: only,
+      viralityScore: score,
+      selectionSource: 'heuristic'
+    };
+  }
+
+  // Fallback heuristic scoring function that prioritizes credit & bank account conversions
+  const runHeuristicSelection = () => {
+    let bestArticle = candidatePool[0];
+    let bestScore = calculateViralityScore(bestArticle.title, bestArticle.description, bestArticle.category);
+
+    for (let i = 1; i < candidatePool.length; i++) {
+      const art = candidatePool[i];
+      const score = calculateViralityScore(art.title, art.description, art.category);
+
+      // Weighting: Credit & Bank Accounts conversion priority (CPA 42-200€)
+      let weightedTotal = score.totalScore;
+      if (score.trendAlignment.trendRank === 1 || score.trendAlignment.trendRank === 2) {
+        weightedTotal += 8; // Stopy, RPP, Kredyty, Hipoteki
+      } else if (score.trendAlignment.trendRank === 4) {
+        weightedTotal += 4; // Lokaty, Konta
+      }
+
+      let currentWeightedBest = bestScore.totalScore;
+      if (bestScore.trendAlignment.trendRank === 1 || bestScore.trendAlignment.trendRank === 2) {
+        currentWeightedBest += 8;
+      } else if (bestScore.trendAlignment.trendRank === 4) {
+        currentWeightedBest += 4;
+      }
+
+      if (weightedTotal > currentWeightedBest) {
+        bestArticle = art;
+        bestScore = score;
+      }
+    }
+
+    return {
+      selectedArticle: bestArticle,
+      viralityScore: bestScore,
+      selectionSource: 'heuristic' as const
+    };
+  };
+
+  // Attempt selection via Gemini AI comparative reasoning
+  try {
+    const articlesPromptList = candidatePool.map((a, idx) => {
+      return `[ID: ${idx}]
+Tytuł: "${a.title}"
+Kategoria: ${a.category || 'Wiadomości'}
+Podsumowanie: "${(a.description || '').replace(/\\s+/g, ' ').slice(0, 220)}"`;
+    }).join('\n\n');
+
+    const prompt = `Jesteś Dyrektorem Wirusowych Formatów Wideo i Głównym Analitykiem Monetyzacji portalu RaportFinansowy24.
+Przeanalizuj poniższe ${candidatePool.length} najświeższych artykułów z portalu Bankier.pl i wybierz DOKŁADNIE JEDEN artykuł o NAJWIĘKSZYM POTENCJALE WIRALOWYM ORAZ NAJWYŻSZEJ KONWERSJI AFILIACYJNEJ.
+
+GŁÓWNY CEL: Maksymalna konwersja do kredytów i kont bankowych (CPA 42 - 200 €) w drodze do celu 10 000 euro miesięcznie zysku.
+
+ŻELAZNE ZASADY SELEKCJI:
+1. BEZWZGLĘDNY PRIORYTET: Tematy dotyczące portfela milionów Polaków (stopy procentowe RPP, raty kredytów hipotecznych/gotówkowych, ceny mieszkań, podatki/ZUS, konta bankowe, lokaty) MAJĄ ABSOLUTNY PRIORYTET nad niszowymi newsami giełdowymi pojedynczych spółek czy surowcami.
+2. ZASADA 3 SEKUND (HOOK & PATTERN INTERRUPT): Artykuł musi dawać możliwość stworzenia natychmiastowego, szokującego otwarcia w pierwszych 3 sekundach (np. "Właśnie zapadła decyzja RPP, która podniesie Twoją ratę!").
+3. LEJEK FINANSOWY (CPA): Wybrany news musi naturalnie i wiarygodnie kierować widza do kalkulatora lub rankingu na raport-finansowy24.pl.
+
+KANDYDACI Z BANKIER.PL:
+${articlesPromptList}
+
+Zwróć odpowiedź w czystym formacie JSON zgodnie ze schematem:`;
+
+    const geminiResult = await callGeminiWithCascade({
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            selectedArticleIndex: { type: Type.INTEGER },
+            selectedTitle: { type: Type.STRING },
+            viralityScore: { type: Type.INTEGER },
+            viralityRating: { type: Type.STRING },
+            rationale: { type: Type.STRING },
+            hookAngle: { type: Type.STRING },
+            sentimentType: { type: Type.STRING },
+            sentimentLabel: { type: Type.STRING },
+            monetizationProduct: { type: Type.STRING },
+            projectedCpaEur: { type: Type.NUMBER }
+          },
+          required: ['selectedArticleIndex', 'viralityScore', 'rationale']
+        }
+      }
+    });
+
+    if (geminiResult && geminiResult.text) {
+      const parsed = JSON.parse(geminiResult.text);
+      const chosenIdx = typeof parsed.selectedArticleIndex === 'number' ? parsed.selectedArticleIndex : -1;
+
+      if (chosenIdx >= 0 && chosenIdx < candidatePool.length) {
+        const chosenArticle = candidatePool[chosenIdx];
+        const baseCalculatedScore = calculateViralityScore(chosenArticle.title, chosenArticle.description, chosenArticle.category);
+
+        const finalScore: ViralityScore = {
+          ...baseCalculatedScore,
+          totalScore: Math.min(99, Math.max(65, Number(parsed.viralityScore) || baseCalculatedScore.totalScore)),
+          rating: (['VIRAL_EXPLOSION', 'VERY_HIGH', 'HIGH', 'MODERATE', 'STANDARD'].includes(parsed.viralityRating)
+            ? parsed.viralityRating
+            : baseCalculatedScore.rating) as any,
+          rationale: parsed.rationale || baseCalculatedScore.rationale,
+          sentiment: {
+            ...baseCalculatedScore.sentiment,
+            label: parsed.sentimentLabel || baseCalculatedScore.sentiment.label,
+            type: (['alert', 'positive', 'urgent', 'controversial', 'neutral'].includes(parsed.sentimentType)
+              ? parsed.sentimentType
+              : baseCalculatedScore.sentiment.type) as any
+          },
+          retentionHook: {
+            ...baseCalculatedScore.retentionHook,
+            openingAngle: parsed.hookAngle || baseCalculatedScore.retentionHook.openingAngle
+          },
+          monetizationFit: {
+            product: parsed.monetizationProduct || baseCalculatedScore.monetizationFit.product,
+            monetizationScore: Math.max(18, baseCalculatedScore.monetizationFit.monetizationScore),
+            projectedCpaEur: Number(parsed.projectedCpaEur) || baseCalculatedScore.monetizationFit.projectedCpaEur
+          }
+        };
+
+        console.log(`[Gemini Virality Selector] Model ${geminiResult.modelUsed} wyselekcjonował artykuł TOP 1: "${chosenArticle.title}" (Score: ${finalScore.totalScore}/100)`);
+
+        return {
+          selectedArticle: chosenArticle,
+          viralityScore: finalScore,
+          selectionSource: 'gemini'
+        };
+      }
+    }
+  } catch (geminiErr) {
+    console.warn('[Gemini Virality Selector] Błąd wywołania Gemini, przejście na odpornościowy algorytm heurystyczny:', (geminiErr as Error).message);
+  }
+
+  // Resilient fallback
+  return runHeuristicSelection();
+}
+
 interface AutopilotSchedulerState {
   enabled: boolean;
   dailySlots: string[]; // 4x na dobę: 06:00, 11:00, 16:00, 21:00
@@ -5227,14 +5359,15 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
       throw new Error('Brak artykułów z portalu Bankier.pl do przetworzenia.');
     }
 
-    // 2. Znajdź artykuł, który nie był jeszcze przetworzony w ostatnich cyklach
-    let candidate = articles.find(a => !schedulerState.processedUrls.includes(a.link));
-    if (!candidate) {
-      candidate = articles[0];
-    }
+    // 2. Autonomiczna selekcja najbardziej wirusowego newsa z Bankier.pl przez Gemini AI
+    // (Priorytet: maksymalna konwersja do kredytów i kont bankowych, cel 10 000 €/mc)
+    const selection = await selectMostViralBankierArticleWithGemini(articles);
+    const candidate = selection.selectedArticle;
+    const viralityScore = selection.viralityScore;
 
     // Oznacz link jako przetworzony
     schedulerState.processedUrls = [candidate.link, ...schedulerState.processedUrls.filter(u => u !== candidate.link)].slice(0, 200);
+    cachedCandidateDecision = null;
 
     const articleContext = `Tytuł artykułu z Bankier.pl: "${candidate.title}"\nPodsumowanie i treść: ${candidate.description}\nKategoria: ${candidate.category}`;
 
@@ -5270,8 +5403,8 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
       ttsVoice: aiDecisions.optimalVoice || schedulerState.voice || 'pl-PL-MarekNeural',
       ttsSpeed: aiDecisions.voiceSpeed || 1.20,
       syncDurationWithVoice: true,
-      captionAnimation: aiDecisions.captionAnimation || 'word-by-word',
-      highlightColor: aiDecisions.highlightColor || 'yellow'
+      captionAnimation: 'single-word',
+      highlightColor: 'red'
     };
 
     const newJob: Job = {
@@ -5279,7 +5412,7 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
       status: 'queued',
       progress: 0,
       step: `Autonomiczny Start 4x/dobę: "${candidate.title.slice(0, 60)}..."`,
-      logs: [`[${new Date().toLocaleTimeString()}] Uruchomiono autonomiczny cykl 4x/dobę dla newsa Bankier.pl (${candidate.title})`],
+      logs: [`[${new Date().toLocaleTimeString()}] Uruchomiono autonomiczny cykl 4x/dobę dla newsa Bankier.pl (${candidate.title}) [Virality: ${viralityScore.totalScore}/100, Źródło: ${selection.selectionSource}]`],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -5289,8 +5422,7 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
 
     // 5. Zapisz wpis w historii schedulera z prognozą dochodu i algorytmem Virality Score przed renderem
     const projectedEarnings = calculateProjectedVideoEarnings(candidate.title, candidate.category);
-    const viralityScore = calculateViralityScore(candidate.title, candidate.description, candidate.category);
-    console.log(`[Autopilot 4x/dobę] Przewidywany Virality Score dla "${candidate.title.slice(0, 45)}...": ${viralityScore.totalScore}/100 (${viralityScore.rating})`);
+    console.log(`[Autopilot 4x/dobę] Gemini wybrał news: "${candidate.title.slice(0, 45)}..." (Virality: ${viralityScore.totalScore}/100, Źródło: ${selection.selectionSource})`);
 
     const runRecord: AutopilotRunRecord = {
       id: `run_${Date.now()}`,
@@ -5382,13 +5514,29 @@ setInterval(() => {
 router.get('/autopilot/scheduler', async (req, res) => {
   const nextRun = getNextScheduledRun(schedulerState.dailySlots);
   let candidateArticle: any = null;
+  let candidateViralityScore: ViralityScore | null = null;
+
   try {
-    const articles = await fetchBankierArticlesInternal(schedulerState.category || 'wiadomosci', false);
-    if (articles && articles.length > 0) {
-      candidateArticle = articles.find(a => !schedulerState.processedUrls.includes(a.link)) || articles[0];
+    const now = Date.now();
+    if (cachedCandidateDecision && (now - cachedCandidateDecision.timestamp < CANDIDATE_CACHE_TTL)) {
+      candidateArticle = cachedCandidateDecision.article;
+      candidateViralityScore = cachedCandidateDecision.viralityScore;
+    } else {
+      const articles = await fetchBankierArticlesInternal(schedulerState.category || 'wiadomosci', false);
+      if (articles && articles.length > 0) {
+        const selection = await selectMostViralBankierArticleWithGemini(articles);
+        candidateArticle = selection.selectedArticle;
+        candidateViralityScore = selection.viralityScore;
+        cachedCandidateDecision = {
+          timestamp: now,
+          article: candidateArticle,
+          viralityScore: candidateViralityScore,
+          source: selection.selectionSource
+        };
+      }
     }
-  } catch {
-    // ignore
+  } catch (err) {
+    console.warn('[Autopilot Scheduler] Błąd selekcji kandydata:', (err as Error).message);
   }
 
   // Update history items with latest job store data and guarantee projectedEarnings and viralityScore calculation
@@ -5432,11 +5580,6 @@ router.get('/autopilot/scheduler', async (req, res) => {
     };
   });
 
-  let candidateViralityScore: ViralityScore | null = null;
-  if (candidateArticle) {
-    candidateViralityScore = calculateViralityScore(candidateArticle.title, candidateArticle.description, candidateArticle.category);
-  }
-
   res.json({
     success: true,
     state: {
@@ -5447,6 +5590,25 @@ router.get('/autopilot/scheduler', async (req, res) => {
       candidateViralityScore
     }
   });
+});
+
+// Endpoint: On-demand AI selection of most viral Bankier.pl news (/api/autopilot/select-viral-news)
+router.post('/autopilot/select-viral-news', async (req, res) => {
+  try {
+    const { category = schedulerState.category || 'wiadomosci', forceRefresh = false } = req.body || {};
+    const articles = await fetchBankierArticlesInternal(category, forceRefresh);
+    const selection = await selectMostViralBankierArticleWithGemini(articles);
+    res.json({
+      success: true,
+      selection
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      error: 'Błąd selekcji najbardziej wirusowego newsa z Bankier.pl',
+      details: (err as Error).message
+    });
+  }
 });
 
 router.post('/autopilot/scheduler/run-now', async (req, res) => {

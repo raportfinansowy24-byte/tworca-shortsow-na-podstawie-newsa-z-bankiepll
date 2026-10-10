@@ -262,22 +262,13 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
   const [aiDecisionsLoading, setAiDecisionsLoading] = useState<boolean>(false);
   const [expandedRationaleId, setExpandedRationaleId] = useState<string | null>(null);
   const [showAllHistory, setShowAllHistory] = useState<boolean>(false);
+  // Manual Studio Panel visibility (False by default - procesy tworzenia, tłumaczenia i doboru nisz odbywają się w 100% w tle)
+  const [showManualStudioPanel, setShowManualStudioPanel] = useState<boolean>(false);
 
-  // Animated Subtitles (Word-by-Word Hormozi / MrBeast style) State
-  const [captionAnimation, setCaptionAnimation] = useState<'word-by-word' | 'single-word' | 'classic'>('word-by-word');
-  const [highlightColor, setHighlightColor] = useState<'yellow' | 'lime' | 'cyan' | 'red' | 'white'>('yellow');
-  const [captionPosition, setCaptionPosition] = useState<'bottom' | 'center' | 'top'>('bottom');
-
-  // Interactive Live Animation Preview State
-  const [previewWordIndex, setPreviewWordIndex] = useState(0);
-  const previewWords = ['CZY', 'WIESZ,', 'ŻE', 'TEN', 'FORMAT', 'ZDOBYWA', 'MILIONY', 'WYŚWIETLEŃ?'];
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setPreviewWordIndex((prev) => (prev + 1) % previewWords.length);
-    }, 420);
-    return () => clearInterval(timer);
-  }, [previewWords.length]);
+  // Animated Subtitles: na stale 'single-word' czerwone (Montserrat-Bold + libass)
+  const captionAnimation: 'single-word' = 'single-word';
+  const highlightColor: 'red' = 'red';
+  const captionPosition: 'bottom' = 'bottom';
 
   // Synchronizacja Autonomicznego Reżysera SI i algorytmu Virality Score z bieżącym tematem / artykułem
   useEffect(() => {
@@ -327,12 +318,6 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
             }
             if (d.voiceSpeed && Math.abs(d.voiceSpeed - ttsSpeed) > 0.01) {
               setTtsSpeed(d.voiceSpeed);
-            }
-            if (d.highlightColor && d.highlightColor !== highlightColor) {
-              setHighlightColor(d.highlightColor);
-            }
-            if (d.captionAnimation && d.captionAnimation !== captionAnimation) {
-              setCaptionAnimation(d.captionAnimation);
             }
             if (d.sceneCount && d.sceneCount !== sceneCount) {
               setSceneCount(d.sceneCount);
@@ -1125,17 +1110,17 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
         <div className="absolute bottom-0 left-0 -mb-8 -ml-8 w-64 h-64 bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
 
         <div className="relative z-10 max-w-3xl space-y-3">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/20 border border-indigo-400/30 text-indigo-300 text-xs font-semibold uppercase tracking-wider">
-            <Sparkles className="w-3.5 h-3.5 text-indigo-400 animate-pulse" />
-            AI Generator Viral Shorts (Bezobsługowy Auto-Pilot)
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 text-xs font-semibold uppercase tracking-wider">
+            <Sparkles className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+            100% Autonomiczny Auto-Pilot w Tle • Cel: 10 000 € / mc
           </div>
 
           <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight leading-tight">
-            Zamień jeden temat w gotowy, viralowy film Short 9:16 z montażem i napisami
+            Autonomiczna Fabryka Wideo w Tle dla RaportFinansowy24
           </h2>
 
           <p className="text-slate-300 text-sm leading-relaxed">
-            Sztuczna inteligencja Gemini pisze scenariusz, dobiera wideo w tle w wysokiej rozdzielczości, nakłada chwytliwe napisy czcionką <strong>Montserrat-Bold</strong>, miksuje ścieżkę muzyczną i wywołuje silnik FFmpeg bez żadnego wysiłku!
+            Wszystkie operacje — pobieranie newsów z Bankier.pl, dobór wzorców wirusowych i nisz, tłumaczenie, synteza głosu lektora, napisy <strong>Montserrat-Bold</strong> oraz montaż FFmpeg — odbywają się całkowicie w tle bez potrzeby manualnego klikania.
           </p>
         </div>
       </div>
@@ -1236,8 +1221,8 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
           <div className="space-y-1.5 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[10px] uppercase font-bold text-amber-400 flex items-center gap-1.5">
-                <Sparkles className="w-3 h-3" />
-                Aktualny news Bankier.pl zaplanowany do automatycznego montażu:
+                <Sparkles className="w-3 h-3 text-amber-300" />
+                Wybór Gemini AI w tle (Maks. konwersja do kredytów i kont bankowych):
               </span>
               {schedulerState?.candidateViralityScore && (
                 <span
@@ -1447,10 +1432,54 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
             initiallyHidden={true}
           />
         </div>
+
+        {/* Trends Monitor Panel (Top 5 Bankier Keywords + Narrative Justification + 10k EUR Goal) */}
+        <div className="pt-2">
+          <TrendsMonitorPanel
+            onSelectKeywordNarrative={(kw, cat) => {
+              setTopic(`Pilna analiza: ${kw}`);
+              setNiche(cat);
+              onToast?.('info', 'Zastosowano trend rynkowy', `Ustawiono słowo kluczowe "${kw}" jako wiodący temat wirusowy.`);
+            }}
+            defaultExpanded={false}
+          />
+        </div>
       </div>
 
-      {/* Control Panel Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* 🚀 100% Autonomous Background Execution Banner (Creation, Translation, Niches in Background) */}
+      <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-start sm:items-center gap-3.5">
+          <div className="p-3 rounded-2xl bg-gradient-to-br from-indigo-500/20 to-purple-500/20 border border-purple-500/30 text-purple-300 shrink-0">
+            <Cpu className="w-6 h-6 animate-pulse" />
+          </div>
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-sm font-extrabold text-white">
+                Tworzenie, tłumaczenie i dobór nisz działają w 100% w tle
+              </span>
+              <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono text-[10px] font-bold border border-emerald-500/40">
+                BEZOBSŁUGOWY TRYB TŁA
+              </span>
+            </div>
+            <p className="text-xs text-slate-300 leading-relaxed max-w-2xl">
+              Wszystkie procesy — selekcja newsów z Bankier.pl, dopasowywanie wzorców niszowych, tłumaczenie oraz montaż FFmpeg — odbywają się automatycznie w tle. Nie musisz niczego ręcznie wpisywać ani klikać.
+            </p>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setShowManualStudioPanel(!showManualStudioPanel)}
+          className="px-4 py-2.5 rounded-xl bg-slate-950 hover:bg-slate-800/80 text-slate-400 hover:text-white border border-slate-800 hover:border-slate-700 text-xs font-semibold transition flex items-center gap-2 shrink-0 self-end sm:self-auto cursor-pointer"
+        >
+          <Sliders className="w-3.5 h-3.5" />
+          <span>{showManualStudioPanel ? 'Ukryj sterowanie ręczne' : 'Opcjonalne sterowanie ręczne (w tle)'}</span>
+          {showManualStudioPanel ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+        </button>
+      </div>
+
+      {/* Control Panel Grid - Ukryte domyślnie, odbywa się w 100% w tle */}
+      <div className={`grid grid-cols-1 lg:grid-cols-3 gap-6 ${showManualStudioPanel ? '' : 'hidden'}`}>
         {/* Main Input Form */}
         <div className="lg:col-span-2 bg-slate-900/90 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-xl">
           {/* Mode Switcher Header */}
@@ -1701,16 +1730,6 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
                     onRunNowWithArticle={handleRunNowWithArticle}
                   />
                 )}
-
-                {/* Trends Monitor Panel (Top 5 Bankier Keywords + Narrative Justification + 10k EUR Goal) */}
-                <TrendsMonitorPanel
-                  onSelectKeywordNarrative={(kw, cat) => {
-                    setTopic(`Pilna analiza: ${kw}`);
-                    setNiche(cat);
-                    onToast?.('info', 'Zastosowano trend rynkowy', `Ustawiono słowo kluczowe "${kw}" jako wiodący temat wirusowy.`);
-                  }}
-                  defaultExpanded={false}
-                />
               </div>
             </>
           ) : (
@@ -1809,22 +1828,11 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
                   3. Napisy libass & Barwa
                 </span>
                 <span className="font-bold text-white flex items-center gap-1.5">
-                  <span
-                    className="w-2.5 h-2.5 rounded-full inline-block"
-                    style={{
-                      backgroundColor:
-                        (liveAiDecisions?.highlightColor || highlightColor) === 'yellow' ? '#FFD700' :
-                        (liveAiDecisions?.highlightColor || highlightColor) === 'lime' ? '#00FF66' :
-                        (liveAiDecisions?.highlightColor || highlightColor) === 'red' ? '#FF3366' :
-                        (liveAiDecisions?.highlightColor || highlightColor) === 'cyan' ? '#00E5FF' : '#FFFFFF'
-                    }}
-                  />
-                  <span>
-                    {(liveAiDecisions?.highlightColor || highlightColor) === 'red' ? 'Czerwony Alarm' : (liveAiDecisions?.highlightColor || highlightColor) === 'lime' ? 'Zieleń Zysku' : 'Złoty Neon'}
-                  </span>
+                  <span className="w-2.5 h-2.5 rounded-full inline-block bg-red-500 shadow-xs" />
+                  <span className="text-red-400 font-semibold">Czerwone (Montserrat-Bold)</span>
                 </span>
-                <span className="text-[10px] text-slate-400 block">
-                  Animacja: {liveAiDecisions?.captionAnimation || captionAnimation}
+                <span className="text-[10px] text-slate-400 block font-mono">
+                  Styl: single-word (libass)
                 </span>
               </div>
 
@@ -2188,168 +2196,6 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
                   </div>
                 </div>
               )}
-            </div>
-
-            {/* Animowane Napisy Word-by-Word Block */}
-            <div className="bg-slate-950/70 border border-slate-800/80 rounded-2xl p-4 sm:p-5 space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="p-2.5 bg-yellow-500/10 border border-yellow-500/30 rounded-xl text-yellow-300">
-                    <Type className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-white">Animowane Napisy Word-by-Word</span>
-                      <span className="px-2 py-0.5 rounded-full bg-yellow-500/20 text-yellow-300 text-[10px] font-semibold border border-yellow-400/30">
-                        Hormozi / TikTok Style
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-400">
-                      Wypalane przez silnik libass z czcionką Montserrat-Bold i dynamicznym podświetlaniem wyraz po wyrazie.
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Style & Color Selector Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2">
-                {/* Style Mode */}
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">Animacja Tekstu:</label>
-                  <div className="grid grid-cols-3 gap-1.5 bg-slate-900 p-1 rounded-xl border border-slate-800 text-xs">
-                    <button
-                      type="button"
-                      onClick={() => setCaptionAnimation('word-by-word')}
-                      className={`py-1.5 px-2 rounded-lg font-medium transition text-center ${
-                        captionAnimation === 'word-by-word' ? 'bg-indigo-600 text-white font-semibold' : 'text-slate-400 hover:text-slate-200'
-                      }`}
-                    >
-                      Word-by-Word
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setCaptionAnimation('single-word')}
-                      className={`py-1.5 px-2 rounded-lg font-medium transition text-center ${
-                        captionAnimation === 'single-word' ? 'bg-indigo-600 text-white font-semibold' : 'text-slate-400 hover:text-slate-200'
-                      }`}
-                    >
-                      Pojedyncze
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setCaptionAnimation('classic')}
-                      className={`py-1.5 px-2 rounded-lg font-medium transition text-center ${
-                        captionAnimation === 'classic' ? 'bg-indigo-600 text-white font-semibold' : 'text-slate-400 hover:text-slate-200'
-                      }`}
-                    >
-                      Klasyczne
-                    </button>
-                  </div>
-                </div>
-
-                {/* Highlight Color Palette */}
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">Kolor Wyróżnienia:</label>
-                  <div className="flex items-center gap-2 bg-slate-900 p-2 rounded-xl border border-slate-800">
-                    {[
-                      { id: 'yellow', name: 'Złoty Neon', hex: '#FFD700', border: 'border-yellow-400' },
-                      { id: 'lime', name: 'Zieleń Neon', hex: '#00FF66', border: 'border-emerald-400' },
-                      { id: 'cyan', name: 'Cyan Błękit', hex: '#00E5FF', border: 'border-cyan-400' },
-                      { id: 'red', name: 'Koral Czerwień', hex: '#FF3366', border: 'border-rose-400' },
-                      { id: 'white', name: 'Czysta Biel', hex: '#FFFFFF', border: 'border-white' }
-                    ].map((col) => (
-                      <button
-                        key={col.id}
-                        type="button"
-                        onClick={() => setHighlightColor(col.id as any)}
-                        title={col.name}
-                        className={`w-7 h-7 rounded-lg transition-transform flex items-center justify-center ${
-                          highlightColor === col.id ? 'scale-110 ring-2 ring-indigo-400 ring-offset-2 ring-offset-slate-950' : 'opacity-80 hover:opacity-100'
-                        }`}
-                        style={{ backgroundColor: col.hex }}
-                      >
-                        {highlightColor === col.id && (
-                          <Check className="w-4 h-4 text-black stroke-[3]" />
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Position */}
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">Pozycja na Ekranie:</label>
-                  <select
-                    value={captionPosition}
-                    onChange={(e) => setCaptionPosition(e.target.value as any)}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500"
-                  >
-                    <option value="bottom">Dolna (Optymalna dla Shorts 9:16)</option>
-                    <option value="center">Środek (Maksymalna Uwaga Widza)</option>
-                    <option value="top">Górna (Dla specyficznych kadrów)</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Live Interactive Word-by-Word Preview Widget */}
-              <div className="mt-3 bg-gradient-to-br from-slate-900 via-black to-slate-950 border border-slate-800 rounded-xl p-4 overflow-hidden relative shadow-inner">
-                <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono mb-2">
-                  <span className="flex items-center gap-1.5 text-yellow-400">
-                    <Sparkles className="w-3.5 h-3.5" /> Podgląd efektu na żywo (Montserrat-Bold + libass):
-                  </span>
-                  <span className="uppercase text-[10px] bg-slate-800 px-2 py-0.5 rounded text-slate-300">
-                    Styl: {captionAnimation}
-                  </span>
-                </div>
-
-                <div className="py-4 px-2 min-h-[64px] flex items-center justify-center text-center">
-                  {captionAnimation === 'single-word' ? (
-                    <motion.div
-                      key={previewWordIndex}
-                      initial={{ scale: 0.8, opacity: 0 }}
-                      animate={{ scale: 1.15, opacity: 1 }}
-                      transition={{ duration: 0.15 }}
-                      className="font-extrabold text-2xl tracking-wider uppercase px-4 py-1.5 rounded-lg bg-black/80 border-2"
-                      style={{
-                        color: highlightColor === 'yellow' ? '#FFD700' : highlightColor === 'lime' ? '#00FF66' : highlightColor === 'cyan' ? '#00E5FF' : highlightColor === 'red' ? '#FF3366' : '#FFFFFF',
-                        borderColor: highlightColor === 'yellow' ? '#FFD700' : highlightColor === 'lime' ? '#00FF66' : highlightColor === 'cyan' ? '#00E5FF' : highlightColor === 'red' ? '#FF3366' : '#FFFFFF',
-                        textShadow: '0 2px 8px rgba(0,0,0,0.9)'
-                      }}
-                    >
-                      {previewWords[previewWordIndex]}
-                    </motion.div>
-                  ) : captionAnimation === 'word-by-word' ? (
-                    <div className="flex flex-wrap items-center justify-center gap-2 font-extrabold text-base tracking-wide uppercase">
-                      {previewWords.map((w, idx) => {
-                        const isCurrent = idx === previewWordIndex;
-                        return (
-                          <span
-                            key={idx}
-                            className={`transition-all duration-150 rounded px-1.5 py-0.5 ${
-                              isCurrent
-                                ? 'scale-110 shadow-lg font-black'
-                                : 'text-slate-200 opacity-80'
-                            }`}
-                            style={{
-                              color: isCurrent
-                                ? highlightColor === 'yellow' ? '#FFD700' : highlightColor === 'lime' ? '#00FF66' : highlightColor === 'cyan' ? '#00E5FF' : highlightColor === 'red' ? '#FF3366' : '#FFFFFF'
-                                : '#FFFFFF',
-                              backgroundColor: isCurrent ? 'rgba(0, 0, 0, 0.75)' : 'transparent',
-                              textShadow: isCurrent ? '0 0 10px rgba(0,0,0,0.8)' : '0 1px 3px rgba(0,0,0,0.9)'
-                            }}
-                          >
-                            {w}
-                          </span>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="font-extrabold text-lg text-white bg-black/70 px-4 py-1.5 rounded-lg tracking-wide uppercase border border-slate-700">
-                      CZY WIESZ, ŻE TEN FORMAT ZDOBYWA MILIONY WYŚWIETLEŃ?
-                    </div>
-                  )}
-                </div>
-              </div>
             </div>
           </div>
 
