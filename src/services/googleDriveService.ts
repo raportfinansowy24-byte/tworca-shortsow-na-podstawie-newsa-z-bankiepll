@@ -276,7 +276,7 @@ export const createDriveFolder = async (folderName: string, parentId?: string): 
 /**
  * Find or create dedicated application folder in Drive
  */
-export const getOrCreateAppFolder = async (folderName = 'Raport Finansowy 24 - Shorts'): Promise<string> => {
+export const getOrCreateAppFolder = async (folderName = 'shorts-bot'): Promise<string> => {
   const token = await getAccessToken();
   if (!token) throw new Error('Brak autoryzacji Google Drive.');
 
@@ -292,6 +292,16 @@ export const getOrCreateAppFolder = async (folderName = 'Raport Finansowy 24 - S
 
   const created = await createDriveFolder(folderName);
   return created.id;
+};
+
+/**
+ * Returns web direct link to Google Drive folder
+ */
+export const getAppFolderUrl = (folderId?: string): string => {
+  if (folderId) {
+    return `https://drive.google.com/drive/folders/${folderId}`;
+  }
+  return 'https://drive.google.com/drive/my-drive';
 };
 
 /**

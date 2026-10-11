@@ -163,14 +163,14 @@ export const MakeHttpConnector: React.FC = () => {
       trimStart: 0,
       trimEnd: 4,
       captionStyle: {
-        fontSize: 48,
+        fontSize: 68,
         fontColor: 'white',
         outlineColor: 'black',
-        outlineWidth: 5,
+        outlineWidth: 8,
         boxColor: 'black@0.6',
-        position: 'bottom',
-        animation: 'word-by-word',
-        highlightColor: 'yellow'
+        position: 'center',
+        animation: 'single-word',
+        highlightColor: 'red'
       }
     },
     {
@@ -363,12 +363,14 @@ export const MakeHttpConnector: React.FC = () => {
       trimStart: 0,
       trimEnd: 4,
       captionStyle: {
-        fontSize: 40,
+        fontSize: 68,
         fontColor: 'white',
         outlineColor: 'black',
-        outlineWidth: 3,
+        outlineWidth: 8,
         boxColor: 'black@0.6',
-        position: 'bottom'
+        position: 'center',
+        animation: 'single-word',
+        highlightColor: 'red'
       }
     };
     setScenes([...scenes, newScene]);

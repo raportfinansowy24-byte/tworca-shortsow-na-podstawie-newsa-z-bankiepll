@@ -214,7 +214,7 @@ export const GoogleDriveManager: React.FC<GoogleDriveManagerProps> = ({
     setExportProgress(10);
     try {
       // Find or create dedicated folder
-      const targetFolderId = await getOrCreateAppFolder('Raport Finansowy 24 - Shorts');
+      const targetFolderId = await getOrCreateAppFolder('shorts-bot');
       const filename = job.outputFilename || `Short_Video_${job.id.slice(0, 8)}.mp4`;
 
       const result = await exportVideoUrlToDrive({
@@ -232,7 +232,7 @@ export const GoogleDriveManager: React.FC<GoogleDriveManagerProps> = ({
       onToast?.(
         'success',
         'Zapisano na Dysku Google!',
-        `Film "${result.name}" został pomyślnie zapisany w folderze "Raport Finansowy 24 - Shorts".`
+        `Film "${result.name}" został pomyślnie zapisany w folderze "shorts-bot".`
       );
       fetchDriveContent();
     } catch (err: any) {
@@ -378,7 +378,7 @@ export const GoogleDriveManager: React.FC<GoogleDriveManagerProps> = ({
               Szybki Zapis Wyrenderowanych Wideo na Dysk Google
             </h3>
             <p className="text-xs text-slate-400 mt-0.5">
-              Wyślij gotowe pliki MP4 z ostatnich zadań do dedykowanego folderu <strong>Raport Finansowy 24 - Shorts</strong> w Twojej chmurze.
+              Wyślij gotowe pliki MP4 z ostatnich zadań do dedykowanego folderu <strong>shorts-bot</strong> w Twojej chmurze.
             </p>
           </div>
 

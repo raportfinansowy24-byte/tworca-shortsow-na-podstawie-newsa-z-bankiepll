@@ -1,6 +1,6 @@
 {
-  "summary":  "Plan wdrożenia autonomicznej selekcji newsów z Bankier.pl przez Gemini pod kątem maksymalnej viralowości i konwersji do produktów bankowych (kredyty, konta) w 100% w tle bez ingerencji użytkownika.",
-  "updatedAt":  "2026-10-09T23:12:14.178842045Z",
+  "summary":  "Plan wdrożenia sztywnego 18-sekundowego formatu wideo Shorts dla autonomicznego generatora RaportFinansowy24: skrócenie objętości tekstu generowanego przez Gemini (12-14 słów na 9-sekundową scenę), automatyczne dopasowywanie tempa lektora TTS oraz twardy limit 18.0s w pipeline montażowym FFmpeg.",
+  "updatedAt":  "2026-10-10T17:36:34.534493391Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

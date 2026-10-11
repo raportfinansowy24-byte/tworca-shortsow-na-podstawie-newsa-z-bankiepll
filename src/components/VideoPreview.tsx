@@ -107,7 +107,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
         }
       }
 
-      const folderId = await getOrCreateAppFolder('Raport Finansowy 24 - Shorts');
+      const folderId = await getOrCreateAppFolder('shorts-bot');
       const filename = title ? (title.endsWith('.mp4') ? title : `${title}.mp4`) : `Short_Video_${Date.now()}.mp4`;
 
       const result = await exportVideoUrlToDrive({
@@ -120,7 +120,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
       if (result.webViewLink) {
         setUploadedDriveUrl(result.webViewLink);
       }
-      onToast?.('success', 'Zapisano na Dysku Google!', `Plik "${result.name}" został pomyślnie zapisany w Google Drive.`);
+      onToast?.('success', 'Zapisano w folderze shorts-bot!', `Film "${result.name}" został pomyślnie przesłany do folderu shorts-bot na Dysku Google.`);
     } catch (err: any) {
       console.error('Błąd eksportu do Google Drive:', err);
       onToast?.('error', 'Błąd zapisu do Google Drive', err.message || 'Wystąpił problem podczas eksportu.');
@@ -585,11 +585,11 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
               href={uploadedDriveUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="py-2 px-3 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/30 text-xs font-semibold transition flex items-center gap-1.5"
-              title="Otwórz plik na Dysku Google"
+              className="py-2 px-3 rounded-xl bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30 text-xs font-semibold transition flex items-center gap-1.5"
+              title="Otwórz plik w folderze shorts-bot na Dysku Google"
             >
-              <Check className="w-3.5 h-3.5" />
-              <span>Dysk Google</span>
+              <Check className="w-3.5 h-3.5 text-emerald-400" />
+              <span>W folderze shorts-bot</span>
               <ExternalLink className="w-3 h-3" />
             </a>
           ) : (
@@ -597,18 +597,18 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
               type="button"
               onClick={handleExportToGoogleDrive}
               disabled={isUploadingToDrive}
-              className="py-2 px-3 rounded-xl bg-sky-600/90 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-sky-950"
-              title="Zapisz ten film wideo bezpośrednio na swoim Dysku Google"
+              className="py-2 px-3 rounded-xl bg-blue-600/90 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-blue-950"
+              title="Zapisz ten film wideo bezpośrednio do folderu shorts-bot na Dysku Google"
             >
               {isUploadingToDrive ? (
                 <>
                   <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  <span>Dysk ({driveUploadProgress}%)</span>
+                  <span>shorts-bot ({driveUploadProgress}%)</span>
                 </>
               ) : (
                 <>
                   <Cloud className="w-3.5 h-3.5" />
-                  <span>Dysk Google</span>
+                  <span>Do folderu shorts-bot</span>
                 </>
               )}
             </button>

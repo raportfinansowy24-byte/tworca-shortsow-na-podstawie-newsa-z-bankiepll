@@ -1524,12 +1524,14 @@ function generateWordByWordAss(
   // Styl: single-word na sztywno czerwone (format ASS: &HAABBGGRR - nasycona czerwień)
   const highlightColor = '&H002222FF&'; // Czysty, wyrazisty czerwony
 
-  // Wymuszenie stylu 'single-word' na stale (Montserrat-Bold + libass, czerwone podswietlenie)
-  const position = options.position || 'bottom';
-  const alignment = position === 'center' ? 5 : position === 'top' ? 8 : 2;
+  // Wymuszenie wyświetlania na środku (center) z zachowaniem proporcji
+  const position = options.position || 'center';
+  const alignment = position === 'bottom' ? 2 : position === 'top' ? 8 : 5; // 5 = centralnie w pionie i poziomie
   const marginV = position === 'center' ? 0 : position === 'top' ? 160 : 220;
-  const fontSize = options.fontSize || 56;
-  const outlineWidth = options.outlineWidth || 6;
+  // Powiększenie z zachowaniem idealnych proporcji (bazowy rozmiar 70 zamiast 56, obrys 8 zamiast 6)
+  const baseSize = options.fontSize || 56;
+  const fontSize = baseSize >= 64 ? baseSize : Math.round(baseSize * 1.25);
+  const outlineWidth = options.outlineWidth ? Math.round(options.outlineWidth * 1.25) : Math.round(fontSize * 0.12);
 
   let totalChars = 0;
   words.forEach((w) => { totalChars += Math.max(w.length, 2); });
@@ -1544,12 +1546,12 @@ function generateWordByWordAss(
     wordTimings.push({ word: w, start, end });
   });
 
-  // Styl: single-word na sztywno czerwone (1 wyraz na ekranie z dynamicznym powiekszeniem)
+  // Styl: single-word na środku z powiększeniem zachowującym proporcje 1:1 (\fscx130\fscy130)
   let dialogues = '';
   wordTimings.forEach(({ word, start, end }) => {
     const s = formatAssTime(start);
     const e = formatAssTime(end);
-    dialogues += `Dialogue: 0,${s},${e},HormoziStyle,,0,0,0,,{\\c${highlightColor}\\fscx126\\fscy126\\b1}${word.toUpperCase()}\\N\n`;
+    dialogues += `Dialogue: 0,${s},${e},HormoziStyle,,0,0,0,,{\\c${highlightColor}\\fscx130\\fscy130\\b1}${word.toUpperCase()}\\N\n`;
   });
 
   return `[Script Info]
@@ -1796,9 +1798,9 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
       const capStyle = scene.captionStyle || {};
       const animMode = capStyle.animation || defaultCaptionAnim;
       const highlightCol = capStyle.highlightColor || defaultHighlightCol;
-      const position = capStyle.position || 'bottom';
-      const fontSize = capStyle.fontSize || (targetWidth > 1000 ? 54 : 44);
-      const outlineWidth = capStyle.outlineWidth ?? 6;
+      const position = capStyle.position || 'center';
+      const fontSize = capStyle.fontSize || (targetWidth > 1000 ? 78 : 68);
+      const outlineWidth = capStyle.outlineWidth ?? Math.round(fontSize * 0.12);
 
       let assSubtitleFilter = '';
       const sceneAssPath = path.join(jobTempDir, `scene_sub_${sceneNum}.ass`);
@@ -2288,11 +2290,11 @@ function normalizeSceneItem(sc: any, idx: number, totalCount: number): SceneInpu
     videoUrl,
     duration,
     captionStyle: {
-      position: capStyle.position || sc.position || 'bottom',
-      animation: capStyle.animation || sc.animation || 'word-by-word',
-      highlightColor: capStyle.highlightColor || sc.highlightColor || 'yellow',
-      fontSize: capStyle.fontSize || sc.fontSize || 54,
-      outlineWidth: capStyle.outlineWidth || sc.outlineWidth || 6,
+      position: capStyle.position || sc.position || 'center',
+      animation: capStyle.animation || sc.animation || 'single-word',
+      highlightColor: capStyle.highlightColor || sc.highlightColor || 'red',
+      fontSize: capStyle.fontSize || sc.fontSize || 68,
+      outlineWidth: capStyle.outlineWidth || sc.outlineWidth || 8,
       outlineColor: 'black',
       boxColor: 'black@0.6'
     },
@@ -2428,12 +2430,13 @@ function buildSmartFallbackScript(
         thumbnailUrl: CURATED_MOTION_CLIPS_POOL[videoIndex].thumbnailUrl,
         source: 'curated' as const,
         captionStyle: {
-          position: 'bottom' as const,
-          animation: 'word-by-word' as const,
-          highlightColor: 'yellow' as const,
-          fontColor: 'yellow',
+          position: 'center' as const,
+          animation: 'single-word' as const,
+          highlightColor: 'red' as const,
+          fontColor: 'white',
           outlineColor: 'black',
-          outlineWidth: 5,
+          fontSize: 68,
+          outlineWidth: 8,
           boxColor: 'black@0.6'
         }
       },
@@ -2446,12 +2449,13 @@ function buildSmartFallbackScript(
         thumbnailUrl: CURATED_MOTION_CLIPS_POOL[(videoIndex + 1) % CURATED_MOTION_CLIPS_POOL.length].thumbnailUrl,
         source: 'curated' as const,
         captionStyle: {
-          position: 'bottom' as const,
-          animation: 'word-by-word' as const,
-          highlightColor: 'yellow' as const,
+          position: 'center' as const,
+          animation: 'single-word' as const,
+          highlightColor: 'red' as const,
           fontColor: 'white',
           outlineColor: 'black',
-          outlineWidth: 5,
+          fontSize: 68,
+          outlineWidth: 8,
           boxColor: 'black@0.6'
         }
       }
@@ -2495,12 +2499,13 @@ function buildSmartFallbackScript(
       searchKeyword: theme,
       videoUrl: CURATED_MOTION_CLIPS_POOL[videoIndex].url,
       captionStyle: {
-        position: 'bottom' as const,
-        animation: 'word-by-word' as const,
-        highlightColor: 'yellow' as const,
+        position: 'center' as const,
+        animation: 'single-word' as const,
+        highlightColor: 'red' as const,
         fontColor: 'white',
         outlineColor: 'black',
-        outlineWidth: 5,
+        fontSize: 68,
+        outlineWidth: 8,
         boxColor: 'black@0.6'
       }
     };
@@ -2536,12 +2541,13 @@ function buildSmartFallbackScript(
       searchKeyword: theme,
       videoUrl: CURATED_MOTION_CLIPS_POOL[(videoIndex + idx) % CURATED_MOTION_CLIPS_POOL.length].url,
       captionStyle: {
-        position: 'bottom' as const,
-        animation: 'word-by-word' as const,
-        highlightColor: 'yellow' as const,
-        fontColor: idx === 0 ? 'yellow' : 'white',
+        position: 'center' as const,
+        animation: 'single-word' as const,
+        highlightColor: 'red' as const,
+        fontColor: idx === 0 ? 'red' : 'white',
         outlineColor: 'black',
-        outlineWidth: 5,
+        fontSize: 68,
+        outlineWidth: 8,
         boxColor: 'black@0.6'
       }
     };
@@ -3016,7 +3022,7 @@ function deriveAiViralDecisions(
     sceneCount: 2,
     resolution: '720x1280',
     musicMood: 'Tech House Dynamic Beat (-70% ducking pod mowę)',
-    explanation: `SI dobrała profil "${optimalVoice}" (tempo ${voiceSpeed}x), styl napisów "single-word na sztywno czerwone" (Montserrat-Bold + libass) oraz 2 sceny 18s dla maksymalnej retencji algorytmu Shorts.`
+    explanation: `SI dobrała profil "${optimalVoice}" (tempo ${voiceSpeed}x), styl napisów "single-word czerwone na środku ekranu, powiększone" (Montserrat-Bold + libass) oraz 2 sceny 18s dla maksymalnej retencji algorytmu Shorts.`
   };
 }
 
@@ -3269,12 +3275,13 @@ ${autonomousPromptInstructions}`;
             pexelsId: resolved.pexelsId,
             searchKeyword: targetKeyword,
             captionStyle: sc.captionStyle || {
-              position: 'bottom',
-              animation: 'word-by-word',
-              highlightColor: aiDecisions.highlightColor,
-              fontColor: idx === 0 ? aiDecisions.highlightColor : 'white',
+              position: 'center',
+              animation: 'single-word',
+              highlightColor: 'red',
+              fontColor: 'white',
               outlineColor: 'black',
-              outlineWidth: 5,
+              fontSize: 68,
+              outlineWidth: 8,
               boxColor: 'black@0.6'
             }
           });
@@ -3449,12 +3456,13 @@ Wymagania JSON:
             photographerUrl: resolved.photographerUrl,
             pexelsId: resolved.pexelsId,
             captionStyle: {
-              position: 'bottom' as const,
-              animation: 'word-by-word' as const,
-              highlightColor: 'yellow' as const,
-              fontColor: idx === 0 ? 'yellow' : 'white',
+              position: 'center' as const,
+              animation: 'single-word' as const,
+              highlightColor: 'red' as const,
+              fontColor: 'white',
               outlineColor: 'black',
-              outlineWidth: 5,
+              fontSize: 68,
+              outlineWidth: 8,
               boxColor: 'black@0.6'
             }
           });
@@ -3498,12 +3506,13 @@ Wymagania JSON:
         searchKeyword: 'stock market charts graph',
         videoUrl: CURATED_MOTION_CLIPS_POOL[0].url,
         captionStyle: {
-          position: 'bottom' as const,
-          animation: 'word-by-word' as const,
-          highlightColor: 'yellow' as const,
+          position: 'center' as const,
+          animation: 'single-word' as const,
+          highlightColor: 'red' as const,
           fontColor: 'white',
           outlineColor: 'black',
-          outlineWidth: 5,
+          fontSize: 68,
+          outlineWidth: 8,
           boxColor: 'black@0.6'
         }
       }],
@@ -3539,12 +3548,13 @@ Wymagania JSON:
     searchKeyword: 'tech cyber nature',
     videoUrl: CURATED_MOTION_CLIPS_POOL[idx % CURATED_MOTION_CLIPS_POOL.length].url,
     captionStyle: {
-      position: 'bottom' as const,
-      animation: 'word-by-word' as const,
-      highlightColor: 'yellow' as const,
-      fontColor: idx === 0 ? 'yellow' : 'white',
+      position: 'center' as const,
+      animation: 'single-word' as const,
+      highlightColor: 'red' as const,
+      fontColor: idx === 0 ? 'red' : 'white',
       outlineColor: 'black',
-      outlineWidth: 5,
+      fontSize: 68,
+      outlineWidth: 8,
       boxColor: 'black@0.6'
     }
   }));

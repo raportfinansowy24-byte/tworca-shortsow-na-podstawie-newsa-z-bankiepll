@@ -355,13 +355,13 @@ export const StockFootageGrid: React.FC<StockFootageGridProps> = ({
                   </div>
                 </div>
 
-                {/* Subtitle preview strip at the bottom of the thumbnail */}
-                <div className="absolute bottom-2 left-2 right-2 p-2 rounded-xl bg-black/85 backdrop-blur-md border border-slate-700/60 shadow-lg pointer-events-none">
-                  <div className="text-[10px] font-semibold text-yellow-300 uppercase tracking-wider mb-0.5 flex items-center gap-1">
-                    <Sparkles className="w-2.5 h-2.5 text-amber-400" />
-                    Wypalane napisy Montserrat:
+                {/* Subtitle preview in the center of the thumbnail */}
+                <div className="absolute inset-x-2 top-1/2 -translate-y-1/2 p-2 rounded-xl bg-black/85 backdrop-blur-md border border-red-500/40 shadow-xl pointer-events-none text-center">
+                  <div className="text-[9px] font-semibold text-red-400 uppercase tracking-wider mb-0.5 flex items-center justify-center gap-1">
+                    <Sparkles className="w-2.5 h-2.5 text-red-400" />
+                    Montserrat-Bold (Środek):
                   </div>
-                  <div className="text-xs font-bold text-white leading-tight line-clamp-2">
+                  <div className="text-xs font-black text-red-500 uppercase tracking-wider line-clamp-2 drop-shadow-sm font-['Montserrat']">
                     "{scene.subtitles}"
                   </div>
                 </div>
@@ -526,8 +526,12 @@ export const StockFootageGrid: React.FC<StockFootageGridProps> = ({
                 />
 
                 {/* Subtitle simulation overlay */}
-                <div className="absolute bottom-4 left-3 right-3 p-3 rounded-xl bg-black/80 backdrop-blur-md border border-slate-700/60 pointer-events-none text-center">
-                  <div className="text-xs font-black text-yellow-300 uppercase tracking-wide">
+                <div className="absolute inset-x-4 top-1/2 -translate-y-1/2 p-3.5 rounded-2xl bg-black/85 backdrop-blur-md border border-red-500/50 pointer-events-none text-center shadow-2xl">
+                  <div className="text-sm font-semibold text-red-400 uppercase tracking-wider mb-1 flex items-center justify-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-red-400" />
+                    Wypalane napisy na środku (single-word):
+                  </div>
+                  <div className="text-base sm:text-xl font-black text-red-500 uppercase tracking-wider drop-shadow-md font-['Montserrat']">
                     "{previewClip.subtitles}"
                   </div>
                 </div>

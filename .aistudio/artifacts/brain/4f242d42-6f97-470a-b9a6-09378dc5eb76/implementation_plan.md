@@ -1,46 +1,78 @@
-# Plan Wdrożenia: Autonomiczna Selekcja Najbardziej Wirusowego Newsa przez Gemini AI
+# Sztywny Limit 18 Sekund dla Autonomicznego Generatora Wideo Shorts
 
-## Cel biznesowy i założenia
-- **Cel:** Zapewnienie, że autonomiczny generator wideo RaportFinansowy24 wybiera spośród wszystkich najświeższych artykułów z portalu Bankier.pl ten o **największym potencjale viralowym** oraz **najwyższej konwersji do produktów finansowych** (kredyty gotówkowe, hipoteki, konta osobiste).
-- **Tryb działania:** 100% automatyczny w tle — bez konieczności ręcznego wyboru, bez zaśmiecania widoku listami rankingowymi.
-- **Kryterium priorytetowe:** Zgodnie z decyzją użytkownika: *Maksymalna konwersja do kredytów i kont bankowych (CPA 42–200 €)* pod kątem celu **10 000 euro miesięcznie czystego zysku**.
+Plan wdrożenia wymuszenia równego 18-sekundowego czasu trwania (2 sceny po dokładnie 9.0s) dla autonomicznych wydań wideo Shorts portalu **raport-finansowy24.pl**.
 
----
+### User Review & Critical Decisions
 
-## 1. Analiza stanu obecnego
-- Obecny mechanizm w `server.ts` (`executeAutonomousRun`) pobiera najświeższe artykuły z RSS Bankier.pl i wybiera pierwszy nieprzetworzony artykuł (`articles.find(...) || articles[0]`).
-- Mamy zaimplementowany algorytm oceny sentymentu i wiralowości (`calculateViralityScore`), ale oceniał on wybrany artykuł post-factum lub w trybie pojedynczym.
-- Brakuje etapu **komparatywnej selekcji wieloartykułowej przez Gemini**, w którym model analizuje całą pulę najnowszych wiadomości i wyłania bezwzględnego lidera.
+> [!IMPORTANT]
+> Użytkownik potwierdził wybór: **Sztywne 18 sekund (skrócenie zdań i dopasowanie tempa lektora)**.
 
----
-
-## 2. Zakres zmian technicznych
-
-### Krok 1: Silnik Selekcji Wielonewsa w Gemini (`server.ts`)
-1. Implementacja funkcji backendowej `selectMostViralBankierArticleWithGemini`:
-   - Wejście: lista 10–15 najświeższych nieprzetworzonych newsów z Bankier.pl.
-   - Analiza z użyciem Gemini API (strukturyzowany prompt JSON):
-     - **Skala grupy docelowej:** tematy dotyczące milionów Polaków (stopy RPP, raty kredytów, ceny mieszkań, podatki) mają priorytet nad wąskimi niszami rynkowymi.
-     - **Potencjał zatrzymania uwagi (Hook & Retention):** natychmiastowe wybicie ze scrollowania w pierwszych 3 sekundach.
-     - **Wartość konwersji:** bezpośredni lejek do porównywarek kredytów i kont portalu `raport-finansowy24.pl` (najwyższe stawki prowizji CPA/CPS).
-   - Odpowiedź: wybrany artykuł TOP 1, wyliczony `ViralityScore` oraz uzasadnienie wyboru.
-2. Zabezpieczenie odpornościowe (Zero-Failure Fallback):
-   - W przypadku chwilowej niedostępności API Gemini lub limitów, system automatycznie stosuje lokalny algorytm heurystyczny rankingujący po słowach kluczowych i sentymencie, gwarantując ciągłość pracy harmonogramu 4x/dobę.
-
-### Krok 2: Integracja z Autonomicznym Harmonogramem (`executeAutonomousRun`)
-1. Zastąpienie mechanizmu pobierania pierwszego artykułu wywołaniem selektora Gemini.
-2. Oznaczenie wybranego artykułu jako przetworzonego.
-3. Podpięcie wybranego artykułu jako `candidateArticle` z `candidateViralityScore` w punkcie kontrolnym `/api/autopilot/scheduler`.
-
-### Krok 3: Czystość Interfejsu (Pełny automat w tle)
-1. Zgodnie z wytyczną: *„Pełny automat w tle bez pokazywania rankingu”*.
-2. Interfejs pozostaje minimalistyczny:
-   - Wybrany przez Gemini news pojawia się automatycznie w sekcji zaplanowanego montażu wraz z punktacją i uzasadnieniem.
-   - Użytkownik nie musi przeglądać list, głosować ani zatwierdzać — system podejmuje decyzję samoczynnie.
+- **Wybrany czas trwania**: Równo 18.0 sekund (2 sceny x 9.0s).
+- **Strategia adaptacji**: 
+  1. Skrócenie limitu słów w promptach Gemini do max 12–14 słów na scenę 9s (tak, by odczyt liczb i skrótów nie przekraczał 8.5s).
+  2. Inteligentne tempo lektora (Edge TTS / ElevenLabs): jeśli lektor w scenie przekroczy 8.5s, tempo TTS jest automatycznie dynamicznie podbijane (np. do 1.25x–1.35x), aby zamknąć nagranie przed 9.0s.
+  3. Twardy limit sceny w FFmpeg: wyłączenie niekontrolowanego rozciągania sceny ponad 9.0s w trybie autonomicznym (`maxSceneDuration: 9.0s`, `totalDuration: 18.0s`).
 
 ---
 
-## 3. Plan testów i weryfikacji
-1. **Test wieloartykułowy:** Przetestowanie selektora na realnej paczce 10 artykułów z Bankier.pl za pomocą skryptu testowego i sprawdzenie, czy artykuł o stopach/kredytach jest poprawnie priorytetyzowany nad niszowymi komunikatami giełdowymi.
-2. **Test odporności fallbacku:** Zweryfikowanie działania w przypadku braku odpowiedzi API zewnętrznego.
-3. **Weryfikacja jakościowa:** Uruchomienie `npm run lint` oraz `npm run build` przed wdrożeniem.
+### 1. Overview & Core Concept
+
+- **Problem**: Ostatnie wideo trwało 29.43 sekundy, ponieważ `syncDurationWithVoice` automatycznie wydłużało kadry wideo do pełnego czasu trwania audio TTS, a Gemini wygenerowało zbyt długie zdania z liczbami i nazwami instytucji (14.7s na scenę).
+- **Rozwiązanie**: Wdrożenie trójstopniowego zabezpieczenia 18 sekund:
+  - **Krok 1 (Prompt AI)**: Ścisła dyscyplina słów w Gemini (maksymalnie 12–14 słów na scenę 1 i scenę 2).
+  - **Krok 2 (TTS Speed Calibration)**: Obliczenie czasu trwania wygenerowanego audio i ewentualne dynamiczne przyspieszenie tempa lektora, aby audio zawsze trwało poniżej 8.8s.
+  - **Krok 3 (FFmpeg Strict Cap)**: Sztywny clamp czasu trwania każdej sceny do `min(syncedDuration, 9.0s)`, gwarantujący, że film nigdy nie przekroczy 18.0 sekund.
+
+---
+
+### 2. User Experience & Visual Design
+
+- **Panel Auto-Pilot**:
+  - Wskaźnik formatu: `18.0s (Sztywny czas Shorts: 2x 9.0s)`.
+  - Wizualny badge: `⏱️ 18s Strict Mode (Automatyczna kompresja lektora)`.
+- **Historia wydań schedulera**:
+  - Każde nowe wygenerowane wideo w historii ma czas trwania równy `18.0s`.
+- **Napisy libass Montserrat-Bold**:
+  - Zachowanie centralnej pozycji (`Alignment: 5`) i powiększonego rozmiaru (68–70px, 130% proporcjonalnej skali) w stylu `single-word` na czerwono.
+
+---
+
+### 3. Key Product Decisions & Trade-Offs
+
+- **Dyscyplina tekstu vs Pełny wywód**:
+  - *Decyzja*: Skracamy zdania generowane przez Gemini do ultra-zwięzłych, dynamicznych zdań staccato (8 słów hook + 6 słów fakt w Scenie 1; 8 słów wniosek + 5 słów CTA w Scenie 2).
+  - *Dlaczego*: Krótkie zdania drastycznie zwiększają wskaźnik retencji (Retention Rate) w algorytmach YouTube Shorts i TikTok w pierwszych 3 sekundach.
+- **Dynamiczne tempo TTS vs Ucinanie audio**:
+  - *Decyzja*: Jeśli lektor czyta zdanie w 9.6s, silnik automatycznie regeneruje audio z przyspieszeniem `speed = 1.30x`, zamiast ucinać dźwięk.
+  - *Dlaczego*: Pełna zrozumiałość każdego słowa bez ucięć w połączeniu ze sztywnym czasem 18.0s.
+
+---
+
+### 4. Technical Architecture & Data Strategy
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                 Gemini AI Viral Script                      │
+│      Constraint: Dokładnie 12-14 słów na scenę 9s           │
+└──────────────────────────────┬──────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────┐
+│            Edge / ElevenLabs TTS Synthesis                  │
+│   Jeśli TTS > 8.7s ──► Regeneruj z wyższym tempem (do 1.35x)│
+└──────────────────────────────┬──────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────┐
+│          FFmpeg Scene Renderer (Strict 9.0s Cap)            │
+│         Scena 1: 9.0s + Scena 2: 9.0s = Dokładnie 18.0s     │
+└─────────────────────────────────────────────────────────────┘
+```
+
+- **Pliki objęte zmianami po akceptacji**:
+  - `server.ts`:
+    - Zaostrzenie promptu Gemini (`DOKŁADNIE 12 do 14 słów na scenę`, bez długich wyliczanek).
+    - Mechanizm `strictDurationCap: 9.0` w `processCombineScenesJob`.
+    - Auto-korekta tempa TTS, jeśli estymowany czas przekracza 8.7s.
+  - `src/components/AiViralAutoPilot.tsx`:
+    - Aktualizacja etykiet i podglądu gwarantowanego czasu trwania (18s).
