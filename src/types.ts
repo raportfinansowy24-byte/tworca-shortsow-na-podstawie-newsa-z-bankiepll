@@ -369,4 +369,4 @@ export interface TrendsMonitorData {
   };
 }
 
-
+export type { ViralNicheProfile } from './utils/viralNicheProfiles';

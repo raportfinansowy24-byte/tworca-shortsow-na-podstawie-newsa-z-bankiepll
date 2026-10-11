@@ -50,6 +50,7 @@ export const RenderingQueue: React.FC<RenderingQueueProps> = ({
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [liveStreamJobId, setLiveStreamJobId] = useState<string | null>(null);
   const [streamData, setStreamData] = useState<Record<string, JobStatusResponse>>({});
+  const [isConfirmingClear, setIsConfirmingClear] = useState<boolean>(false);
 
   const sseRef = useRef<EventSource | null>(null);
 
@@ -205,7 +206,12 @@ export const RenderingQueue: React.FC<RenderingQueueProps> = ({
   };
 
   const handleClearHistory = async () => {
-    if (!window.confirm('Czy na pewno chcesz wyczyszczać ukończoną historię renderowania?')) return;
+    if (!isConfirmingClear) {
+      setIsConfirmingClear(true);
+      setTimeout(() => setIsConfirmingClear(false), 3500);
+      return;
+    }
+    setIsConfirmingClear(false);
     try {
       const res = await fetch('/api/jobs', { method: 'DELETE' });
       if (res.ok) {
@@ -256,11 +262,19 @@ export const RenderingQueue: React.FC<RenderingQueueProps> = ({
             {jobs.length > 0 && (
               <button
                 onClick={handleClearHistory}
-                className="px-3 py-1.5 bg-rose-950/40 hover:bg-rose-900/50 text-rose-300 rounded-xl text-xs font-medium flex items-center gap-1.5 transition border border-rose-800/50 active:scale-95"
-                title="Wyczyszczenie historii z pamięci aplikacji"
+                className={`px-3 py-1.5 rounded-xl text-xs font-medium flex items-center gap-1.5 transition border active:scale-95 ${
+                  isConfirmingClear
+                    ? 'bg-rose-600 hover:bg-rose-500 text-white border-rose-400 font-bold shadow-lg shadow-rose-900/50 animate-pulse'
+                    : 'bg-rose-950/40 hover:bg-rose-900/50 text-rose-300 border-rose-800/50'
+                }`}
+                title={isConfirmingClear ? 'Kliknij ponownie, aby potwierdzić usunięcie ukończonych zadań' : 'Wyczyszczenie historii z pamięci aplikacji'}
               >
-                <Trash2 className="w-3.5 h-3.5 text-rose-400" />
-                Wyczyszczenie
+                {isConfirmingClear ? (
+                  <AlertCircle className="w-3.5 h-3.5 text-white" />
+                ) : (
+                  <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                )}
+                <span>{isConfirmingClear ? 'Potwierdź wyczyszczenie!' : 'Wyczyszczenie'}</span>
               </button>
             )}
           </div>

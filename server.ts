@@ -8,6 +8,7 @@ import { promisify } from 'util';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
 import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
+import { VIRAL_NICHE_PROFILES } from './src/utils/viralNicheProfiles';
 
 const execPromise = promisify(exec);
 
@@ -2197,6 +2198,15 @@ router.get('/health', async (req, res) => {
   });
 });
 
+// Viral Niches Catalog Endpoint (/api/viral-niches)
+router.get('/viral-niches', (req, res) => {
+  res.json({
+    success: true,
+    total: VIRAL_NICHE_PROFILES.length,
+    niches: VIRAL_NICHE_PROFILES
+  });
+});
+
 // Universal helper to extract scenes from multiple payload variations (Polish and English)
 function extractScenesFromPayload(body: any): any[] | null {
   if (!body) return null;
@@ -4341,10 +4351,10 @@ router.get('/stock/curated', (req, res) => {
 // Endpoint: Fetch Fresh Stock Footage for Multiple Scenes (/api/stock/fetch-scene-footage)
 router.post('/stock/fetch-scene-footage', async (req, res) => {
   try {
-    const { keywords = [], topic = '', avoidIds = [] } = req.body;
+    const { keywords = [], keyword = '', topic = '', avoidIds = [] } = req.body || {};
     const queries: string[] = Array.isArray(keywords) && keywords.length > 0
       ? keywords
-      : [topic || 'finance stock market', 'business corporate data'];
+      : (keyword ? [keyword] : [topic || 'finance stock market', 'business corporate data']);
 
     const usedPexelsIds: number[] = Array.isArray(avoidIds) ? [...avoidIds] : [];
     const resolved = [];
@@ -4370,7 +4380,10 @@ router.post('/stock/fetch-scene-footage', async (req, res) => {
 
     return res.json({
       success: true,
-      footage: resolved
+      footage: resolved,
+      videoUrl: resolved[0]?.videoUrl,
+      source: resolved[0]?.source,
+      count: resolved.length
     });
   } catch (error) {
     console.error('Error fetching scene footage:', error);
@@ -5508,7 +5521,7 @@ setInterval(() => {
 }, 30 * 1000);
 
 // API Endpoints for Autopilot Scheduler
-router.get('/autopilot/scheduler', async (req, res) => {
+router.get(['/autopilot/scheduler', '/autopilot/scheduler/status'], async (req, res) => {
   const nextRun = getNextScheduledRun(schedulerState.dailySlots);
   let candidateArticle: any = null;
   let candidateViralityScore: ViralityScore | null = null;

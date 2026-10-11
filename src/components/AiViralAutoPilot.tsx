@@ -64,6 +64,11 @@ import { StockFootageGrid } from './StockFootageGrid';
 import { NewsKeywordScenePairer } from './NewsKeywordScenePairer';
 import { TrendsMonitorPanel } from './TrendsMonitorPanel';
 import { ProfitMonitor } from './ProfitMonitor';
+import {
+  getNicheProfile,
+  buildNichePromptInstructions,
+  VIRAL_NICHE_PROFILES
+} from '../utils/viralNicheProfiles';
 
 interface AiViralAutoPilotProps {
   onLoadScriptToEditor: (scenes: Scene[], musicUrl?: string) => void;
@@ -76,37 +81,37 @@ const TOPIC_PRESETS = [
     icon: '📊',
     title: 'Rynki i Inwestycje',
     topic: 'Dlaczego 90% inwestorów traci kapitał ulegając emocjom na giełdzie',
-    niche: 'Finanse & Biznes'
+    niche: 'Finanse & Inwestycje'
   },
   {
     icon: '🧠',
     title: 'Kognitywistyka i Mózg',
     topic: 'Jak kora przedczołowa podejmuje kluczowe decyzje pod presją czasu',
-    niche: 'Psychologia'
+    niche: 'Psychologia & Decyzje'
   },
   {
     icon: '🤖',
     title: 'Architektura AI',
     topic: 'Rzeczywisty wpływ modeli autonomicznych na globalną produktywność i rynek pracy',
-    niche: 'AI & Tech'
+    niche: 'AI & Nowe Technologie'
   },
   {
     icon: '🏛️',
     title: 'Filozofia Strategii',
     topic: 'Zasada racjonalnej dyscypliny i chłodnej kalkulacji w czasach rynkowego chaosu',
-    niche: 'Strategia'
+    niche: 'Motywacja & Stoicyzm'
   },
   {
     icon: '💡',
     title: 'Przewaga Konkurencyjna',
     topic: 'Nawyki analityczne i asymetria informacji w budowaniu długoterminowej wartości',
-    niche: 'Finanse'
+    niche: 'Strategia & Biznes'
   },
   {
     icon: '🌍',
     title: 'Makroekonomia',
     topic: 'Globalne przepływy kapitałowe i mechanizmy inflacji w nowoczesnej gospodarce',
-    niche: 'Ekonomia'
+    niche: 'Makroekonomia & Rynki'
   }
 ];
 
@@ -178,6 +183,9 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
   const [resolution, setResolution] = useState('720x1280');
 
   const [showSwipeFileModal, setShowSwipeFileModal] = useState<boolean>(false);
+  const [showPromptCalibrationModal, setShowPromptCalibrationModal] = useState<boolean>(false);
+
+  const activeNicheProfile = getNicheProfile(niche);
 
   // Bankier.pl Live News State
   const [selectedBankierArticle, setSelectedBankierArticle] = useState<BankierArticle | null>(null);
@@ -2173,19 +2181,20 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">Kategoria / Nisza:</label>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center justify-between">
+                <span>Kategoria / Nisza Viral:</span>
+                <span className="text-[10px] text-amber-400 font-normal">Autokalibracja Promptu</span>
+              </label>
               <select
                 value={niche}
                 onChange={(e) => setNiche(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500"
               >
-                <option value="Psychologia">Psychologia</option>
-                <option value="Kosmos">Kosmos</option>
-                <option value="Motywacja">Motywacja & Stoicyzm</option>
-                <option value="AI & Tech">AI & Nowe Technologie</option>
-                <option value="Ciekawostki">Ciekawostki i Fakty</option>
-                <option value="Finanse">Finanse & Sukces</option>
-                <option value="Historia">Historia & Tajemnice</option>
+                {VIRAL_NICHE_PROFILES.map((p) => (
+                  <option key={p.id} value={p.name}>
+                    {p.icon} {p.name}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -2196,10 +2205,10 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
                 onChange={(e) => setSceneCount(Number(e.target.value))}
                 className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500"
               >
-                <option value={2}>⚡ 2 dynamiczne sceny Pexels (18s - Rekomendowane: 2x 9s + cięcie + CTA)</option>
+                <option value={4}>⚡ 4 sceny po 4.5s (18s - Rekomendowane: idealne tempo)</option>
+                <option value={2}>2 dynamiczne sceny (18s - 2x 9s)</option>
                 <option value={1}>1 scena (18s - Pojedynczy klip)</option>
                 <option value={3}>3 sceny (~18s - 3x 6s)</option>
-                <option value={4}>4 sceny (~18s)</option>
                 <option value={5}>5 scen (~20s)</option>
                 <option value={6}>6 scen (~24s)</option>
               </select>
@@ -2219,6 +2228,101 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
               </select>
             </div>
           </div>
+
+          {/* 🎯 Automatyczna Kalibracja Promptu Gemini pod Wybraną Niszę */}
+          {activeNicheProfile && (
+            <div className="bg-gradient-to-r from-purple-950/40 via-indigo-950/30 to-slate-900/60 border border-purple-500/30 rounded-2xl p-4 sm:p-5 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-purple-500/20 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <span className="text-2xl p-1.5 bg-purple-900/40 border border-purple-500/30 rounded-xl shadow-inner">
+                    {activeNicheProfile.icon}
+                  </span>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-sm font-bold text-white">
+                        Profil Niszy Viral: <span className="text-purple-300">{activeNicheProfile.name}</span>
+                      </h4>
+                      <span className="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded-full font-medium">
+                        ✓ Autoadaptacja Promptu Aktywna
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      System automatycznie kalibruje personę, słownictwo, tempo i styl wizualny w prompcie Gemini pod tę grupę odbiorców.
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowPromptCalibrationModal(!showPromptCalibrationModal)}
+                  className="inline-flex items-center gap-1.5 text-xs text-purple-300 hover:text-white bg-purple-900/40 hover:bg-purple-800/50 border border-purple-500/40 px-3 py-1.5 rounded-xl transition cursor-pointer self-start sm:self-auto"
+                >
+                  <Wand2 className="w-3.5 h-3.5 text-amber-400" />
+                  {showPromptCalibrationModal ? 'Ukryj instrukcje promptu' : 'Zobacz prompt Gemini dla niszy'}
+                  {showPromptCalibrationModal ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+
+              {/* 3-Kluczowe filary dopasowania */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
+                <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-2.5 space-y-1">
+                  <div className="text-[10px] text-purple-400 font-semibold uppercase tracking-wider flex items-center gap-1">
+                    <Target className="w-3 h-3" /> Grupa Odbiorców
+                  </div>
+                  <p className="text-slate-300 line-clamp-2 leading-relaxed">
+                    {activeNicheProfile.targetAudience}
+                  </p>
+                </div>
+
+                <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-2.5 space-y-1">
+                  <div className="text-[10px] text-indigo-400 font-semibold uppercase tracking-wider flex items-center gap-1">
+                    <Mic className="w-3 h-3" /> Ton & Persona Narratora
+                  </div>
+                  <p className="text-slate-300 line-clamp-2 leading-relaxed">
+                    {activeNicheProfile.editorialTone}
+                  </p>
+                </div>
+
+                <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-2.5 space-y-1">
+                  <div className="text-[10px] text-amber-400 font-semibold uppercase tracking-wider flex items-center gap-1">
+                    <TrendingUp className="w-3 h-3" /> Formuła Hooka (0-3s)
+                  </div>
+                  <p className="text-slate-300 line-clamp-2 leading-relaxed">
+                    {activeNicheProfile.hookFormula}
+                  </p>
+                </div>
+              </div>
+
+              {/* Sample Hook & Pexels style snippet */}
+              <div className="bg-slate-950/80 border border-purple-900/40 rounded-xl p-2.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded font-mono font-bold">
+                    HOOK
+                  </span>
+                  <span className="text-slate-200 italic">
+                    "{activeNicheProfile.sampleHookExample}"
+                  </span>
+                </div>
+                <div className="text-[11px] text-slate-400 flex items-center gap-1.5 shrink-0">
+                  <span className="text-slate-500">CTA:</span>
+                  <span className="text-purple-300 font-mono">raport-finansowy24.pl</span>
+                </div>
+              </div>
+
+              {/* Collapsible raw prompt directives injected to Gemini */}
+              {showPromptCalibrationModal && (
+                <div className="bg-slate-950 border border-purple-500/30 rounded-xl p-3 text-[11px] font-mono text-purple-200 space-y-2 max-h-60 overflow-y-auto">
+                  <div className="flex items-center justify-between text-slate-400 border-b border-slate-800 pb-1 font-sans text-xs font-semibold">
+                    <span>Instrukcje systemowe wstrzykiwane bezpośrednio do wywołania Gemini:</span>
+                    <span className="text-[10px] text-amber-400 font-mono">sceneCount: {sceneCount} | dur: {(18 / sceneCount).toFixed(1)}s</span>
+                  </div>
+                  <pre className="whitespace-pre-wrap leading-relaxed text-slate-300 font-mono text-[11px]">
+                    {buildNichePromptInstructions(activeNicheProfile, sceneCount, Number((18.0 / sceneCount).toFixed(1)))}
+                  </pre>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Advanced Features: Lektor AI & Animated Subtitles Panel */}
           <div className="space-y-4 pt-2 border-t border-slate-800">
