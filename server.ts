@@ -3090,6 +3090,14 @@ ${effectivePairedKeywords.map((kw, i) => `Scena #${i + 1}: "${kw}"`).join('\n')}
 Dla każdej sceny w polu "searchKeyword" MUSISZ użyć odpowiadającego jej wyżej podanego słowa kluczowego!`;
   }
 
+  const dataBoundaryInstructions = `
+ROZDZIEL DANE WEJŚCIOWE OD PÓL WYJŚCIOWYCH:
+- W sekcji DANE NEWSA ŹRÓDŁOWEGO Z BANKIER.PL pole Tytuł artykułu pochodzi z bankierArticle.title, a Podsumowanie / Fakty z bankierArticle.description (z fallbackiem do bankierArticle.summary). To są dane wejściowe, nie pola wyjściowe Gemini.
+- Opis/podsumowanie może być jedynie leadem lub skrótem RSS. Nie zakładaj, że otrzymałeś pełny artykuł, i nie dopowiadaj faktów spoza przekazanego kontekstu.
+- Wymagane wyjściowe pole JSON title wypełnij wartością cleanTopic jako neutralną, krótką nazwą roboczą Shorta; nie twórz tu osobnego tytułu promocyjnego, tytułu pod CTR ani clickbaitu.
+- Wyjściowe pole JSON description jest opisem Shorta z CTA i hashtagami; nie jest wejściowym opisem artykułu i nie potwierdza publikacji.
+- Zachowaj dokładny, płaski schemat JSON wymagany przez aplikację; nie dodawaj zagnieżdżonych obiektów input/output i nie zmieniaj nazw pól.
+`;
   const autonomousPromptInstructions = `
 AUTONOMICZNA SYNTEZA VIRALOWA NA PODSTAWIE NEWSA Z BANKIER.PL (GEMINI AI):
 Zero kompromisów. Działasz jako światowej klasy scenarzysta wiralowy i analityk finansowy (standard: Hormozi, Bloomberg Quicktake, Morning Brew, Vox), tworząc ultra-angażujące wideo w formacie pionowym 9:16 (YouTube Shorts, Instagram Reels, TikTok) dla portalu raport-finansowy24.pl.
@@ -3144,7 +3152,7 @@ TECHNIKI STORYTELLINGU O WYSOKIEJ RETENCJI DLA PIERWSZYCH 3 SEKUND (WYBIERZ NAJL
 
 WYMAGANY FORMAT JSON:
 {
-  "title": "Chwytliwy, zwięzły tytuł YouTube Shorts (maks 45 znaków)",
+  "title": "Neutralna, krótka nazwa robocza Shorta; nie tytuł promocyjny/CTR",
   "description": "#shorts #finanse #analiza #inwestowanie | Sprawdź na https://raport-finansowy24.pl",
   "hook": "Dokładne pierwsze zdanie ze sceny 1 (zoptymalizowany 3-sekundowy hook)",
   "scenes": [
@@ -3168,6 +3176,7 @@ WYMAGANY FORMAT JSON:
   try {
     const prompt = `Jesteś elitarnym twórcą viralowych formatów wideo dla portalu raport-finansowy24.pl (w stylu CNBC, Bloomberg, Hormozi).
 Stwórz wysoce merytoryczny, porywający scenariusz na 18-sekundowy film złożony z DOKŁADNIE ${count} dynamicznych scen (po ${sceneDuration}s każda, łącznie dokładnie 18.0 sekund) w języku: ${language} na temat: "${cleanTopic}" (Kategoria: ${niche}).
+${dataBoundaryInstructions}
 ${bankierNewsSection}
 ${pairedKeywordsInstruction}
 ${autonomousPromptInstructions}

@@ -144,6 +144,7 @@ export interface BankierArticle {
   title: string;
   link: string;
   description: string;
+  summary?: string;
   imageUrl?: string | null;
   pubDate: string;
   formattedDate?: string;
