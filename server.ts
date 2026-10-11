@@ -3031,7 +3031,7 @@ async function generateSmartOrGeminiViralScript({
   topic = 'Rynki kapitałowe a dyscyplina inwestycyjna',
   niche = 'Finanse & Biznes',
   language = 'Polski',
-  sceneCount = 2,
+  sceneCount = 4,
   articleContext,
   bankierArticle,
   pairedKeywords
@@ -3046,7 +3046,8 @@ async function generateSmartOrGeminiViralScript({
   viralHookFormula?: string;
 }) {
   const cleanTopic = (topic || 'Analiza rynkowa').trim();
-  const count = Math.min(Math.max(Number(sceneCount) || 2, 1), 6);
+  const count = Math.min(Math.max(Number(sceneCount) || 4, 3), 6);
+  const sceneDuration = Number((18.0 / count).toFixed(1));
 
   // Auto-pair keywords from news analysis if bankierArticle is provided but no manual pairedKeywords
   let effectivePairedKeywords = pairedKeywords;
@@ -3165,37 +3166,14 @@ WYMAGANY FORMAT JSON:
 }`;
 
   try {
-    const prompt = count === 2
-      ? `Jesteś elitarnym twórcą viralowych formatów wideo dla portalu raport-finansowy24.pl (w stylu CNBC, Bloomberg, Hormozi).
-Stwórz wysoce merytoryczny, porywający scenariusz na 18-sekundowy film (DOKŁADNIE 2 uzupełniające się sceny po 9 sekund każda, duration = 9.0s na scenę, łącznie 18 sekund filmu) w języku: ${language} na temat: "${cleanTopic}" (Kategoria: ${niche}).
+    const prompt = `Jesteś elitarnym twórcą viralowych formatów wideo dla portalu raport-finansowy24.pl (w stylu CNBC, Bloomberg, Hormozi).
+Stwórz wysoce merytoryczny, porywający scenariusz na 18-sekundowy film złożony z DOKŁADNIE ${count} dynamicznych scen (po ${sceneDuration}s każda, łącznie dokładnie 18.0 sekund) w języku: ${language} na temat: "${cleanTopic}" (Kategoria: ${niche}).
 ${bankierNewsSection}
 ${pairedKeywordsInstruction}
-${autonomousPromptInstructions}`
-      : count === 1
-      ? `Jesteś elitarnym twórcą viralowych formatów wideo i analitykiem finansowym (standard: Hormozi, Vox, Bloomberg Quicktake).
-Stwórz wysoce merytoryczny, gotowy scenariusz na 1 spójną, 18-sekundową scenę (DOKŁADNIE 1 scena, czas duration = 18.0) w języku: ${language} na temat: "${cleanTopic}" (Kategoria: ${niche}).
-${bankierNewsSection}
-${pairedKeywordsInstruction}
-ZASADY HIGH-RETENTION W PIERWSZYCH 3 SEKUNDACH (3-SECOND RETENTION HOOK):
-- Sekundy 0-3 (pierwsze 8-12 słów): Bezwzględny zakaz powitań i banałów. Natychmiastowy Pattern Interrupt / Contrarian Truth / Direct Risk dla portfela widza, zatrzymujący scrollowanie.
-- Sekundy 4-12: Twardy fakt lub szokująca liczba z newsa Bankier.pl + mechanizm przyczynowo-skutkowy.
-- Sekundy 13-16: Strategiczny wniosek dla widza.
-- Sekundy 17-18: Końcowe CTA: "Sprawdź na raport-finansowy24.pl." lub "Więcej danych na raport-finansowy24.pl."
-- Wymagane pola JSON:
-  1. "title": Poważny, chwytliwy tytuł analityczny w języku (${language})
-  2. "description": Krótki opis z hashtagami (#shorts #analiza #${niche.toLowerCase().replace(/\s+/g, '')} #wiedza | Sprawdź na https://raport-finansowy24.pl)
-  3. "hook": Dokładne pierwsze zdanie (zoptymalizowany 3-sekundowy hook)
-  4. "scenes": Tablica z DOKŁADNIE 1 obiektem:
-     - "subtitles": Dokładnie ta sama treść co "voiceover_text" (zostanie zsynchronizowana z lektorem i animowana słowo po słowie)
-     - "voiceover_text": Kompletna wypowiedź lektora (DOKŁADNIE 40 do 46 słów w języku ${language}, zakończona CTA do raport-finansowy24.pl).
-     - "duration": 18.0
-     - "searchKeyword": Precyzyjne, ultra-dynamiczne angielskie zapytanie dla wideo Pexels do pobrania ruchomej grafiki w tle (np. "stock exchange screen numbers flashing", "city traffic night hyperlapse", "cyber digital network glowing", "counting cash money bills dynamic")
-  5. "backgroundMusicUrl": "https://assets.mixkit.co/music/preview/mixkit-tech-house-vibes-130.mp3"
-  6. "audioVolume": 0.25`
-      : `Jesteś ekspertem analitycznych filmów YouTube Shorts / TikTok. Stwórz porywający, merytoryczny scenariusz na krótki wideo-short (9:16) w języku: ${language} na temat: "${cleanTopic}" (Kategoria: ${niche}).
-${bankierNewsSection}
-${pairedKeywordsInstruction}
-${autonomousPromptInstructions}`;
+${autonomousPromptInstructions}
+ZASADA WYSOKIEJ DOPASOWANIA WIZUALNEJ (PEXELS RELEVANCE):
+Dla każdej z ${count} scen musisz podać unikalne, bardzo konkretne angielskie zapytanie "searchKeyword" ściśle powiązane z dokładną treścią i słowami wypowiadanymi w tej scenie (np. jeśli mowa o inflacji i cenach w sklepach: "grocery store shopping cart inflation", jeśli o stopy procentowe NBP: "central bank press conference microphone", jeśli o giełdzie: "stock market trading floor traders red charts", jeśli o kryptowalutach: "cryptocurrency trading chart screen"). Unikaj ogólników!
+Każda scena w tablicy "scenes" musi mieć pole "duration": ${sceneDuration}.`;
 
     const geminiResult = await callGeminiWithCascade({
       contents: prompt,

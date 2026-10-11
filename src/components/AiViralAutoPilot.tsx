@@ -174,7 +174,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
   const [topic, setTopic] = useState('Dlaczego rynki finansowe nagradzają dyscyplinę, a nie emocje');
   const [niche, setNiche] = useState('Finanse & Biznes');
   const [targetLanguage, setTargetLanguage] = useState('Polski');
-  const [sceneCount, setSceneCount] = useState(2);
+  const [sceneCount, setSceneCount] = useState(4);
   const [resolution, setResolution] = useState('720x1280');
 
   const [showSwipeFileModal, setShowSwipeFileModal] = useState<boolean>(false);
