@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import https from 'https';
 import http from 'http';
-import { exec, spawn } from 'child_process';
+import { exec, spawn, ChildProcess } from 'child_process';
 import { promisify } from 'util';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
@@ -714,7 +714,7 @@ app.use('/fonts', express.static(FONTS_DIR));
 // In-memory job store & real-time progress structure
 interface Job {
   id: string;
-  status: 'queued' | 'processing' | 'completed' | 'failed';
+  status: 'queued' | 'processing' | 'completed' | 'failed' | 'cancelled';
   progress: number;
   step: string;
   frame?: number;
@@ -733,9 +733,73 @@ interface Job {
   updatedAt: string;
 }
 
+interface ActiveJobExecution {
+  jobId: string;
+  abortController: AbortController;
+  ffmpegProcess?: ChildProcess;
+  timeoutTimer?: NodeJS.Timeout;
+}
+
 const JOBS_DB_PATH = path.join(EXPORTS_DIR, 'jobs_history.json');
 const jobsStore = new Map<string, Job>();
+const activeJobExecutions = new Map<string, ActiveJobExecution>();
 const sseSubscribers = new Map<string, Set<express.Response>>();
+
+// Funkcja natychmiastowego bezpiecznego zatrzymania i ubicia procesu renderowania (kill-switch)
+function cancelAndTerminateJob(jobId: string, reason: string = 'Zadanie anulowane przez użytkownika'): boolean {
+  console.log(`[Job Manager] Żądanie przerwania i czyszczenia zadania ${jobId} (Powód: ${reason})`);
+  const active = activeJobExecutions.get(jobId);
+  const job = jobsStore.get(jobId);
+
+  let wasActive = false;
+
+  if (active) {
+    wasActive = true;
+    if (active.timeoutTimer) {
+      clearTimeout(active.timeoutTimer);
+    }
+    try {
+      active.abortController.abort();
+    } catch (err) {
+      console.warn(`[Job Manager] Błąd wywołania abortController:`, (err as Error).message);
+    }
+
+    if (active.ffmpegProcess) {
+      try {
+        console.log(`[Job Manager] Ubijanie procesu potomnego FFmpeg PID ${active.ffmpegProcess.pid} dla zadania ${jobId}...`);
+        active.ffmpegProcess.kill('SIGKILL');
+      } catch (err) {
+        console.warn(`[Job Manager] Nie udało się zabić procesu FFmpeg dla ${jobId}:`, (err as Error).message);
+      }
+    }
+    activeJobExecutions.delete(jobId);
+  }
+
+  // Usuń pliki tymczasowe w temp/${jobId}
+  const jobTempDir = path.join(TEMP_DIR, jobId);
+  if (fs.existsSync(jobTempDir)) {
+    try {
+      fs.rmSync(jobTempDir, { recursive: true, force: true });
+    } catch (err) {
+      console.warn(`[Job Manager] Błąd czyszczenia katalogu temp ${jobTempDir}:`, (err as Error).message);
+    }
+  }
+
+  if (job) {
+    updateJobProgress(
+      jobId,
+      {
+        status: 'failed',
+        step: `🛑 ${reason}`,
+        error: reason
+      },
+      `🛑 Zatrzymano zadanie renderowania: ${reason}`
+    );
+    return true;
+  }
+
+  return wasActive;
+}
 
 function saveJobsToDisk() {
   try {
@@ -760,6 +824,12 @@ function loadJobsFromDisk() {
       if (Array.isArray(jobsArray)) {
         jobsArray.forEach(job => {
           if (job && job.id) {
+            // Jeśli zadanie zostało przerwane przez restart serwera, oznacz jako przerwane
+            if (job.status === 'processing' || job.status === 'queued') {
+              job.status = 'failed';
+              job.step = 'Zadanie przerwane (restart środowiska)';
+              job.error = 'Proces renderowania został przerwany wskutek restartu serwera.';
+            }
             jobsStore.set(job.id, job);
           }
         });
@@ -911,8 +981,12 @@ function generateLocalFallbackVideo(destPath: string, duration = 6): Promise<voi
   });
 }
 
-// Utility to download a file from HTTP/HTTPS URL with download progress logging and fallback
-function downloadFile(fileUrl: string, destPath: string, jobId?: string): Promise<void> {
+// Utility to download a file from HTTP/HTTPS URL with resilient timeout, AbortSignal support, and local fallback
+function downloadFile(fileUrl: string, destPath: string, jobId?: string, abortSignal?: AbortSignal): Promise<void> {
+  if (abortSignal?.aborted) {
+    return Promise.reject(new Error('Pobieranie przerwane: zadanie zostało anulowane'));
+  }
+
   if (!fileUrl || typeof fileUrl !== 'string' || !fileUrl.startsWith('http')) {
     console.warn(`[Download] Nieprawidłowy adres URL: ${fileUrl}. Generowanie lokalnego tła...`);
     if (jobId) updateJobProgress(jobId, {}, 'Generowanie lokalnego tła wideo w 720p...');
@@ -920,63 +994,125 @@ function downloadFile(fileUrl: string, destPath: string, jobId?: string): Promis
   }
 
   return new Promise((resolve, reject) => {
-    const file = fs.createWriteStream(destPath);
-    const client = fileUrl.startsWith('https') ? https : http;
+    let isSettled = false;
+    let timer: NodeJS.Timeout | null = null;
+    let req: http.ClientRequest | null = null;
+    let fileStream: fs.WriteStream | null = null;
+
+    const cleanup = () => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      if (abortSignal) {
+        abortSignal.removeEventListener('abort', onAbort);
+      }
+    };
+
+    const safeFallback = (reason: string) => {
+      if (isSettled) return;
+      isSettled = true;
+      cleanup();
+      if (req) {
+        try { req.destroy(); } catch {}
+      }
+      if (fileStream) {
+        try { fileStream.close(); } catch {}
+      }
+      if (fs.existsSync(destPath)) {
+        try { fs.unlinkSync(destPath); } catch {}
+      }
+      console.warn(`[Download Fallback] ${reason} -> Użycie lokalnego tła wideo...`);
+      if (jobId) updateJobProgress(jobId, {}, `Użyto lokalnego tła wideo: ${reason}`);
+      generateLocalFallbackVideo(destPath, 6).then(resolve).catch(reject);
+    };
+
+    const onAbort = () => {
+      if (isSettled) return;
+      isSettled = true;
+      cleanup();
+      if (req) {
+        try { req.destroy(); } catch {}
+      }
+      if (fileStream) {
+        try { fileStream.close(); } catch {}
+      }
+      if (fs.existsSync(destPath)) {
+        try { fs.unlinkSync(destPath); } catch {}
+      }
+      reject(new Error('Pobieranie przerwane: zadanie zostało anulowane'));
+    };
+
+    if (abortSignal) {
+      abortSignal.addEventListener('abort', onAbort);
+    }
+
+    // Twardy limit czasu 15s na cały download pliku (zapobiega zawieszeniu serwera / CDN)
+    timer = setTimeout(() => {
+      safeFallback(`Przekroczono limit czasu 15s dla adresu ${fileUrl.slice(0, 60)}...`);
+    }, 15000);
 
     let parsedUrl: URL;
     try {
       parsedUrl = new URL(fileUrl);
     } catch {
-      return generateLocalFallbackVideo(destPath, 6).then(resolve).catch(reject);
+      return safeFallback('Niepoprawny format URL');
     }
+
+    const client = parsedUrl.protocol === 'https:' ? https : http;
+    fileStream = fs.createWriteStream(destPath);
 
     const headers: Record<string, string> = {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
       'Accept': '*/*'
     };
 
-    const request = client.get(fileUrl, { headers }, (response) => {
-      if (response.statusCode && response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
-        file.close();
-        if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
-        const redirectUrl = new URL(response.headers.location, fileUrl).toString();
-        return downloadFile(redirectUrl, destPath, jobId).then(resolve).catch(reject);
-      }
-
-      if (response.statusCode !== 200 && response.statusCode !== 206) {
-        file.close();
-        if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
-        console.warn(`[Download Warning] Remote server returned HTTP ${response.statusCode} for ${fileUrl}. Generating fallback video background...`);
-        if (jobId) {
-          updateJobProgress(jobId, {}, `Zewnętrzny serwer wideo zwrócił kod ${response.statusCode}. Wygenerowano eleganckie tło zastępcze.`);
+    try {
+      req = client.get(fileUrl, { headers }, (response) => {
+        if (response.statusCode && response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
+          cleanup();
+          if (fileStream) {
+            try { fileStream.close(); } catch {}
+          }
+          if (fs.existsSync(destPath)) {
+            try { fs.unlinkSync(destPath); } catch {}
+          }
+          const redirectUrl = new URL(response.headers.location, fileUrl).toString();
+          return downloadFile(redirectUrl, destPath, jobId, abortSignal).then(resolve).catch(reject);
         }
-        return generateLocalFallbackVideo(destPath, 6).then(resolve).catch(reject);
-      }
 
-      response.pipe(file);
+        if (response.statusCode !== 200 && response.statusCode !== 206) {
+          return safeFallback(`Zewnętrzny serwer zwrócił HTTP ${response.statusCode}`);
+        }
 
-      file.on('finish', () => {
-        file.close(() => resolve());
+        if (fileStream) {
+          response.pipe(fileStream);
+
+          fileStream.on('finish', () => {
+            if (isSettled) return;
+            isSettled = true;
+            cleanup();
+            fileStream?.close(() => resolve());
+          });
+
+          fileStream.on('error', (err) => {
+            safeFallback(`Błąd zapisu pliku: ${err.message}`);
+          });
+        }
       });
-    });
 
-    request.on('error', (err) => {
-      file.close();
-      if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
-      console.warn(`[Download Error] ${err.message}. Generating fallback video background...`);
-      if (jobId) {
-        updateJobProgress(jobId, {}, 'Nie można pobrać wideo z zewnętrznego URL. Użyto tła zastępczego.');
-      }
-      return generateLocalFallbackVideo(destPath, 6).then(resolve).catch(reject);
-    });
+      req.on('error', (err) => {
+        if (!isSettled) {
+          safeFallback(`Błąd sieci: ${err.message}`);
+        }
+      });
 
-    request.setTimeout(30000, () => {
-      request.destroy();
-      file.close();
-      if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
-      console.warn(`[Download Timeout] ${fileUrl}. Generating fallback video background...`);
-      return generateLocalFallbackVideo(destPath, 6).then(resolve).catch(reject);
-    });
+      req.setTimeout(12000, () => {
+        safeFallback('Brak odpowiedzi socketu przez 12s');
+      });
+    } catch (err) {
+      safeFallback(`Błąd inicjalizacji zapytania: ${(err as Error).message}`);
+    }
   });
 }
 
@@ -1674,6 +1810,31 @@ function runFfmpegWithProgress(
     const child = spawn('ffmpeg', fullArgs);
     let buffer = '';
 
+    const execution = activeJobExecutions.get(jobId);
+    if (execution) {
+      if (execution.abortController.signal.aborted) {
+        try { child.kill('SIGKILL'); } catch {}
+        return reject(new Error('Renderowanie przerwane: zadanie zostało anulowane przez użytkownika.'));
+      }
+      execution.ffmpegProcess = child;
+    }
+
+    // Watchdog: 65s na pojedyncze polecenie FFmpeg (zapobiega blokowaniu procesu)
+    const watchdogTimer = setTimeout(() => {
+      console.warn(`[FFmpeg Watchdog] Polecenie FFmpeg dla zadania ${jobId} przekroczyło limit 65s. Wymuszanie zamknięcia procesu PID ${child.pid}...`);
+      try {
+        child.kill('SIGKILL');
+      } catch {}
+      reject(new Error(`Przekroczono limit czasu 65s dla komendy FFmpeg w zadaniu ${jobId}`));
+    }, 65000);
+
+    const cleanupExecution = () => {
+      clearTimeout(watchdogTimer);
+      if (execution && execution.ffmpegProcess === child) {
+        execution.ffmpegProcess = undefined;
+      }
+    };
+
     child.stdout.on('data', (chunk: Buffer) => {
       buffer += chunk.toString();
       const lines = buffer.split('\n');
@@ -1730,10 +1891,12 @@ function runFfmpegWithProgress(
     });
 
     child.on('error', (err) => {
+      cleanupExecution();
       reject(err);
     });
 
     child.on('close', (code) => {
+      cleanupExecution();
       if (code === 0) {
         updateJobProgress(jobId, { progress: endProgress });
         resolve();
@@ -1751,6 +1914,19 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
 
   const jobTempDir = path.join(TEMP_DIR, jobId);
   fs.mkdirSync(jobTempDir, { recursive: true });
+
+  // Utwórz kontroler anulowania i globalny watchdog (180s max na całe wideo)
+  const abortController = new AbortController();
+  const totalJobTimeout = setTimeout(() => {
+    console.warn(`[Job Watchdog] Zadanie ${jobId} przekroczyło całkowity limit czasu 180s. Wymuszanie zatrzymania...`);
+    cancelAndTerminateJob(jobId, 'Przekroczono maksymalny czas renderowania (180s) - proces bezpiecznie przerwany.');
+  }, 180000);
+
+  activeJobExecutions.set(jobId, {
+    jobId,
+    abortController,
+    timeoutTimer: totalJobTimeout
+  });
 
   try {
     updateJobProgress(
@@ -1811,6 +1987,10 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
         `Przygotowywanie lektora TTS i napisów word-by-word dla sceny ${sceneNum}...`
       );
 
+      if (abortController.signal.aborted) {
+        throw new Error('Zadanie zostało anulowane przez użytkownika.');
+      }
+
       const rawAssetUrl = (scene as any).video_url || scene.videoUrl || (scene as any).url || scene.imageUrl;
       if (!rawAssetUrl) {
         throw new Error(`Scene ${sceneNum} is missing "video_url", "videoUrl" or "url".`);
@@ -1820,9 +2000,9 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
       const isImage = ['jpg', 'jpeg', 'png', 'webp', 'bmp'].includes(ext) || !!scene.imageUrl;
       const downloadedAssetPath = path.join(jobTempDir, `raw_scene_${sceneNum}.${isImage ? 'jpg' : 'mp4'}`);
 
-      // Download asset
+      // Download asset with abort signal
       console.log(`Downloading scene ${sceneNum}: ${rawAssetUrl}`);
-      await downloadFile(rawAssetUrl, downloadedAssetPath, jobId);
+      await downloadFile(rawAssetUrl, downloadedAssetPath, jobId, abortController.signal);
       updateJobProgress(jobId, {}, `Zapisano plik źródłowy: raw_scene_${sceneNum}.${isImage ? 'jpg' : 'mp4'}`);
 
       // Extract speech text for TTS and captions
@@ -2277,11 +2457,13 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
       }
     }
   } finally {
+    clearTimeout(totalJobTimeout);
+    activeJobExecutions.delete(jobId);
     setTimeout(() => {
       if (fs.existsSync(jobTempDir)) {
         fs.rm(jobTempDir, { recursive: true, force: true }, () => {});
       }
-    }, 120000);
+    }, 45000);
   }
 }
 
@@ -4546,13 +4728,37 @@ router.get('/jobs/:jobId', (req, res) => {
   res.json(normalizedJob);
 });
 
+// Cancel & Terminate Active Job (/api/jobs/:jobId/cancel)
+router.post('/jobs/:jobId/cancel', (req, res) => {
+  const { jobId } = req.params;
+  const reason = (req.body && req.body.reason) || 'Anulowano na żądanie użytkownika';
+  const terminated = cancelAndTerminateJob(jobId, reason);
+
+  const job = jobsStore.get(jobId);
+  if (!job && !terminated) {
+    return res.status(404).json({ error: `Nie znaleziono zadania ${jobId}` });
+  }
+
+  saveJobsToDisk();
+  res.json({
+    success: true,
+    message: `Zadanie ${jobId} zostało natychmiast zatrzymane i wyczyszczone.`,
+    jobId,
+    terminated
+  });
+});
+
 // Delete Single Job (/api/jobs/:jobId)
 router.delete('/jobs/:jobId', (req, res) => {
   const { jobId } = req.params;
   const job = jobsStore.get(jobId);
 
+  // Natychmiast zatrzymaj i zabij proces jeśli zadanie jeszcze trwa w tle
+  cancelAndTerminateJob(jobId, 'Usunięto z kolejki zadań');
+
   if (!job) {
-    return res.status(404).json({ error: `Nie znaleziono zadania ${jobId}` });
+    // Usunięto z aktywnych procesów lub nie było w bazie
+    return res.json({ success: true, message: `Zadanie ${jobId} zostało zatrzymane i usunięte.` });
   }
 
   if (job.outputFilename) {
@@ -4566,10 +4772,27 @@ router.delete('/jobs/:jobId', (req, res) => {
     }
   }
 
+  if (job.thumbnailFilename) {
+    const thumbPath = path.join(EXPORTS_DIR, job.thumbnailFilename);
+    if (fs.existsSync(thumbPath)) {
+      try {
+        fs.unlinkSync(thumbPath);
+      } catch {}
+    }
+  }
+
+  // Wyczyść folder temp
+  const jobTempDir = path.join(TEMP_DIR, jobId);
+  if (fs.existsSync(jobTempDir)) {
+    try {
+      fs.rmSync(jobTempDir, { recursive: true, force: true });
+    } catch {}
+  }
+
   jobsStore.delete(jobId);
   saveJobsToDisk();
 
-  res.json({ success: true, message: `Zadanie ${jobId} zostało usunięte z historii.` });
+  res.json({ success: true, message: `Zadanie ${jobId} zostało zatrzymane i bezpowrotnie usunięte z historii.` });
 });
 
 // Clear Jobs History (/api/jobs)

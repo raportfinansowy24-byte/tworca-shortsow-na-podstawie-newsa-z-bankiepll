@@ -24,7 +24,9 @@ import {
   Server,
   Layers,
   ArrowUpRight,
-  Zap
+  Zap,
+  Square,
+  StopCircle
 } from 'lucide-react';
 import { JobStatusResponse } from '../types';
 import { VideoPreview } from './VideoPreview';
@@ -190,11 +192,34 @@ export const RenderingQueue: React.FC<RenderingQueueProps> = ({
     }
   };
 
+  const [cancellingJobId, setCancellingJobId] = useState<string | null>(null);
+
+  const handleCancelJob = async (jobId: string) => {
+    setCancellingJobId(jobId);
+    try {
+      const res = await fetch(`/api/jobs/${jobId}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'Zatrzymano natychmiast przez użytkownika w kolejce' })
+      });
+      if (res.ok) {
+        if (onToast) onToast('info', 'Zadanie przerwane', `Zadanie ${jobId} zostało natychmiast zatrzymane.`);
+        onRefresh();
+      } else {
+        await handleDeleteJob(jobId);
+      }
+    } catch {
+      await handleDeleteJob(jobId);
+    } finally {
+      setCancellingJobId(null);
+    }
+  };
+
   const handleDeleteJob = async (jobId: string) => {
     try {
       const res = await fetch(`/api/jobs/${jobId}`, { method: 'DELETE' });
       if (res.ok) {
-        if (onToast) onToast('success', 'Usunięto z pamięci', `Zadanie ${jobId} zostało usunięte z historii.`);
+        if (onToast) onToast('success', 'Usunięto z pamięci', `Zadanie ${jobId} zostało zatrzymane i usunięte z historii.`);
         onRefresh();
       } else {
         const err = await res.json();
@@ -452,6 +477,22 @@ export const RenderingQueue: React.FC<RenderingQueueProps> = ({
                           <Copy className="w-3.5 h-3.5" />
                         )}
                       </button>
+
+                      {isProcessing && (
+                        <button
+                          onClick={() => handleCancelJob(job.id)}
+                          disabled={cancellingJobId === job.id}
+                          className="px-2.5 py-1 bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 border border-rose-500/40 cursor-pointer shadow-sm"
+                          title="Natychmiast przerwij proces renderowania w tle (Kill-Switch)"
+                        >
+                          {cancellingJobId === job.id ? (
+                            <RefreshCw className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Square className="w-3 h-3 fill-rose-400" />
+                          )}
+                          <span>Zatrzymaj proces</span>
+                        </button>
+                      )}
 
                       <button
                         onClick={() => handleDeleteJob(job.id)}

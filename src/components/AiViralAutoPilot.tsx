@@ -45,7 +45,8 @@ import {
   Cloud,
   Folder,
   HardDrive,
-  LogOut
+  LogOut,
+  Square
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 import {
@@ -595,6 +596,26 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
         }
       } catch {}
     }, 1200);
+  };
+
+  const handleCancelActiveJob = async () => {
+    const targetId = activeJobId || jobStatus?.id;
+    if (!targetId || targetId === 'pending') return;
+
+    try {
+      const res = await fetch(`/api/jobs/${targetId}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'Zatrzymano natychmiast przez użytkownika' })
+      });
+      if (res.ok) {
+        onToast?.('info', 'Zadanie przerwane', `Renderowanie zadania ${targetId} zostało zatrzymane.`);
+        setJobStatus((prev) => (prev ? { ...prev, status: 'failed', step: '🛑 Renderowanie przerwane przez użytkownika' } : null));
+        setAutoPilotLoading(false);
+      }
+    } catch (err) {
+      onToast?.('error', 'Błąd zatrzymywania', (err as Error).message);
+    }
   };
 
   // 4x/Day Autonomous Scheduler State & Handlers
@@ -2587,40 +2608,53 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
           </div>
 
           {/* Main Execution Trigger Buttons */}
-          <div className="flex flex-col sm:flex-row items-center gap-3 pt-2 border-t border-slate-800">
-            <button
-              onClick={handleAutoPilotRun}
-              disabled={autoPilotLoading || generatingScript}
-              className="w-full sm:flex-1 py-4 px-6 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 hover:from-indigo-500 hover:to-purple-500 text-white font-black rounded-xl text-sm shadow-xl shadow-indigo-950/50 transition flex items-center justify-center gap-2.5 disabled:opacity-50 cursor-pointer"
-            >
-              {autoPilotLoading ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin text-white" />
-                  Renderowanie FFmpeg w toku...
-                </>
-              ) : generatingScript ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin text-white" />
-                  Dobieranie dynamicznych kadrów Pexels...
-                </>
-              ) : (
-                <>
-                  <Zap className="w-4 h-4 text-yellow-300 fill-yellow-300 animate-pulse" />
-                  🚀 Generuj i Zmontuj Wirusowy Short (100% Pełny Automat)
-                </>
-              )}
-            </button>
+          <div className="pt-3 border-t border-slate-800 space-y-2">
+            <div className="flex items-center justify-between text-xs font-bold text-amber-300">
+              <span className="flex items-center gap-1.5">
+                <span className="flex h-2.5 w-2.5 relative">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+                </span>
+                ⭐ Główny przycisk uruchamiania tworzenia wideo (1-Klik):
+              </span>
+              <span className="text-[11px] font-normal text-slate-400">Gemini AI + Pexels 9:16 + Lektor TTS + Napisy</span>
+            </div>
 
-            <button
-              type="button"
-              onClick={handleFetchAndVerifyFootage}
-              disabled={autoPilotLoading || generatingScript}
-              className="w-full sm:w-auto py-4 px-4 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold rounded-xl text-xs border border-slate-700 transition flex items-center justify-center gap-2 disabled:opacity-50"
-              title="Pobierz i zobacz kadry z Pexels"
-            >
-              <Film className="w-4 h-4 text-cyan-400" />
-              <span>Podgląd Kadrów</span>
-            </button>
+            <div className="flex flex-col sm:flex-row items-center gap-3">
+              <button
+                onClick={handleAutoPilotRun}
+                disabled={autoPilotLoading || generatingScript}
+                className="w-full sm:flex-1 py-4 px-6 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 hover:from-indigo-500 hover:to-purple-500 text-white font-black rounded-xl text-sm shadow-xl shadow-indigo-950/50 transition flex items-center justify-center gap-2.5 disabled:opacity-50 cursor-pointer ring-2 ring-indigo-400/30 hover:ring-indigo-400/60"
+              >
+                {autoPilotLoading ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                    Renderowanie FFmpeg w toku...
+                  </>
+                ) : generatingScript ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                    Dobieranie dynamicznych kadrów Pexels...
+                  </>
+                ) : (
+                  <>
+                    <Zap className="w-4 h-4 text-yellow-300 fill-yellow-300 animate-pulse" />
+                    🚀 Generuj i Zmontuj Wirusowy Short (100% Pełny Automat)
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleFetchAndVerifyFootage}
+                disabled={autoPilotLoading || generatingScript}
+                className="w-full sm:w-auto py-4 px-4 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold rounded-xl text-xs border border-slate-700 transition flex items-center justify-center gap-2 disabled:opacity-50"
+                title="Pobierz i zobacz kadry z Pexels"
+              >
+                <Film className="w-4 h-4 text-cyan-400" />
+                <span>Podgląd Kadrów</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -2779,12 +2813,26 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
                 />
               </div>
 
-              {/* Status details */}
-              <div className="flex flex-wrap items-center justify-between text-[11px] text-slate-400 font-mono pt-1">
-                <span>FPS: {jobStatus.fps || 30}</span>
-                <span>Klatka: {jobStatus.frame || 0}</span>
-                <span>Czas renderu: {jobStatus.time || '00:00'}</span>
-                <span>Prędkość: {jobStatus.speed || '1.0x'}</span>
+              {/* Status details & Cancel Action */}
+              <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400 font-mono pt-1">
+                <div className="flex flex-wrap items-center gap-3">
+                  <span>FPS: {jobStatus.fps || 30}</span>
+                  <span>Klatka: {jobStatus.frame || 0}</span>
+                  <span>Czas renderu: {jobStatus.time || '00:00'}</span>
+                  <span>Prędkość: {jobStatus.speed || '1.0x'}</span>
+                </div>
+
+                {(jobStatus.status === 'processing' || jobStatus.status === 'queued') && (
+                  <button
+                    type="button"
+                    onClick={handleCancelActiveJob}
+                    className="px-2.5 py-1 bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 border border-rose-500/40 cursor-pointer"
+                    title="Natychmiast przerwij proces renderowania (Kill-Switch)"
+                  >
+                    <Square className="w-3 h-3 fill-rose-400" />
+                    <span>Zatrzymaj i zresetuj</span>
+                  </button>
+                )}
               </div>
             </div>
           )}
