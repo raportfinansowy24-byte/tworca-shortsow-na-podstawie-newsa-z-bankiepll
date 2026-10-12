@@ -7,7 +7,6 @@ import { exec, spawn, ChildProcess } from 'child_process';
 import { promisify } from 'util';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
-import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
 import {
   buildNichePromptInstructions,
   getNicheProfile,
@@ -1223,7 +1222,7 @@ interface CombineScenesPayload {
   highlightColor?: 'yellow' | 'green' | 'lime' | 'cyan' | 'red' | 'white';
 }
 
-// Language normalizer for Google TTS
+// Normalize language codes for narration metadata and text generation.
 function normalizeLanguageCode(lang?: string): string {
   if (!lang) return 'pl';
   const l = lang.trim().toLowerCase();
@@ -1248,448 +1247,170 @@ export const ELEVEN_VOICES_MAP: Record<string, string> = {
   'eleven_george': 'JBFqnCBsd6RMkjVDRZzb',
   'eleven_liam': 'TX3LPaxmHKxFdv7VOQHJ'
 };
+export const DEFAULT_ELEVENLABS_VOICE_ID = '04BD7Fenyf9Ysq983wrd';
 
-export const NEURAL_VOICES_CATALOG = [
-  // Polski (PL) - Zróżnicowane profile lektorskie (Męskie, Żeńskie, Kinowe, Dynamiczne)
-  { id: 'pl-PL-MarekNeural', name: 'Marek (Męski - Dynamiczny / Biznes & Shorts)', lang: 'pl', provider: 'edge', gender: 'Male', description: 'Głęboki, radiowy głos - idealny na Shortsy biznesowe, analizy i wiadomości' },
-  { id: 'pl-PL-ZofiaNeural', name: 'Zofia (Żeński - Naturalny & Wyrazisty)', lang: 'pl', provider: 'edge', gender: 'Female', description: 'Ciepła, naturalna narratorka z nienaganną dykcją' },
-  { id: 'pl-PL-MarekNeural-deep', name: 'Krzysztof (Męski - Głęboki Bas / Kino & Storytelling)', lang: 'pl', provider: 'edge', gender: 'Male', description: 'Basowy, autorytatywny głos lektorski o kinowym brzmieniu' },
-  { id: 'pl-PL-ZofiaNeural-expressive', name: 'Maja (Żeński - Młody, Ekspresyjny & Nowoczesny)', lang: 'pl', provider: 'edge', gender: 'Female', description: 'Świeża, dynamiczna narratorka do treści viralowych i lifestyle' },
-  { id: 'pl-PL-MarekNeural-energy', name: 'Patryk (Męski - Wysoka Energia / TikTok Hook)', lang: 'pl', provider: 'edge', gender: 'Male', description: 'Szybki, energetyczny lektor przyciągający uwagę w pierwszych 3 sekundach' },
-  { id: 'pl-PL-ZofiaNeural-pro', name: 'Anna (Żeński - Spokojny & Profesjonalny / Raport B2B)', lang: 'pl', provider: 'edge', gender: 'Female', description: 'Elegancka, profesjonalna lektorka do analiz finansowych i raportów' },
+type ElevenLabsAlignment = {
+  characters?: string[];
+  character_start_times_seconds?: number[];
+  character_end_times_seconds?: number[];
+};
 
-  // Angielski (EN)
-  { id: 'en-US-ChristopherNeural', name: 'Christopher (Male - Viral Shorts / High Energy)', lang: 'en', provider: 'edge', gender: 'Male', description: 'Szybki, energiczny głos w stylu MrBeast i TikTok' },
-  { id: 'en-US-JennyNeural', name: 'Jenny (Female - Warm & Natural Storyteller)', lang: 'en', provider: 'edge', gender: 'Female', description: 'Ciepła i naturalna narratorka amerykańska' },
-  { id: 'en-US-GuyNeural', name: 'Guy (Male - News Anchor / Authoritative)', lang: 'en', provider: 'edge', gender: 'Male', description: 'Klasyczny głos prezentera wiadomości CNN/Bloomberg' },
-  { id: 'en-US-AvaNeural', name: 'Ava (Female - Expressive & Modern)', lang: 'en', provider: 'edge', gender: 'Female', description: 'Młoda, nowoczesna narratorka do Shorts i Reels' },
-  { id: 'en-US-AndrewNeural', name: 'Andrew (Male - Deep Cinematic Narrator)', lang: 'en', provider: 'edge', gender: 'Male', description: 'Głęboki męski głos kinowy do filmów dokumentalnych' },
-  { id: 'en-US-BrianNeural', name: 'Brian (Male - Natural Tech & Business)', lang: 'en', provider: 'edge', gender: 'Male', description: 'Współczesny, wyrazisty głos lektora technologicznego' },
-  { id: 'en-US-EmmaNeural', name: 'Emma (Female - Conversational & Crisp)', lang: 'en', provider: 'edge', gender: 'Female', description: 'Czysty, przyjazny głos konwersacyjny' },
-  { id: 'en-GB-RyanNeural', name: 'Ryan (Male - British Accent / London)', lang: 'en', provider: 'edge', gender: 'Male', description: 'Stylowy brytyjski akcent lektorski' },
-  { id: 'en-GB-SoniaNeural', name: 'Sonia (Female - British Accent / BBC)', lang: 'en', provider: 'edge', gender: 'Female', description: 'Klasyczna brytyjska narracja' },
-
-  // Niemiecki (DE)
-  { id: 'de-DE-ConradNeural', name: 'Conrad (Männlich - Dynamic / Nachrichten)', lang: 'de', provider: 'edge', gender: 'Male', description: 'Niemiecki lektor dynamiczny' },
-  { id: 'de-DE-KatjaNeural', name: 'Katja (Weiblich - Natürlich & Professionell)', lang: 'de', provider: 'edge', gender: 'Female', description: 'Niemiecka narratorka profesjonalna' },
-  { id: 'de-DE-KillianNeural', name: 'Killian (Männlich - Energetisch)', lang: 'de', provider: 'edge', gender: 'Male', description: 'Niemiecki lektor o wysokiej energii' },
-
-  // Hiszpański (ES)
-  { id: 'es-ES-AlvaroNeural', name: 'Alvaro (Masculino - Dinámico)', lang: 'es', provider: 'edge', gender: 'Male', description: 'Hiszpański głos męski' },
-  { id: 'es-ES-ElviraNeural', name: 'Elvira (Femenino - Natural)', lang: 'es', provider: 'edge', gender: 'Female', description: 'Hiszpański głos żeński' },
-
-  // Francuski (FR)
-  { id: 'fr-FR-HenriNeural', name: 'Henri (Masculin - Élégant)', lang: 'fr', provider: 'edge', gender: 'Male', description: 'Francuski głos lektorski' },
-  { id: 'fr-FR-DeniseNeural', name: 'Denise (Féminin - Naturel)', lang: 'fr', provider: 'edge', gender: 'Female', description: 'Francuska narratorka' },
-
-  // Ukraiński (UK)
-  { id: 'uk-UA-OstapNeural', name: 'Ostap (Чоловічий - Динамічний)', lang: 'uk', provider: 'edge', gender: 'Male', description: 'Ukraiński lektor męski' },
-  { id: 'uk-UA-PolinaNeural', name: 'Polina (Жіночий - Природний)', lang: 'uk', provider: 'edge', gender: 'Female', description: 'Ukraińska narratorka żeńska' },
-
-  // Włoski (IT)
-  { id: 'it-IT-DiegoNeural', name: 'Diego (Maschile - Dinamico)', lang: 'it', provider: 'edge', gender: 'Male', description: 'Włoski lektor męski' },
-  { id: 'it-IT-ElsaNeural', name: 'Elsa (Femminile - Naturale)', lang: 'it', provider: 'edge', gender: 'Female', description: 'Włoska lektorka' }
-];
-
-export function resolveNeuralVoice(requestedVoice?: string, langCode: string = 'pl'): string {
-  const cleanLang = normalizeLanguageCode(langCode);
-
-  if (requestedVoice && requestedVoice.trim()) {
-    const v = requestedVoice.trim();
-
-    // Map ElevenLabs voice keys to distinct, tailored personas if ElevenLabs is not active
-    if (v.startsWith('eleven_')) {
-      if (cleanLang === 'pl') {
-        if (v === 'eleven_rachel') return 'pl-PL-ZofiaNeural';
-        if (v === 'eleven_bella') return 'pl-PL-ZofiaNeural-expressive';
-        if (v === 'eleven_adam') return 'pl-PL-MarekNeural-deep';
-        if (v === 'eleven_george') return 'pl-PL-MarekNeural-deep';
-        if (v === 'eleven_josh' || v === 'eleven_liam') return 'pl-PL-MarekNeural-energy';
-        return 'pl-PL-MarekNeural';
-      } else {
-        if (v === 'eleven_rachel') return 'en-US-JennyNeural';
-        if (v === 'eleven_bella') return 'en-US-AvaNeural';
-        if (v === 'eleven_adam') return 'en-US-AndrewNeural';
-        if (v === 'eleven_george') return 'en-US-GuyNeural';
-        if (v === 'eleven_josh' || v === 'eleven_liam') return 'en-US-ChristopherNeural';
-        return 'en-US-ChristopherNeural';
-      }
-    }
-
-    // Direct Neural Voice matching (including styles like -deep, -energy, -expressive, -pro)
-    return v;
+function resolveElevenLabsVoiceId(requestedVoice?: string): string {
+  const requested = requestedVoice?.trim() || '';
+  if (requested.startsWith('eleven_')) {
+    const mapped = ELEVEN_VOICES_MAP[requested];
+    if (!mapped) throw new Error(`Nieznany profil głosu ElevenLabs: ${requested}`);
+    return mapped;
   }
-
-  // Language default
-  if (cleanLang === 'pl') return 'pl-PL-MarekNeural';
-  if (cleanLang === 'en') return 'en-US-ChristopherNeural';
-  if (cleanLang === 'de') return 'de-DE-ConradNeural';
-  if (cleanLang === 'es') return 'es-ES-AlvaroNeural';
-  if (cleanLang === 'fr') return 'fr-FR-HenriNeural';
-  if (cleanLang === 'uk') return 'uk-UA-OstapNeural';
-  if (cleanLang === 'it') return 'it-IT-DiegoNeural';
-  return 'pl-PL-MarekNeural';
+  // Preserve a chosen ElevenLabs voice ID. Legacy Edge Neural names resolve to the configured account voice.
+  if (/^[A-Za-z0-9]{16,32}$/.test(requested)) return requested;
+  return process.env.ELEVENLABS_VOICE_ID?.trim() || DEFAULT_ELEVENLABS_VOICE_ID;
 }
 
-// Generate single chunk using ElevenLabs API
-async function generateElevenLabsAudio(
-  text: string,
-  voiceId: string,
-  destPath: string,
-  speed: number = 1.15,
-  tempDir: string
-): Promise<boolean> {
-  const apiKey = process.env.ELEVENLABS_API_KEY;
-  if (!apiKey || !apiKey.trim()) return false;
-
-  const actualVoiceId = voiceId.startsWith('eleven_')
-    ? (ELEVEN_VOICES_MAP[voiceId] || 'pNInz6obpgDQGcFmaJgB')
-    : voiceId;
-
-  const rawPath = path.resolve(tempDir, `el_raw_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.mp3`);
-
-  return new Promise((resolve) => {
-    const postData = JSON.stringify({
-      text: text.slice(0, 1000),
-      model_id: 'eleven_multilingual_v2',
-      voice_settings: {
-        stability: 0.5,
-        similarity_boost: 0.8,
-        style: 0.05,
-        use_speaker_boost: true
-      }
-    });
-
-    const req = https.request(
-      `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(actualVoiceId)}?output_format=mp3_44100_128`,
-      {
-        method: 'POST',
-        headers: {
-          'xi-api-key': apiKey.trim(),
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(postData)
-        },
-        timeout: 12000
+function requestElevenLabsApi(method: 'GET' | 'POST', endpoint: string, payload?: unknown): Promise<{ statusCode: number; body: string }> {
+  const apiKey = process.env.ELEVENLABS_API_KEY?.trim();
+  if (!apiKey) return Promise.reject(new Error('Brakuje ELEVENLABS_API_KEY. Skonfiguruj klucz ElevenLabs po stronie serwera.'));
+  const body = payload === undefined ? undefined : JSON.stringify(payload);
+  return new Promise((resolve, reject) => {
+    const req = https.request(`https://api.elevenlabs.io${endpoint}`, {
+      method,
+      headers: {
+        'xi-api-key': apiKey,
+        'Accept': 'application/json',
+        ...(body ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } : {})
       },
-      (res) => {
-        if (res.statusCode !== 200) {
-          console.warn(`[ElevenLabs API] HTTP status ${res.statusCode}`);
-          resolve(false);
-          return;
-        }
-
-        const file = fs.createWriteStream(rawPath);
-        res.pipe(file);
-        file.on('finish', async () => {
-          file.close(async () => {
-            try {
-              if (fs.existsSync(rawPath) && fs.statSync(rawPath).size > 300) {
-                // If custom speed multiplier requested, adjust tempo via FFmpeg
-                if (Math.abs(speed - 1.0) > 0.03) {
-                  const atempoVal = Math.max(0.5, Math.min(speed, 2.0)).toFixed(2);
-                  await execPromise(`ffmpeg -y -i "${rawPath}" -filter:a "atempo=${atempoVal}" -c:a libmp3lame -b:a 128k "${destPath}"`);
-                  try { fs.unlinkSync(rawPath); } catch {}
-                } else {
-                  fs.copyFileSync(rawPath, destPath);
-                  try { fs.unlinkSync(rawPath); } catch {}
-                }
-                resolve(fs.existsSync(destPath) && fs.statSync(destPath).size > 300);
-              } else {
-                resolve(false);
-              }
-            } catch (err) {
-              console.warn('[ElevenLabs Audio Post-process Error]', err);
-              resolve(false);
-            }
-          });
-        });
-        file.on('error', () => {
-          file.close();
-          resolve(false);
-        });
-      }
-    );
-
-    req.on('error', (err) => {
-      console.warn('[ElevenLabs Request Error]', err.message);
-      resolve(false);
+      timeout: 30000
+    }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
+      res.on('end', () => resolve({ statusCode: res.statusCode || 0, body: Buffer.concat(chunks).toString('utf8') }));
     });
-
-    req.write(postData);
+    req.on('timeout', () => req.destroy(new Error('Przekroczono limit czasu żądania ElevenLabs.')));
+    req.on('error', reject);
+    if (body) req.write(body);
     req.end();
   });
 }
 
-function calculateRateString(speed: number = 1.15): string {
-  // speed 1.0 -> '+0%', 1.15 -> '+15%', 1.25 -> '+25%', 0.9 -> '-10%'
-  const safeSpeed = Math.max(0.6, Math.min(speed, 2.0));
-  const diff = Math.round((safeSpeed - 1.0) * 100);
-  return diff >= 0 ? `+${diff}%` : `${diff}%`;
+function elevenLabsErrorMessage(body: string): string {
+  let message = 'nieznany błąd API';
+  try {
+    const parsed = JSON.parse(body) as { detail?: string | { message?: string; status?: string }; message?: string };
+    if (typeof parsed.detail === 'string') message = parsed.detail;
+    else if (parsed.detail && typeof parsed.detail === 'object') message = parsed.detail.message || parsed.detail.status || message;
+    else if (parsed.message) message = parsed.message;
+  } catch {
+    if (body.trim()) message = body.trim();
+  }
+  const key = process.env.ELEVENLABS_API_KEY?.trim();
+  if (key) message = message.split(key).join('[ukryty klucz]');
+  return message.replace(/[\r\n]+/g, ' ').slice(0, 240);
 }
 
-// Split long text into natural chunks for TTS synthesis
-function splitIntoTtsChunks(text: string, maxLen: number = 180): string[] {
-  const clean = text.replace(/[\r\n]+/g, ' ').trim();
-  if (!clean) return [];
-  const words = clean.split(/\s+/);
-  const chunks: string[] = [];
-  let cur = '';
-  for (const w of words) {
-    if ((cur + ' ' + w).trim().length > maxLen) {
-      if (cur) chunks.push(cur.trim());
-      cur = w;
-    } else {
-      cur = (cur + ' ' + w).trim();
+function wordTimingsFromElevenLabsAlignment(alignment: ElevenLabsAlignment | null | undefined): CaptionWordTiming[] {
+  if (!alignment?.characters?.length) return [];
+  const starts = alignment.character_start_times_seconds || [];
+  const ends = alignment.character_end_times_seconds || [];
+  const words: CaptionWordTiming[] = [];
+  let chars: string[] = [];
+  let start = 0;
+  let end = 0;
+  alignment.characters.forEach((character, index) => {
+    const char = String(character ?? '');
+    if (/\s/u.test(char)) {
+      if (chars.length && end > start) words.push({ word: chars.join(''), start, end });
+      chars = [];
+      start = 0;
+      end = 0;
+      return;
     }
+    const charStart = Number(starts[index]);
+    const charEnd = Number(ends[index]);
+    if (!Number.isFinite(charStart) || !Number.isFinite(charEnd) || charEnd <= charStart) return;
+    if (chars.length === 0) start = charStart;
+    chars.push(char);
+    end = charEnd;
+  });
+  if (chars.length && end > start) words.push({ word: chars.join(''), start, end });
+  return words;
+}
+
+// ElevenLabs is the sole TTS provider; the with-timestamps endpoint also supplies caption alignment.
+async function generateElevenLabsAudio(
+  text: string,
+  voiceId: string,
+  destPath: string,
+  speed: number = 1.0,
+  wordTimingsOut?: CaptionWordTiming[],
+  previousText?: string,
+  nextText?: string
+): Promise<number> {
+  const actualVoiceId = resolveElevenLabsVoiceId(voiceId);
+  const safeSpeed = Math.max(0.7, Math.min(Number.isFinite(speed) ? speed : 1.0, 1.2));
+  const response = await requestElevenLabsApi(
+    'POST',
+    `/v1/text-to-speech/${encodeURIComponent(actualVoiceId)}/with-timestamps?output_format=mp3_44100_128`,
+    {
+      text: text.slice(0, 1000),
+      model_id: process.env.ELEVENLABS_MODEL_ID?.trim() || 'eleven_multilingual_v2',
+      voice_settings: { stability: 0.75, similarity_boost: 0.8, style: 0, use_speaker_boost: true, speed: safeSpeed },
+      ...(previousText ? { previous_text: previousText.slice(-500) } : {}),
+      ...(nextText ? { next_text: nextText.slice(0, 500) } : {})
+    }
+  );
+  if (response.statusCode !== 200) {
+    const message = `ElevenLabs zwrócił HTTP ${response.statusCode}: ${elevenLabsErrorMessage(response.body)}`;
+    throw new Error(message);
   }
-  if (cur) chunks.push(cur.trim());
-  return chunks.length > 0 ? chunks : [clean];
+  let result: { audio_base64?: string; alignment?: ElevenLabsAlignment | null; normalized_alignment?: ElevenLabsAlignment | null };
+  try { result = JSON.parse(response.body); } catch { throw new Error('ElevenLabs zwrócił nieprawidłową odpowiedź JSON.'); }
+  if (!result.audio_base64) throw new Error('Odpowiedź ElevenLabs nie zawiera audio.');
+  const audio = Buffer.from(result.audio_base64, 'base64');
+  if (audio.length < 300) throw new Error('ElevenLabs zwrócił pusty lub uszkodzony plik audio.');
+  await fs.promises.writeFile(destPath, audio);
+  if (wordTimingsOut) {
+    const aligned = wordTimingsFromElevenLabsAlignment(result.alignment || result.normalized_alignment);
+    wordTimingsOut.splice(0, wordTimingsOut.length, ...aligned);
+  }
+  const duration = await getAudioDuration(destPath);
+  if (!duration) throw new Error('Nie udało się zmierzyć długości audio ElevenLabs.');
+  return duration;
 }
 
 type CaptionWordTiming = { word: string; start: number; end: number };
 
-// Generate single chunk using Microsoft Edge Neural TTS
-async function generateEdgeNeuralChunk(
-  text: string,
-  voice: string,
-  destPath: string,
-  speed: number = 1.15,
-  timeoutMs: number = 6000,
-  wordTimingsOut: CaptionWordTiming[] = []
-): Promise<boolean> {
-  return new Promise(async (resolve) => {
-    let resolved = false;
-    let timer: any = null;
-
-    const cleanup = () => {
-      if (timer) clearTimeout(timer);
-      if (!resolved) {
-        resolved = true;
-        if (fs.existsSync(destPath) && fs.statSync(destPath).size < 200) {
-          try { fs.unlinkSync(destPath); } catch {}
-        }
-      }
-    };
-
-    timer = setTimeout(() => {
-      cleanup();
-      resolve(false);
-    }, timeoutMs);
-
-    try {
-      let baseVoice = voice || 'pl-PL-MarekNeural';
-      let pitchStr = '+0Hz';
-
-      if (baseVoice.endsWith('-deep')) {
-        baseVoice = baseVoice.replace('-deep', '');
-        pitchStr = '-16Hz';
-      } else if (baseVoice.endsWith('-energy')) {
-        baseVoice = baseVoice.replace('-energy', '');
-        pitchStr = '+18Hz';
-      } else if (baseVoice.endsWith('-expressive')) {
-        baseVoice = baseVoice.replace('-expressive', '');
-        pitchStr = '+14Hz';
-      } else if (baseVoice.endsWith('-pro')) {
-        baseVoice = baseVoice.replace('-pro', '');
-        pitchStr = '-8Hz';
-      }
-
-      const tts = new MsEdgeTTS();
-      await tts.setMetadata(baseVoice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3, {
-        wordBoundaryEnabled: true,
-        sentenceBoundaryEnabled: true
-      });
-      const rateStr = calculateRateString(speed);
-      const streamObj = tts.toStream(text, { rate: rateStr, pitch: pitchStr });
-      let audioWriteFinished = false;
-      let metadataFinished = !streamObj.metadataStream;
-      let audioWriteSucceeded = false;
-      const finishIfReady = () => {
-        if (!audioWriteFinished || !metadataFinished || resolved) return;
-        const exists = fs.existsSync(destPath) && fs.statSync(destPath).size > 200;
-        cleanup();
-        resolve(audioWriteSucceeded && exists);
-      };
-
-      streamObj.metadataStream?.on('data', (chunk: Buffer) => {
-        try {
-          const payload = JSON.parse(chunk.toString('utf8'));
-          const metadataItems = Array.isArray(payload.Metadata) ? payload.Metadata : [];
-          metadataItems.forEach((item: any) => {
-            if (item?.Type !== 'WordBoundary') return;
-            const data = item.Data || {};
-            const word = String(data.text?.Text || '').trim();
-            const offset = Number(data.Offset) / 10_000_000;
-            const duration = Number(data.Duration) / 10_000_000;
-            if (word && Number.isFinite(offset) && Number.isFinite(duration) && duration > 0) {
-              wordTimingsOut.push({ word, start: offset, end: offset + duration });
-            }
-          });
-        } catch (metadataErr) {
-          console.warn('[TTS word-boundary metadata] Ignoring an invalid metadata chunk:', (metadataErr as Error).message);
-        }
-      });
-      streamObj.metadataStream?.once('end', () => {
-        metadataFinished = true;
-        finishIfReady();
-      });
-      streamObj.metadataStream?.once('close', () => {
-        metadataFinished = true;
-        finishIfReady();
-      });
-      streamObj.metadataStream?.once('error', () => {
-        metadataFinished = true;
-        finishIfReady();
-      });
-
-      const file = fs.createWriteStream(destPath);
-      streamObj.audioStream.pipe(file);
-
-      file.on('finish', () => {
-        file.close(() => {
-          audioWriteFinished = true;
-          audioWriteSucceeded = true;
-          finishIfReady();
-        });
-      });
-
-      file.on('error', () => {
-        file.close();
-        audioWriteFinished = true;
-        audioWriteSucceeded = false;
-        streamObj.metadataStream?.destroy();
-        finishIfReady();
-      });
-      streamObj.audioStream.once('error', () => {
-        audioWriteFinished = true;
-        audioWriteSucceeded = false;
-        streamObj.metadataStream?.destroy();
-        finishIfReady();
-      });
-    } catch (err) {
-      cleanup();
-      resolve(false);
-    }
-  });
+async function getAudioDuration(audioPath: string): Promise<number> {
+  if (!fs.existsSync(audioPath)) return 0;
+  try {
+    const { stdout } = await execPromise(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${audioPath}"`);
+    const duration = Number.parseFloat(stdout.trim());
+    return Number.isFinite(duration) && duration > 0 ? duration : 0;
+  } catch {
+    return 0;
+  }
 }
 
-// Download single fallback TTS audio chunk (Google TTS)
-function downloadTtsChunk(text: string, lang: string, destPath: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const encoded = encodeURIComponent(text);
-    const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encoded}&tl=${lang}&client=tw-ob`;
-    const file = fs.createWriteStream(destPath);
-    https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' } }, (res) => {
-      if (res.statusCode !== 200) {
-        file.close();
-        if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
-        return reject(new Error(`Google TTS returned HTTP ${res.statusCode}`));
-      }
-      res.pipe(file);
-      file.on('finish', () => {
-        file.close(() => resolve());
-      });
-    }).on('error', (err) => {
-      file.close();
-      if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
-      reject(err);
-    });
-  });
-}
-
-// Measure audio duration using ffprobe
-function getAudioDuration(filePath: string): Promise<number> {
-  return new Promise((resolve) => {
-    exec(
-      `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${filePath}"`,
-      (err, stdout) => {
-        if (err) return resolve(0);
-        const dur = parseFloat(stdout.trim());
-        resolve(isNaN(dur) ? 0 : dur);
-      }
-    );
-  });
-}
-
-// Fast and High-Quality Neural TTS Generator with speed control & automatic fallback
+// ElevenLabs-only TTS. Do not silently change providers: that caused inconsistent speakers and consumed Google TTS quota.
 async function generateTtsAudio(
   text: string,
   lang: string,
   destPath: string,
   tempDir: string,
   requestedVoice?: string,
-  speedMultiplier: number = 1.15,
-  wordTimingsOut?: CaptionWordTiming[]
+  speedMultiplier: number = 1.0,
+  wordTimingsOut?: CaptionWordTiming[],
+  previousText?: string,
+  nextText?: string
 ): Promise<number> {
-  const cleanLang = normalizeLanguageCode(lang);
-  const voiceToUse = resolveNeuralVoice(requestedVoice, cleanLang);
-  const safeSpeed = typeof speedMultiplier === 'number' && speedMultiplier > 0.5 ? speedMultiplier : 1.15;
   const cleanText = text.replace(/[\r\n]+/g, ' ').trim();
-
+  void lang;
+  void tempDir;
   if (!cleanText) return 0;
-
-  // 1. Try ElevenLabs API only if requested voice is explicitly ElevenLabs and API key is configured
-  if (requestedVoice && requestedVoice.startsWith('eleven_') && process.env.ELEVENLABS_API_KEY && process.env.ELEVENLABS_API_KEY.trim()) {
-    try {
-      const elevenSuccess = await generateElevenLabsAudio(cleanText, requestedVoice, destPath, safeSpeed, tempDir);
-      if (elevenSuccess && fs.existsSync(destPath)) {
-        const dur = await getAudioDuration(destPath);
-        if (dur > 0) {
-          return dur;
-        }
-      }
-    } catch (elErr) {
-      console.warn(`[ElevenLabs TTS Info] Switch to matching Neural voice (${voiceToUse}):`, (elErr as Error).message);
-    }
-  }
-
-  // 2. Try Neural TTS with Microsoft Edge (Ultra realistic, diverse & fast)
-  try {
-    const neuralSuccess = await generateEdgeNeuralChunk(cleanText, voiceToUse, destPath, safeSpeed, 7000, wordTimingsOut);
-    if (neuralSuccess && fs.existsSync(destPath)) {
-      const dur = await getAudioDuration(destPath);
-      if (dur > 0) {
-        return dur;
-      }
-    }
-    if (wordTimingsOut) wordTimingsOut.length = 0;
-  } catch (neuralErr) {
-    console.warn(`[Neural TTS Info] Switch to accelerated fallback voice:`, (neuralErr as Error).message);
-  }
-
-  // 2. Accelerated Fallback with FFmpeg atempo filter
-  try {
-    const chunks = splitIntoTtsChunks(cleanText);
-    const chunkFiles: string[] = [];
-    for (let i = 0; i < chunks.length; i++) {
-      const chunkFile = path.resolve(tempDir, `tts_chunk_${Date.now()}_${i}.mp3`);
-      await downloadTtsChunk(chunks[i], cleanLang, chunkFile);
-      chunkFiles.push(chunkFile);
-    }
-
-    const unacceleratedConcat = path.resolve(tempDir, `tts_raw_${Date.now()}.mp3`);
-    if (chunkFiles.length === 1) {
-      fs.copyFileSync(chunkFiles[0], unacceleratedConcat);
-    } else {
-      const listFile = path.resolve(tempDir, `tts_concat_${Date.now()}.txt`);
-      fs.writeFileSync(listFile, chunkFiles.map((f) => `file '${f.replace(/\\/g, '/')}'`).join('\n'));
-      await execPromise(`ffmpeg -y -f concat -safe 0 -i "${listFile}" -c copy "${unacceleratedConcat}"`);
-      try { if (fs.existsSync(listFile)) fs.unlinkSync(listFile); } catch {}
-    }
-
-    // Clean individual chunks
-    chunkFiles.forEach((f) => { try { if (fs.existsSync(f)) fs.unlinkSync(f); } catch {} });
-
-    // Apply speed tempo acceleration using FFmpeg
-    const atempoVal = Math.max(0.5, Math.min(safeSpeed, 2.0)).toFixed(2);
-    await execPromise(`ffmpeg -y -i "${unacceleratedConcat}" -filter:a "atempo=${atempoVal}" -c:a libmp3lame -b:a 128k "${destPath}"`);
-    try { if (fs.existsSync(unacceleratedConcat)) fs.unlinkSync(unacceleratedConcat); } catch {}
-
-    return getAudioDuration(destPath);
-  } catch (fallbackErr) {
-    console.error('[TTS Generation Error]', fallbackErr);
-    return 0;
-  }
+  const safeSpeed = typeof speedMultiplier === 'number' && Number.isFinite(speedMultiplier)
+    ? Math.max(0.7, Math.min(speedMultiplier, 1.2))
+    : 1.0;
+  const selectedVoice = requestedVoice || process.env.ELEVENLABS_VOICE_ID || DEFAULT_ELEVENLABS_VOICE_ID;
+  return generateElevenLabsAudio(cleanText, selectedVoice, destPath, safeSpeed, wordTimingsOut, previousText, nextText);
 }
 
 // Convert seconds to ASS time format (h:mm:ss.cc)
@@ -1974,18 +1695,90 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
 
     updateJobProgress(
       jobId,
-      { step: `Pobieranie ${scenes.length} klipów wideo (zablokowany standard 4 scen / 18s)`, progress: 10 },
-      `Rozpoczynanie pobierania ${scenes.length} plików wideo/obrazów...`
+      { step: `Przygotowanie lektora i ${scenes.length} scen (zablokowany standard 18s)`, progress: 10 },
+      `Rozpoczynanie syntezy jednego głosu ElevenLabs dla całego Shorta...`
     );
 
     const processedScenePaths: string[] = [];
     let totalEstimatedDuration = 0;
     const ttsEnabled = payload.tts !== false;
     const ttsLanguage = normalizeLanguageCode(payload.ttsLanguage || (payload as any).language || 'pl');
-    const ttsVoice = payload.ttsVoice || (payload as any).tts_voice || (payload as any).voice || (payload as any).lektor || (payload as any).glos || resolveNeuralVoice(undefined, ttsLanguage);
-    const ttsSpeed = typeof payload.ttsSpeed === 'number' && payload.ttsSpeed > 0 ? payload.ttsSpeed : (typeof (payload as any).tts_speed === 'number' ? (payload as any).tts_speed : 1.15);
+    const ttsVoice = payload.ttsVoice || (payload as any).tts_voice || (payload as any).voice || (payload as any).lektor || (payload as any).glos || process.env.ELEVENLABS_VOICE_ID || DEFAULT_ELEVENLABS_VOICE_ID;
+    const requestedTtsSpeed = typeof payload.ttsSpeed === 'number' && payload.ttsSpeed > 0 ? payload.ttsSpeed : (typeof (payload as any).tts_speed === 'number' ? (payload as any).tts_speed : 1.0);
+    const ttsSpeed = Math.max(0.7, Math.min(requestedTtsSpeed, 1.2));
     const defaultCaptionAnim = 'single-word';
     const defaultHighlightCol = 'red';
+
+    const sceneSpeechTexts = scenes.map((scene) => (
+      scene.voiceover_text ||
+      scene.subtitles ||
+      scene.caption ||
+      scene.text ||
+      (scene as any).tekst_głosowy ||
+      (scene as any).voiceover ||
+      ''
+    ).trim());
+    type PreparedSceneTts = { path: string; duration: number; wordTimings: CaptionWordTiming[] };
+    const preparedSceneTts: Array<PreparedSceneTts | null> = new Array(scenes.length).fill(null);
+
+    // Synthesize every scene with identical voice/model/settings, then apply one common tempo correction.
+    if (ttsEnabled) {
+      const overLimitScene = sceneSpeechTexts.findIndex((text) => text.split(/\s+/).filter(Boolean).length > 10);
+      if (overLimitScene >= 0) {
+        throw new Error(`Tekst lektora w scenie ${overLimitScene + 1} przekracza limit 10 słów. Skróć skrypt przed syntezą.`);
+      }
+      if (sceneSpeechTexts.some((text) => !text)) {
+        throw new Error('Każda z 4 scen musi zawierać tekst lektora, aby zachować ciągłość głosu.');
+      }
+      updateJobProgress(jobId, { step: 'Generowanie jednego głosu ElevenLabs dla 4 scen', progress: 12 }, `Jeden lektor ElevenLabs, model i tempo dla całego Shorta (${ttsSpeed.toFixed(2)}x).`);
+      const targetSpeechDuration = 4.5 - 0.12;
+      let commonAtempo = 1;
+      for (let index = 0; index < scenes.length; index++) {
+        if (abortController.signal.aborted) throw new Error('Zadanie zostało anulowane przez użytkownika.');
+        const speechText = sceneSpeechTexts[index];
+        const ttsPath = path.join(jobTempDir, `scene_tts_${index + 1}.mp3`);
+        const wordTimings: CaptionWordTiming[] = [];
+        const duration = await generateTtsAudio(
+          speechText,
+          ttsLanguage,
+          ttsPath,
+          jobTempDir,
+          ttsVoice,
+          ttsSpeed,
+          wordTimings,
+          sceneSpeechTexts[index - 1],
+          sceneSpeechTexts[index + 1]
+        );
+        if (duration <= 0 || !fs.existsSync(ttsPath)) {
+          throw new Error(`ElevenLabs nie wygenerował poprawnego lektora dla sceny ${index + 1}.`);
+        }
+        preparedSceneTts[index] = { path: ttsPath, duration, wordTimings };
+        commonAtempo = Math.max(commonAtempo, duration / targetSpeechDuration);
+      }
+
+      if (commonAtempo > 1.15) {
+        throw new Error(`Najdłuższa kwestia nie mieści się w scenie przy równym tempie (wymagane ${commonAtempo.toFixed(2)}x). Skróć tekst; nie przyspieszam osobno pojedynczych scen.`);
+      }
+      if (commonAtempo > 1.005) {
+        for (const asset of preparedSceneTts) {
+          if (!asset) continue;
+          const fittedPath = `${asset.path}.uniform-fit.mp3`;
+          await execPromise(`ffmpeg -y -i "${asset.path}" -filter:a "atempo=${commonAtempo.toFixed(3)}" -c:a libmp3lame -b:a 128k "${fittedPath}"`);
+          if (!fs.existsSync(fittedPath) || fs.statSync(fittedPath).size <= 300) {
+            throw new Error('FFmpeg nie utworzył pliku lektora po wspólnym dopasowaniu tempa.');
+          }
+          fs.renameSync(fittedPath, asset.path);
+          const fittedDuration = await getAudioDuration(asset.path);
+          const timingScale = fittedDuration > 0 ? fittedDuration / asset.duration : 1 / commonAtempo;
+          asset.wordTimings.forEach((timing) => {
+            timing.start *= timingScale;
+            timing.end *= timingScale;
+          });
+          asset.duration = fittedDuration || asset.duration / commonAtempo;
+        }
+        console.log(`✓ Wszystkie 4 sceny otrzymały ten sam mnożnik tempa ${commonAtempo.toFixed(3)}x.`);
+      }
+    }
 
     // Process each scene
     for (let index = 0; index < scenes.length; index++) {
@@ -2022,82 +1815,19 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
       updateJobProgress(jobId, {}, `Zapisano plik źródłowy: raw_scene_${sceneNum}.${isImage ? 'jpg' : 'mp4'}`);
 
       // Extract speech text for TTS and captions
-      const speechText = (
-        scene.voiceover_text ||
-        scene.subtitles ||
-        scene.caption ||
-        scene.text ||
-        (scene as any).tekst_głosowy ||
-        (scene as any).voiceover ||
-        ''
-      ).trim();
+      const speechText = sceneSpeechTexts[index];
 
       // Zablokowana długość sceny na stałe: dokładnie 4.5s (4 sceny = 18.0s)
       let sceneDuration = 4.5;
       let captionDuration = 4.5;
-      const sceneWordTimings: CaptionWordTiming[] = [];
-      let ttsFitFailure: Error | null = null;
+      const ttsAsset = preparedSceneTts[index];
+      const sceneWordTimings = ttsAsset?.wordTimings || [];
 
-      // 1. Text-to-Speech Generation
-      let hasTtsAudio = false;
-      const sceneTtsPath = path.join(jobTempDir, `scene_tts_${sceneNum}.mp3`);
-      const sceneVoice = scene.ttsVoice || (scene as any).tts_voice || (scene as any).voice || (scene as any).lektor || ttsVoice;
-      const sceneSpeed = typeof scene.ttsSpeed === 'number' && scene.ttsSpeed > 0 ? scene.ttsSpeed : ttsSpeed;
-
+      const hasTtsAudio = ttsEnabled && !!ttsAsset && fs.existsSync(ttsAsset.path);
+      const sceneTtsPath = ttsAsset?.path || path.join(jobTempDir, `scene_tts_${sceneNum}.mp3`);
       if (ttsEnabled && speechText.length > 0) {
-        try {
-          updateJobProgress(
-            jobId,
-            {},
-            `Generowanie głosu lektora TTS (${sceneVoice.split('-')[2] || sceneVoice} @ ${sceneSpeed}x): "${speechText.slice(0, 40)}..."`
-          );
-          const ttsDuration = await generateTtsAudio(speechText, ttsLanguage, sceneTtsPath, jobTempDir, sceneVoice, sceneSpeed, sceneWordTimings);
-          if (ttsDuration > 0 && fs.existsSync(sceneTtsPath)) {
-            hasTtsAudio = true;
-            captionDuration = Math.min(sceneDuration, ttsDuration);
-            const targetSpeechDuration = Math.max(0.1, sceneDuration - 0.12);
-            if (ttsDuration > targetSpeechDuration + 0.03) {
-              const speedFactor = ttsDuration / targetSpeechDuration;
-              const atempoFilters: string[] = [];
-              let remainingSpeed = speedFactor;
-              while (remainingSpeed > 2) {
-                atempoFilters.push('atempo=2.0');
-                remainingSpeed /= 2;
-              }
-              atempoFilters.push(`atempo=${remainingSpeed.toFixed(3)}`);
-              const fittedTtsPath = path.join(jobTempDir, `scene_tts_fit_${sceneNum}.mp3`);
-              try {
-                await execPromise(`ffmpeg -y -i "${sceneTtsPath}" -filter:a "${atempoFilters.join(',')}" -c:a libmp3lame -b:a 128k "${fittedTtsPath}"`);
-                if (!fs.existsSync(fittedTtsPath) || fs.statSync(fittedTtsPath).size <= 300) {
-                  throw new Error('FFmpeg nie utworzył poprawnego, dopasowanego pliku TTS.');
-                }
-                fs.renameSync(fittedTtsPath, sceneTtsPath);
-                const measuredFittedDuration = await getAudioDuration(sceneTtsPath);
-                captionDuration = Math.min(sceneDuration, measuredFittedDuration || targetSpeechDuration);
-                const timingScale = measuredFittedDuration > 0 ? measuredFittedDuration / ttsDuration : 1 / speedFactor;
-                sceneWordTimings.forEach((timing) => {
-                  timing.start *= timingScale;
-                  timing.end *= timingScale;
-                });
-                console.log(`✓ Scene ${sceneNum} TTS fitted ${speedFactor.toFixed(2)}x to ${captionDuration.toFixed(2)}s inside locked ${sceneDuration}s scene.`);
-              } catch (fitErr) {
-                ttsFitFailure = fitErr as Error;
-                console.warn(`⚠️ Nie udało się dopasować TTS sceny ${sceneNum}; przerwanie zadania, aby nie opublikować uciętego lektora:`, (fitErr as Error).message);
-                throw new Error('TTS_FIT_FAILED');
-              }
-            } else {
-              captionDuration = Math.min(sceneDuration, ttsDuration);
-            }
-            // Zablokowane na stałe: każda z 4 scen ma zawsze równe 4.5s
-            sceneDuration = 4.5;
-          }
-        } catch (ttsErr) {
-          if (ttsFitFailure) {
-            throw new Error(`Nie można bezpiecznie zsynchronizować lektora ze sceną ${sceneNum}: ${ttsFitFailure.message}`);
-          }
-          console.warn(`⚠️ TTS warning for scene ${sceneNum}:`, (ttsErr as Error).message);
-          updateJobProgress(jobId, {}, `Lektor TTS dla sceny ${sceneNum} niedostępny, używanie domyślnego audio.`);
-        }
+        if (!hasTtsAudio || !ttsAsset) throw new Error(`Brakuje przygotowanego audio ElevenLabs dla sceny ${sceneNum}.`);
+        captionDuration = Math.min(sceneDuration, ttsAsset.duration);
       }
 
       totalEstimatedDuration += sceneDuration;
@@ -3355,18 +3085,9 @@ function deriveAiViralDecisions(
     highlightColor = 'yellow'; // Złoty Neon - pieniądze, prestiż, zaufanie finansowe
   }
 
-  // 4. Optimal voice
-  let optimalVoice = 'pl-PL-MarekNeural';
-  if (text.includes('analiza') || text.includes('raport') || text.includes('nbp') || text.includes('makro') || text.includes('gpw')) {
-    optimalVoice = 'pl-PL-MarekNeural';
-  } else if (text.includes('konsument') || text.includes('domow') || text.includes('zakupy') || text.includes('porady')) {
-    optimalVoice = 'pl-PL-ZofiaNeural';
-  } else {
-    optimalVoice = 'pl-PL-MarekNeural';
-  }
-
-  // 5. High-energy viral speech speed
-  const voiceSpeed = 1.20;
+  // 4. Voice and speed are global ElevenLabs settings, not AI-selected per scene.
+  const optimalVoice = process.env.ELEVENLABS_VOICE_ID?.trim() || DEFAULT_ELEVENLABS_VOICE_ID;
+  const voiceSpeed = 1.0;
 
   return {
     detectedNiche,
@@ -3378,7 +3099,7 @@ function deriveAiViralDecisions(
     sceneCount: 4,
     resolution: '720x1280',
     musicMood: 'Tech House Dynamic Beat (-70% ducking pod mowę)',
-    explanation: `SI dobrała profil "${optimalVoice}" (tempo ${voiceSpeed}x), styl napisów "single-word czerwone na środku ekranu, powiększone" (Montserrat-Bold + libass) oraz 4 dynamiczne sceny po 4,5 s.`
+    explanation: `AI dobiera niszę, hook i styl napisów. Render używa jednego wybranego profilu ElevenLabs i jednakowego tempa we wszystkich 4 scenach po 4,5 s.`
   };
 }
 
@@ -3990,13 +3711,15 @@ router.post('/auto-pilot-shorts', async (req, res) => {
       body.bankierArticle?.category || niche
     );
 
-    const effectiveVoice = body.aiDirectorMode === false && (body.ttsVoice || body.tts_voice || body.voice || body.lektor || body.glos)
-      ? (body.ttsVoice || body.tts_voice || body.voice || body.lektor || body.glos)
-      : (autoDecisions.optimalVoice || 'pl-PL-MarekNeural');
-
-    const effectiveSpeed = body.aiDirectorMode === false && typeof body.ttsSpeed === 'number'
-      ? body.ttsSpeed
-      : (autoDecisions.voiceSpeed || 1.20);
+    const effectiveVoice = body.ttsVoice || body.tts_voice || body.voice || body.lektor || body.glos || process.env.ELEVENLABS_VOICE_ID || DEFAULT_ELEVENLABS_VOICE_ID;
+    const requestedSpeed = typeof body.ttsSpeed === 'number' && Number.isFinite(body.ttsSpeed) ? body.ttsSpeed : 1.0;
+    const effectiveSpeed = Math.max(0.7, Math.min(requestedSpeed, 1.2));
+    autoDecisions.optimalVoice = String(effectiveVoice);
+    autoDecisions.voiceSpeed = effectiveSpeed;
+    autoDecisions.explanation = body.tts === false
+      ? 'Lektor TTS jest wyłączony dla tego renderu.'
+      : `Render używa jednego wybranego profilu ElevenLabs i tempa ${effectiveSpeed.toFixed(2)}x we wszystkich 4 scenach.`;
+    if (scriptData && typeof scriptData === 'object') scriptData.aiDecisions = autoDecisions;
 
     const effectiveHighlight = body.aiDirectorMode === false && body.highlightColor
       ? body.highlightColor
@@ -4142,7 +3865,7 @@ router.post('/combine-scenes', async (req, res) => {
     tts: body.tts !== false,
     ttsLanguage: body.ttsLanguage || body.language || 'pl',
     ttsVoice: body.ttsVoice || body.tts_voice || body.voice || body.lektor || body.glos,
-    ttsSpeed: typeof body.ttsSpeed === 'number' ? body.ttsSpeed : (typeof body.tts_speed === 'number' ? body.tts_speed : (typeof body.speed === 'number' ? body.speed : 1.15)),
+    ttsSpeed: typeof body.ttsSpeed === 'number' ? body.ttsSpeed : (typeof body.tts_speed === 'number' ? body.tts_speed : (typeof body.speed === 'number' ? body.speed : 1.0)),
     syncDurationWithVoice: body.syncDurationWithVoice !== false,
     lockSceneDurations,
     captionAnimation: body.captionAnimation || body.animation || 'word-by-word',
@@ -4430,15 +4153,39 @@ router.delete('/webhook/logs', (req, res) => {
   res.json({ success: true, message: 'Historia logów webhooków została wyczyszczona.' });
 });
 
-// GET /api/tts/voices - List all available high-quality neural voices
-router.get('/tts/voices', (req, res) => {
-  res.json({
-    success: true,
-    hasElevenLabsKey: false,
-    voices: NEURAL_VOICES_CATALOG,
-    defaultVoicePl: 'pl-PL-MarekNeural',
-    defaultVoiceEn: 'en-US-ChristopherNeural'
-  });
+// GET /api/tts/voices - Return voices actually available to this ElevenLabs account.
+router.get('/tts/voices', async (req, res) => {
+  try {
+    const response = await requestElevenLabsApi('GET', '/v1/voices?page_size=100');
+    if (response.statusCode !== 200) {
+      const authFailed = response.statusCode === 401 || response.statusCode === 403;
+      return res.status(authFailed ? 503 : 502).json({
+        success: false,
+        provider: 'elevenlabs',
+        configured: !!process.env.ELEVENLABS_API_KEY,
+        authenticated: false,
+        message: `ElevenLabs zwrócił HTTP ${response.statusCode}: ${elevenLabsErrorMessage(response.body)}`
+      });
+    }
+    const data = JSON.parse(response.body) as { voices?: Array<{ voice_id?: string; name?: string; category?: string; labels?: Record<string, string> }> };
+    const voices = (data.voices || []).filter((voice) => voice.voice_id && voice.name).map((voice) => ({
+      id: voice.voice_id as string,
+      name: voice.name as string,
+      category: voice.category || 'voice',
+      labels: voice.labels || {}
+    }));
+    const defaultVoiceId = process.env.ELEVENLABS_VOICE_ID?.trim() || DEFAULT_ELEVENLABS_VOICE_ID;
+    res.json({
+      success: true,
+      provider: 'elevenlabs',
+      configured: true,
+      authenticated: true,
+      defaultVoiceId,
+      voices
+    });
+  } catch (err) {
+    res.status(502).json({ success: false, provider: 'elevenlabs', configured: !!process.env.ELEVENLABS_API_KEY, authenticated: false, message: (err as Error).message });
+  }
 });
 
 // GET /api/tts/stream - Stream synthesized voice speech directly for preview
@@ -4446,47 +4193,37 @@ router.get('/tts/stream', async (req, res) => {
   try {
     const rawText = ((req.query.text as string) || 'Cześć! To jest podgląd ultra-realistycznego lektora sztucznej inteligencji.').trim();
     const lang = normalizeLanguageCode((req.query.lang as string) || 'pl');
-    const requestedVoice = (req.query.voice as string) || resolveNeuralVoice(undefined, lang);
-    const speed = parseFloat(req.query.speed as string) || 1.15;
-
-    res.setHeader('Content-Type', 'audio/mpeg');
-    res.setHeader('Cache-Control', 'no-cache');
+    const requestedVoice = (req.query.voice as string) || process.env.ELEVENLABS_VOICE_ID || DEFAULT_ELEVENLABS_VOICE_ID;
+    const speed = parseFloat(req.query.speed as string) || 1.0;
 
     const tempAudio = path.join(TEMP_DIR, `stream_preview_${Date.now()}_${Math.random().toString(36).substring(2, 6)}.mp3`);
     const dur = await generateTtsAudio(rawText.slice(0, 300), lang, tempAudio, TEMP_DIR, requestedVoice, speed);
-
-    if (fs.existsSync(tempAudio)) {
-      const readStream = fs.createReadStream(tempAudio);
-      readStream.pipe(res);
-      readStream.on('close', () => {
-        try { if (fs.existsSync(tempAudio)) fs.unlinkSync(tempAudio); } catch {}
-      });
-    } else {
-      // Direct Google TTS fallback stream
-      const safeText = encodeURIComponent(rawText.slice(0, 200));
-      const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${safeText}&tl=${lang}&client=tw-ob`;
-      https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (ttsRes) => {
-        ttsRes.pipe(res);
-      }).on('error', () => {
-        res.status(500).end();
-      });
-    }
+    if (dur <= 0 || !fs.existsSync(tempAudio)) throw new Error('ElevenLabs nie utworzył pliku audio do podglądu.');
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Cache-Control', 'no-cache');
+    const readStream = fs.createReadStream(tempAudio);
+    readStream.pipe(res);
+    readStream.on('close', () => {
+      try { if (fs.existsSync(tempAudio)) fs.unlinkSync(tempAudio); } catch {}
+    });
   } catch (err) {
-    res.status(500).json({ error: 'Błąd streamingu TTS', details: (err as Error).message });
+    if (!res.headersSent) res.status(502).json({ error: 'Błąd streamingu ElevenLabs TTS', details: (err as Error).message });
+    else res.end();
   }
 });
 
 // POST /api/tts/preview - Generate sample audio file and return preview metrics
 router.post('/tts/preview', async (req, res) => {
   try {
-    const { text, language = 'pl', voice, speed = 1.15 } = req.body || {};
+    const { text, language = 'pl', voice, speed = 1.0 } = req.body || {};
     if (!text || typeof text !== 'string' || !text.trim()) {
       return res.status(400).json({ error: 'Pole "text" jest wymagane do wygenerowania próbki lektora.' });
     }
 
     const cleanLang = normalizeLanguageCode(language);
-    const selectedVoice = voice || resolveNeuralVoice(voice, cleanLang);
-    const speedMultiplier = typeof speed === 'number' && speed > 0.5 ? speed : 1.15;
+    const selectedVoice = voice || process.env.ELEVENLABS_VOICE_ID || DEFAULT_ELEVENLABS_VOICE_ID;
+    const requestedSpeed = typeof speed === 'number' && Number.isFinite(speed) ? speed : 1.0;
+    const speedMultiplier = Math.max(0.7, Math.min(requestedSpeed, 1.2));
 
     const previewFilename = `tts_preview_${Date.now()}_${Math.random().toString(36).substring(2, 6)}.mp3`;
     const destPath = path.join(EXPORTS_DIR, previewFilename);
@@ -5780,8 +5517,8 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
       async: true,
       tts: true,
       ttsLanguage: 'pl',
-      ttsVoice: aiDecisions.optimalVoice || schedulerState.voice || 'pl-PL-MarekNeural',
-      ttsSpeed: aiDecisions.voiceSpeed || 1.20,
+      ttsVoice: schedulerState.voice || process.env.ELEVENLABS_VOICE_ID || DEFAULT_ELEVENLABS_VOICE_ID,
+      ttsSpeed: 1.0,
       syncDurationWithVoice: true,
       lockSceneDurations: true,
       captionAnimation: 'single-word',

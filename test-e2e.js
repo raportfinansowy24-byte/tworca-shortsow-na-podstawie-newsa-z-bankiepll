@@ -151,13 +151,21 @@ async function main() {
     return data;
   }));
 
-  report.push(await runStep('7. Strumieniowy podgląd głosu TTS bez trwałego pliku', async () => {
+  report.push(await runStep('7. Katalog głosów konta i strumień ElevenLabs TTS', async () => {
+    const voicesRes = await fetch(`${BASE_URL}/api/tts/voices`);
+    const voicesData = await voicesRes.json();
+    if (!voicesRes.ok || !voicesData.success || voicesData.provider !== 'elevenlabs' || !Array.isArray(voicesData.voices)) {
+      throw new Error(voicesData.message || `Nie można pobrać głosów ElevenLabs (HTTP ${voicesRes.status}).`);
+    }
+    const voiceId = process.env.ELEVENLABS_VOICE_ID || '04BD7Fenyf9Ysq983wrd';
+    if (voicesData.defaultVoiceId !== voiceId) throw new Error(`Oczekiwano domyślnego voice ID ${voiceId}, otrzymano ${voicesData.defaultVoiceId || 'brak'}.`);
+    if (!voicesData.voices.some((voice) => voice.id === voiceId)) throw new Error(`Konto ElevenLabs nie udostępnia wskazanego voice ID ${voiceId}.`);
     const sampleText = generatedScript?.scenes?.[0]?.voiceover_text || 'To jest test głosu lektora.';
     const params = new URLSearchParams({
       text: sampleText.slice(0, 160),
       lang: 'pl',
-      voice: generatedScript?.aiDecisions?.optimalVoice || 'pl-PL-MarekNeural',
-      speed: String(generatedScript?.aiDecisions?.voiceSpeed || 1.15)
+      voice: voiceId,
+      speed: '1.0'
     });
     const res = await fetch(`${BASE_URL}/api/tts/stream?${params}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
@@ -166,8 +174,8 @@ async function main() {
     }
     const audio = await res.arrayBuffer();
     if (audio.byteLength === 0) throw new Error('Strumień TTS jest pusty.');
-    console.log(`  Otrzymano strumień audio: ${audio.byteLength} bajtów.`);
-    return { bytes: audio.byteLength };
+    console.log(`  ElevenLabs voice ID: ${voiceId}; audio: ${audio.byteLength} bajtów.`);
+    return { voiceId, bytes: audio.byteLength };
   }));
 
   console.log('\n======================================================');

@@ -254,31 +254,42 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
 
   // Lektor Text-to-Speech (TTS) State
   const [ttsEnabled, setTtsEnabled] = useState(true);
-  const [ttsVoice, setTtsVoice] = useState('pl-PL-MarekNeural');
-  const [ttsSpeed, setTtsSpeed] = useState(1.15);
+  const [ttsVoice, setTtsVoice] = useState('04BD7Fenyf9Ysq983wrd');
+  const [ttsSpeed, setTtsSpeed] = useState(1.0);
   const syncDurationWithVoice = true;
   const [voicePreviewLoading, setVoicePreviewLoading] = useState(false);
   const [voicePreviewPlaying, setVoicePreviewPlaying] = useState(false);
   const audioPreviewRef = useRef<HTMLAudioElement | null>(null);
+  const [elevenLabsVoices, setElevenLabsVoices] = useState<Array<{ id: string; name: string; category?: string; labels?: Record<string, string> }>>([]);
+  const [ttsConnectionMessage, setTtsConnectionMessage] = useState('');
 
-  // Auto-switch default voice when language changes
+  // Load actual account voices once; the selected voice stays global for the whole Short.
   useEffect(() => {
-    if (targetLanguage === 'Polski') {
-      setTtsVoice('pl-PL-MarekNeural');
-    } else if (targetLanguage === 'Angielski (EN)') {
-      setTtsVoice('en-US-ChristopherNeural');
-    } else if (targetLanguage === 'Niemiecki (DE)') {
-      setTtsVoice('de-DE-ConradNeural');
-    } else if (targetLanguage === 'Hiszpański (ES)') {
-      setTtsVoice('es-ES-AlvaroNeural');
-    } else if (targetLanguage === 'Francuski (FR)') {
-      setTtsVoice('fr-FR-HenriNeural');
-    } else if (targetLanguage === 'Ukraiński (UK)') {
-      setTtsVoice('uk-UA-OstapNeural');
-    }
-  }, [targetLanguage]);
+    let active = true;
+    fetch('/api/tts/voices')
+      .then(async (response) => ({ response, data: await response.json().catch(() => null) }))
+      .then(({ response, data }) => {
+        if (!active) return;
+        if (!response.ok || !data?.success) {
+          setTtsConnectionMessage(data?.message || 'Nie udało się połączyć z ElevenLabs.');
+          return;
+        }
+        const voices = Array.isArray(data.voices) ? data.voices : [];
+        setElevenLabsVoices(voices);
+        const defaultVoiceId = typeof data.defaultVoiceId === 'string' ? data.defaultVoiceId : '';
+        const selectedVoiceAvailable = voices.some((voice: { id?: string }) => voice.id === defaultVoiceId);
+        setTtsConnectionMessage(defaultVoiceId && voices.length > 0 && !selectedVoiceAvailable
+          ? `Wskazany głos ${defaultVoiceId} nie pojawia się w katalogu tego konta. Zachowuję wybór; sprawdź dostęp do tego Voice ID w ElevenLabs.`
+          : '');
+        setTtsVoice((current) => current === '04BD7Fenyf9Ysq983wrd' || current === 'eleven_antoni' || /Neural$/i.test(current) ? (defaultVoiceId || current) : current);
+      })
+      .catch(() => {
+        if (active) setTtsConnectionMessage('Nie udało się pobrać głosów ElevenLabs. Sprawdź połączenie API.');
+      });
+    return () => { active = false; };
+  }, []);
 
-  // AI Director Autonomous Decision Mode (True by default - SI decyduje o doborze niszy, głosu, tempa, kolorystyki i hooka dla wiralowych zasięgów)
+  // AI Director may adapt niche, hook and visuals; the user's ElevenLabs voice and tempo remain fixed.
   const [aiDirectorMode, setAiDirectorMode] = useState<boolean>(true);
   const [liveAiDecisions, setLiveAiDecisions] = useState<AiViralDecisions | null>(null);
   const [liveViralityScore, setLiveViralityScore] = useState<ViralityScore | null>(null);
@@ -449,12 +460,6 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
           if (aiDirectorMode) {
             if (d.detectedNiche && d.detectedNiche !== niche) {
               setNiche(d.detectedNiche);
-            }
-            if (d.optimalVoice && d.optimalVoice !== ttsVoice && targetLanguage === 'Polski') {
-              setTtsVoice(d.optimalVoice);
-            }
-            if (d.voiceSpeed && Math.abs(d.voiceSpeed - ttsSpeed) > 0.01) {
-              setTtsSpeed(d.voiceSpeed);
             }
             if (d.sceneCount && d.sceneCount !== sceneCount) {
               setSceneCount(d.sceneCount);
@@ -2071,7 +2076,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
                     </span>
                   </div>
                   <p className="text-xs text-slate-400">
-                    Sztuczna inteligencja analizuje newsa i automatycznie dobiera niszę, tempo głosu, barwę napisów libass i hook dla maksymalnej retencji (85%+) i monetyzacji afiliacyjnej.
+                    Sztuczna inteligencja analizuje newsa i dobiera niszę, hook oraz styl napisów. Wybrany głos ElevenLabs i tempo pozostają stałe we wszystkich 4 scenach.
                   </p>
                 </div>
               </div>
@@ -2108,13 +2113,13 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
 
               <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 text-xs">
                 <span className="text-[10px] text-slate-400 uppercase font-bold block mb-1">
-                  2. Lektor & Tempo Retencji
+                  2. Lektor ElevenLabs — ustawienie stałe
                 </span>
                 <span className="font-bold text-amber-300 block truncate">
-                  {liveAiDecisions?.optimalVoice?.includes('Marek') ? '🎙️ Marek Neural (Autorytet)' : liveAiDecisions?.optimalVoice?.includes('Zofia') ? '🎙️ Zofia Neural (Konsument)' : ttsVoice}
+                  {elevenLabsVoices.find((voice) => voice.id === ttsVoice)?.name || ttsVoice}
                 </span>
                 <span className="text-[10px] text-slate-400 block">
-                  Tempo: <strong className="text-white font-mono">{liveAiDecisions?.voiceSpeed?.toFixed(2) || ttsSpeed.toFixed(2)}x</strong> (Dynamiczne cięcie)
+                  Tempo: <strong className="text-white font-mono">{ttsSpeed.toFixed(2)}x</strong> — jednakowe w 4 scenach
                 </span>
               </div>
 
@@ -2413,7 +2418,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <label className="text-slate-300 font-semibold flex items-center gap-1.5">
-                          <span>Profil głosu AI (Neural Voices):</span>
+                          <span>Głos ElevenLabs (wspólny dla 4 scen):</span>
                           <span className="text-[10px] px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300 font-normal">HD</span>
                         </label>
                       </div>
@@ -2424,90 +2429,20 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
                           onChange={(e) => setTtsVoice(e.target.value)}
                           className="flex-1 bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-2.5 text-xs text-white focus:ring-1 focus:ring-indigo-500 focus:outline-none"
                         >
-                          {targetLanguage === 'Polski' ? (
+                          {elevenLabsVoices.length > 0 ? (
                             <>
-                              <optgroup label="⚡ Głosy Lektorskie AI (Neural HD — Zróżnicowane & Sprawdzone)">
-                                <option value="pl-PL-MarekNeural">🎙️ Marek — Męski dynamiczny (Rekomendowany do Shorts & Biznes)</option>
-                                <option value="pl-PL-ZofiaNeural">🎙️ Zofia — Żeński naturalny & wyrazisty (Ciepła narracja)</option>
-                                <option value="pl-PL-MarekNeural-deep">🎙️ Krzysztof — Męski głęboki bas (Kino, Storytelling & Raporty)</option>
-                                <option value="pl-PL-ZofiaNeural-expressive">✨ Maja — Żeński młody & ekspresyjny (Shorts, Virale & TikTok)</option>
-                                <option value="pl-PL-MarekNeural-energy">⚡ Patryk — Męski wysoka energia (TikTok, Agresywny Hook)</option>
-                                <option value="pl-PL-ZofiaNeural-pro">💼 Anna — Żeński spokojny & profesjonalny (Analizy B2B)</option>
-                              </optgroup>
-                              <optgroup label="🌟 Profile ElevenLabs (Autonomiczny inteligentny fallback)">
-                                <option value="eleven_adam">✨ Adam — Głęboki kinowy narrator (PL/EN)</option>
-                                <option value="eleven_antoni">✨ Antoni — Wyrazisty autorytatywny lektor (PL/EN)</option>
-                                <option value="eleven_rachel">✨ Rachel — Spokojna, profesjonalna lektorka (PL/EN)</option>
-                                <option value="eleven_bella">✨ Bella — Młoda, ekspresyjna narratorka (PL/EN)</option>
-                                <option value="eleven_josh">✨ Josh — Dynamiczny męski shorts (PL/EN)</option>
-                                <option value="eleven_george">✨ George — Kinowy storyteller (PL/EN)</option>
-                                <option value="eleven_liam">✨ Liam — Nowoczesny lektor TikTok (PL/EN)</option>
-                              </optgroup>
-                            </>
-                          ) : targetLanguage === 'Angielski (EN)' ? (
-                            <>
-                              <optgroup label="⚡ Neural HD Voices (Fast, Clear & Natural)">
-                                <option value="en-US-ChristopherNeural">🎙️ Christopher — Male Energetic (Viral Shorts / MrBeast)</option>
-                                <option value="en-US-JennyNeural">🎙️ Jenny — Female Warm & Natural Storyteller</option>
-                                <option value="en-US-GuyNeural">🎙️ Guy — Male News Anchor (Authoritative / Bloomberg)</option>
-                                <option value="en-US-AvaNeural">✨ Ava — Female Expressive & Modern (Shorts / Reels)</option>
-                                <option value="en-US-AndrewNeural">🎙️ Andrew — Male Deep Cinematic Narrator</option>
-                                <option value="en-US-BrianNeural">🎙️ Brian — Male Natural Tech & Business</option>
-                                <option value="en-US-EmmaNeural">🎙️ Emma — Female Conversational & Crisp</option>
-                                <option value="en-GB-RyanNeural">🎙️ Ryan — Male British Accent (London)</option>
-                                <option value="en-GB-SoniaNeural">🎙️ Sonia — Female British Accent (BBC)</option>
-                              </optgroup>
-                              <optgroup label="🌟 ElevenLabs Studio Voices">
-                                <option value="eleven_adam">✨ Adam — Deep Cinematic Narrator</option>
-                                <option value="eleven_rachel">✨ Rachel — Professional Storyteller</option>
-                                <option value="eleven_josh">✨ Josh — Energetic Viral Shorts</option>
-                                <option value="eleven_bella">✨ Bella — Expressive Female</option>
-                                <option value="eleven_george">✨ George — Warm Storyteller</option>
-                              </optgroup>
-                            </>
-                          ) : targetLanguage === 'Niemiecki (DE)' ? (
-                            <>
-                              <optgroup label="⚡ Microsoft Edge Neural (Deutsch)">
-                                <option value="de-DE-ConradNeural">🎙️ Conrad — Männlich Dynamic (Nachrichten & Wirtschaft)</option>
-                                <option value="de-DE-KatjaNeural">🎙️ Katja — Weiblich Natürlich & Professionell</option>
-                                <option value="de-DE-KillianNeural">⚡ Killian — Männlich Energetisch (Shorts / TikTok)</option>
-                              </optgroup>
-                              <optgroup label="🌟 ElevenLabs Studio AI">
-                                <option value="eleven_adam">✨ Adam (Multilingual Deutsch)</option>
-                                <option value="eleven_rachel">✨ Rachel (Multilingual Deutsch)</option>
-                              </optgroup>
-                            </>
-                          ) : targetLanguage === 'Hiszpański (ES)' ? (
-                            <>
-                              <optgroup label="⚡ Microsoft Edge Neural (Español)">
-                                <option value="es-ES-AlvaroNeural">🎙️ Alvaro — Masculino Dinámico</option>
-                                <option value="es-ES-ElviraNeural">🎙️ Elvira — Femenino Natural</option>
-                              </optgroup>
-                              <optgroup label="🌟 ElevenLabs Studio AI">
-                                <option value="eleven_adam">✨ Adam (Multilingual Español)</option>
-                                <option value="eleven_rachel">✨ Rachel (Multilingual Español)</option>
-                              </optgroup>
-                            </>
-                          ) : targetLanguage === 'Francuski (FR)' ? (
-                            <>
-                              <optgroup label="⚡ Microsoft Edge Neural (Français)">
-                                <option value="fr-FR-HenriNeural">🎙️ Henri — Masculin Élégant</option>
-                                <option value="fr-FR-DeniseNeural">🎙️ Denise — Féminin Naturel</option>
-                              </optgroup>
-                              <optgroup label="🌟 ElevenLabs Studio AI">
-                                <option value="eleven_adam">✨ Adam (Multilingual Français)</option>
-                                <option value="eleven_rachel">✨ Rachel (Multilingual Français)</option>
-                              </optgroup>
+                              {!elevenLabsVoices.some((voice) => voice.id === ttsVoice) && (
+                                <option value={ttsVoice}>Domyślny głos: {ttsVoice}</option>
+                              )}
+                              {elevenLabsVoices.map((voice) => (
+                                <option key={voice.id} value={voice.id}>
+                                  {voice.name}{voice.category ? ` — ${voice.category}` : ''}
+                                </option>
+                              ))}
                             </>
                           ) : (
                             <>
-                              <optgroup label="⚡ Microsoft Edge Neural (Українська)">
-                                <option value="uk-UA-OstapNeural">🎙️ Ostap — Чоловічий Динамічний</option>
-                                <option value="uk-UA-PolinaNeural">🎙️ Polina — Жіночий Природний</option>
-                              </optgroup>
-                              <optgroup label="🌟 ElevenLabs Studio AI">
-                                <option value="eleven_adam">✨ Adam (Multilingual)</option>
-                              </optgroup>
+                              <option value="04BD7Fenyf9Ysq983wrd">Wybrany głos ElevenLabs (04BD7Fenyf9Ysq983wrd)</option>
                             </>
                           )}
                         </select>
@@ -2539,6 +2474,9 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
                           )}
                         </button>
                       </div>
+                      {ttsConnectionMessage && (
+                        <p className="text-[10px] text-amber-300 mt-1" role="status">{ttsConnectionMessage}</p>
+                      )}
                     </div>
 
                     {/* Szybkość lektora */}
@@ -2552,9 +2490,9 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
                       <div className="grid grid-cols-4 gap-1.5">
                         {[
                           { val: 1.0, label: '1.0x (Norm)' },
-                          { val: 1.15, label: '1.15x (Shorts)' },
-                          { val: 1.25, label: '1.25x (Viral)' },
-                          { val: 1.4, label: '1.4x (Fast)' }
+                          { val: 1.05, label: '1.05x (Shorts)' },
+                          { val: 1.1, label: '1.1x (Szybciej)' },
+                          { val: 1.15, label: '1.15x (Szybko)' }
                         ].map((preset) => (
                           <button
                             key={preset.val}
@@ -2575,7 +2513,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
 
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-slate-900">
                     <span className="text-xs text-slate-300">
-                      Stały czas Shorta: 4 sceny × 4,5 s = 18 s. Lektor dopasowywany jest do długości scen.
+                      Stały format 4 × 4,5 s = 18 s. Ten sam głos i tempo w każdej scenie; brak cichego fallbacku do Google/Edge.
                     </span>
                     <span className="text-[11px] text-slate-400 font-mono">Ducking muzyki: -70%</span>
                   </div>
