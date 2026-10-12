@@ -254,7 +254,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
 
   // Lektor Text-to-Speech (TTS) State
   const [ttsEnabled, setTtsEnabled] = useState(true);
-  const [ttsVoice, setTtsVoice] = useState('04BD7Fenyf9Ysq983wrd');
+  const [ttsVoice, setTtsVoice] = useState('onwK4e9ZLuTAKqWW03F9');
   const [ttsSpeed, setTtsSpeed] = useState(1.0);
   const syncDurationWithVoice = true;
   const [voicePreviewLoading, setVoicePreviewLoading] = useState(false);
@@ -281,7 +281,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
         setTtsConnectionMessage(defaultVoiceId && voices.length > 0 && !selectedVoiceAvailable
           ? `Wskazany głos ${defaultVoiceId} nie pojawia się w katalogu tego konta. Zachowuję wybór; sprawdź dostęp do tego Voice ID w ElevenLabs.`
           : '');
-        setTtsVoice((current) => current === '04BD7Fenyf9Ysq983wrd' || current === 'eleven_antoni' || /Neural$/i.test(current) ? (defaultVoiceId || current) : current);
+        setTtsVoice((current) => current === 'onwK4e9ZLuTAKqWW03F9' || current === '04BD7Fenyf9Ysq983wrd' || current === 'eleven_antoni' || /Neural$/i.test(current) ? (defaultVoiceId || current) : current);
       })
       .catch(() => {
         if (active) setTtsConnectionMessage('Nie udało się pobrać głosów ElevenLabs. Sprawdź połączenie API.');
@@ -2442,7 +2442,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
                             </>
                           ) : (
                             <>
-                              <option value="04BD7Fenyf9Ysq983wrd">Wybrany głos ElevenLabs (04BD7Fenyf9Ysq983wrd)</option>
+                              <option value="onwK4e9ZLuTAKqWW03F9">Daniel — Steady Broadcaster (premade)</option>
                             </>
                           )}
                         </select>
