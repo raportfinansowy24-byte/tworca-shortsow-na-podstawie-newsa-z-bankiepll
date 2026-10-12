@@ -255,7 +255,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
   const [ttsEnabled, setTtsEnabled] = useState(true);
   const [ttsVoice, setTtsVoice] = useState('pl-PL-MarekNeural');
   const [ttsSpeed, setTtsSpeed] = useState(1.15);
-  const [syncDurationWithVoice, setSyncDurationWithVoice] = useState(true);
+  const syncDurationWithVoice = true;
   const [voicePreviewLoading, setVoicePreviewLoading] = useState(false);
   const [voicePreviewPlaying, setVoicePreviewPlaying] = useState(false);
   const audioPreviewRef = useRef<HTMLAudioElement | null>(null);
@@ -772,6 +772,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
           bankierArticle: article,
           language: targetLanguage,
           outputResolution: resolution,
+          lockSceneDurations: true,
           async: true,
           aiDirectorMode,
           tts: ttsEnabled,
@@ -910,7 +911,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
         text: s.voiceover_text || s.subtitles,
         subtitles: s.subtitles,
         video_url: s.videoUrl,
-        duration: s.duration || 9.0,
+        duration: s.duration || 4.5,
         searchKeyword: s.searchKeyword,
         captionStyle: s.captionStyle || {
           position: captionPosition,
@@ -930,6 +931,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
           niche,
           scenes: payloadScenes,
           outputResolution: resolution,
+          lockSceneDurations: true,
           async: true,
           tts: ttsEnabled,
           ttsLanguage: targetLanguage,
@@ -1096,6 +1098,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
                 fontColor: 'white'
               }
             })),
+            lockSceneDurations: true,
             backgroundMusicUrl: transData.backgroundMusicUrl,
             audioVolume: ttsEnabled ? 0.2 : 0.3,
             outputResolution: resolution,
@@ -1126,7 +1129,9 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
             articleContext: buildArticleContextString(selectedBankierArticle),
             bankierArticle: selectedBankierArticle,
             language: targetLanguage,
+            sceneCount,
             outputResolution: resolution,
+            lockSceneDurations: true,
             async: true,
             aiDirectorMode,
             tts: ttsEnabled,
@@ -2206,11 +2211,6 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
                 className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500"
               >
                 <option value={4}>⚡ 4 sceny po 4.5s (18s - Rekomendowane: idealne tempo)</option>
-                <option value={2}>2 dynamiczne sceny (18s - 2x 9s)</option>
-                <option value={1}>1 scena (18s - Pojedynczy klip)</option>
-                <option value={3}>3 sceny (~18s - 3x 6s)</option>
-                <option value={5}>5 scen (~20s)</option>
-                <option value={6}>6 scen (~24s)</option>
               </select>
             </div>
 
@@ -2548,15 +2548,9 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
                   </div>
 
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-slate-900">
-                    <label className="flex items-center gap-2 text-slate-300 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={syncDurationWithVoice}
-                        onChange={(e) => setSyncDurationWithVoice(e.target.checked)}
-                        className="rounded border-slate-700 bg-slate-900 text-indigo-600 focus:ring-indigo-500 focus:ring-offset-slate-900"
-                      />
-                      <span>Wydłuż scenę wideo do tempa lektora (Smart Audio Sync)</span>
-                    </label>
+                    <span className="text-xs text-slate-300">
+                      Stały czas Shorta: 4 sceny × 4,5 s = 18 s. Lektor dopasowywany jest do długości scen.
+                    </span>
                     <span className="text-[11px] text-slate-400 font-mono">Ducking muzyki: -70%</span>
                   </div>
                 </div>

@@ -49,6 +49,7 @@ export interface CombinePayload {
   ttsVoice?: string;
   ttsSpeed?: number;
   syncDurationWithVoice?: boolean;
+  lockSceneDurations?: boolean;
   captionAnimation?: 'word-by-word' | 'single-word' | 'karaoke' | 'classic';
   highlightColor?: 'yellow' | 'green' | 'lime' | 'cyan' | 'red' | 'white';
 }
