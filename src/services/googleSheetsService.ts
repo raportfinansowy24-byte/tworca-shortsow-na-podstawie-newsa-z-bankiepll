@@ -440,7 +440,7 @@ export const logVideoRenderToSheet = async (
     new Date().toLocaleString('pl-PL'),
     job.title || 'AI Shorts Finansowy',
     job.duration ? `${job.duration}s` : '18s',
-    job.sceneCount || 2,
+    job.sceneCount || 4,
     job.voice || 'pl-PL-MarekNeural',
     job.jobId,
     job.status || 'Zakończony sukcesem',

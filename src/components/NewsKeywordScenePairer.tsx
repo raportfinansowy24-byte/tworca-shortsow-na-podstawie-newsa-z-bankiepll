@@ -32,7 +32,7 @@ interface NewsKeywordScenePairerProps {
 export const NewsKeywordScenePairer: React.FC<NewsKeywordScenePairerProps> = ({
   article,
   newsText,
-  sceneCount = 2,
+  sceneCount = 4,
   niche = 'Finanse & Biznes',
   onKeywordsPaired,
   onToast

@@ -320,7 +320,7 @@ export const GoogleSheetsManager: React.FC<GoogleSheetsManagerProps> = ({
           await logVideoRenderToSheet(selectedSheetId, activeTabTitle, {
             title: job.jobId || 'AI Viral Shorts',
             duration: 18,
-            sceneCount: 2,
+            sceneCount: 4,
             voice: 'pl-PL-MarekNeural',
             jobId: job.jobId,
             status: 'Wyrenderowane (Zakończone)',
