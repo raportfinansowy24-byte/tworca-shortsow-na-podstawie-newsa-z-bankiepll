@@ -1247,7 +1247,7 @@ export const ELEVEN_VOICES_MAP: Record<string, string> = {
   'eleven_george': 'JBFqnCBsd6RMkjVDRZzb',
   'eleven_liam': 'TX3LPaxmHKxFdv7VOQHJ'
 };
-export const DEFAULT_ELEVENLABS_VOICE_ID = '04BD7Fenyf9Ysq983wrd';
+export const DEFAULT_ELEVENLABS_VOICE_ID = 'onwK4e9ZLuTAKqWW03F9'; // Daniel - Steady Broadcaster (premade)
 
 type ElevenLabsAlignment = {
   characters?: string[];

@@ -218,7 +218,7 @@ Skopiuj plik `.env.example` do `.env`. `ELEVENLABS_API_KEY` jest wymagany, gdy s
 | `PORT` | Nie (domyślnie 3000) | Port nasłuchiwania serwera Express |
 | `GEMINI_API_KEY` | Opcjonalna | Klucz do modeli Gemini dla zaawansowanego scenopisarstwa |
 | `ELEVENLABS_API_KEY` | Tak dla TTS | Klucz ElevenLabs. Bez niego render TTS kończy się czytelnym błędem; nie ma fallbacku do Google/Edge. |
-| `ELEVENLABS_VOICE_ID` | Nie | Domyślnie `04BD7Fenyf9Ysq983wrd`; można wybrać inny głos z katalogu konta w interfejsie. |
+| `ELEVENLABS_VOICE_ID` | Nie | Domyślnie `onwK4e9ZLuTAKqWW03F9` (Daniel, premade); można wybrać inny głos z katalogu konta w interfejsie. |
 | `ELEVENLABS_MODEL_ID` | Nie | Domyślnie `eleven_multilingual_v2`. |
 | `PEXELS_API_KEY` | Opcjonalna | Klucz do dynamicznego wyszukiwania klipów w Pexels API |
 
