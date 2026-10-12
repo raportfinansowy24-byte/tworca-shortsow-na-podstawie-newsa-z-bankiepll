@@ -434,10 +434,12 @@ export const logVideoRenderToSheet = async (
     jobId: string;
     status: string;
     videoUrl?: string;
+    createdAt?: string;
   }
 ): Promise<{ updatedRows: number; updatedRange: string }> => {
+  const rowDate = job.createdAt ? new Date(job.createdAt).toLocaleString('pl-PL') : new Date().toLocaleString('pl-PL');
   const row = [
-    new Date().toLocaleString('pl-PL'),
+    rowDate,
     job.title || 'AI Shorts Finansowy',
     job.duration ? `${job.duration}s` : '18s',
     job.sceneCount || 4,

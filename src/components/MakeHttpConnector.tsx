@@ -153,7 +153,7 @@ export const MakeHttpConnector: React.FC = () => {
   const [preferredMode, setPreferredMode] = useState<'sse' | 'polling'>('sse');
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'sse' | 'polling'>('idle');
 
-  // Scenes State
+  // Scenes State (Zablokowany standard: 4 sceny po 4.5s = 18.0s)
   const [scenes, setScenes] = useState<Scene[]>([
     {
       id: 'scene-1',
@@ -161,7 +161,8 @@ export const MakeHttpConnector: React.FC = () => {
       subtitles: 'KONEKTOR MAKE.COM - WIDEO Z NAPISAMI',
       voiceover_text: 'Oto profesjonalny konektor Make.com tworzący filmy z napisami i lektorem.',
       trimStart: 0,
-      trimEnd: 4,
+      trimEnd: 4.5,
+      duration: 4.5,
       captionStyle: {
         fontSize: 68,
         fontColor: 'white',
@@ -179,7 +180,8 @@ export const MakeHttpConnector: React.FC = () => {
       subtitles: 'CZCIONKA MONTSERRAT-BOLD.TTF',
       voiceover_text: 'Wszystkie napisy generowane są z oryginalną czcionką Montserrat Bold.',
       trimStart: 0,
-      trimEnd: 4,
+      trimEnd: 4.5,
+      duration: 4.5,
       captionStyle: {
         fontSize: 48,
         fontColor: 'white',
@@ -189,6 +191,44 @@ export const MakeHttpConnector: React.FC = () => {
         position: 'center',
         animation: 'word-by-word',
         highlightColor: 'lime'
+      }
+    },
+    {
+      id: 'scene-3',
+      videoUrl: SAMPLE_CLIPS[2].url,
+      subtitles: 'DOKŁADNIE 4 SCENY PO 4.5S',
+      voiceover_text: 'Precyzyjny podział na cztery sceny gwarantuje stały czas osiemnastu sekund.',
+      trimStart: 0,
+      trimEnd: 4.5,
+      duration: 4.5,
+      captionStyle: {
+        fontSize: 48,
+        fontColor: 'white',
+        outlineColor: 'black',
+        outlineWidth: 5,
+        boxColor: 'black@0.6',
+        position: 'center',
+        animation: 'word-by-word',
+        highlightColor: 'yellow'
+      }
+    },
+    {
+      id: 'scene-4',
+      videoUrl: SAMPLE_CLIPS[3].url,
+      subtitles: 'SPRAWDŹ RAPORT-FINANSOWY24.PL',
+      voiceover_text: 'Sprawdź pełne analizy rynkowe na raport myślnik finansowy dwadzieścia cztery kropka pl.',
+      trimStart: 0,
+      trimEnd: 4.5,
+      duration: 4.5,
+      captionStyle: {
+        fontSize: 48,
+        fontColor: 'white',
+        outlineColor: 'black',
+        outlineWidth: 5,
+        boxColor: 'black@0.6',
+        position: 'center',
+        animation: 'single-word',
+        highlightColor: 'red'
       }
     }
   ]);
@@ -427,8 +467,9 @@ export const MakeHttpConnector: React.FC = () => {
         videoUrl: s.videoUrl,
         subtitles: s.subtitles,
         voiceover_text: s.voiceover_text || s.subtitles,
-        trimStart: s.trimStart,
-        trimEnd: s.trimEnd,
+        trimStart: s.trimStart ?? 0,
+        trimEnd: s.trimEnd ?? 4.5,
+        duration: 4.5,
         captionStyle: {
           ...s.captionStyle,
           animation: s.captionStyle?.animation || globalCaptionAnimation,
@@ -445,6 +486,7 @@ export const MakeHttpConnector: React.FC = () => {
       ttsVoice: globalTtsVoice,
       ttsSpeed: globalTtsSpeed,
       syncDurationWithVoice: globalSyncDuration,
+      lockSceneDurations: true,
       captionAnimation: globalCaptionAnimation,
       highlightColor: globalHighlightColor
     };
@@ -586,8 +628,9 @@ export const MakeHttpConnector: React.FC = () => {
             videoUrl: `{{1.scene_${i + 1}_videoUrl}}`,
             subtitles: `{{1.scene_${i + 1}_subtitles}}`,
             voiceover_text: `{{1.scene_${i + 1}_voiceover}}`,
+            duration: 4.5,
             trimStart: s.trimStart || 0,
-            trimEnd: s.trimEnd || 4,
+            trimEnd: s.trimEnd || 4.5,
             captionStyle: {
               ...s.captionStyle,
               animation: s.captionStyle?.animation || globalCaptionAnimation,
@@ -604,6 +647,7 @@ export const MakeHttpConnector: React.FC = () => {
           ttsVoice: globalTtsVoice,
           ttsSpeed: globalTtsSpeed,
           syncDurationWithVoice: globalSyncDuration,
+          lockSceneDurations: true,
           captionAnimation: globalCaptionAnimation,
           highlightColor: globalHighlightColor,
           webhookUrl: 'https://hook.eu1.make.com/fck3exut5hpc4xdbuqr1sgha7fglyuhw'
@@ -627,6 +671,7 @@ export const MakeHttpConnector: React.FC = () => {
           ttsVoice: globalTtsVoice,
           ttsSpeed: globalTtsSpeed,
           syncDurationWithVoice: globalSyncDuration,
+          lockSceneDurations: true,
           captionAnimation: globalCaptionAnimation,
           highlightColor: globalHighlightColor,
           webhookUrl: 'https://hook.eu1.make.com/fck3exut5hpc4xdbuqr1sgha7fglyuhw'
@@ -643,8 +688,9 @@ export const MakeHttpConnector: React.FC = () => {
           videoUrl: s.videoUrl,
           subtitles: s.subtitles,
           voiceover_text: s.voiceover_text || s.subtitles,
+          duration: 4.5,
           trimStart: s.trimStart || 0,
-          trimEnd: s.trimEnd || 4,
+          trimEnd: s.trimEnd || 4.5,
           captionStyle: {
             ...s.captionStyle,
             animation: s.captionStyle?.animation || globalCaptionAnimation,
@@ -661,6 +707,7 @@ export const MakeHttpConnector: React.FC = () => {
         ttsVoice: globalTtsVoice,
         ttsSpeed: globalTtsSpeed,
         syncDurationWithVoice: globalSyncDuration,
+        lockSceneDurations: true,
         captionAnimation: globalCaptionAnimation,
         highlightColor: globalHighlightColor,
         webhookUrl: 'https://hook.eu1.make.com/fck3exut5hpc4xdbuqr1sgha7fglyuhw'

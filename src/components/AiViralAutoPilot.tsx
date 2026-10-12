@@ -2225,13 +2225,18 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">Sceny (Długość):</label>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center justify-between">
+                <span>Sceny (Długość):</span>
+                <span className="text-[10px] text-amber-400 font-mono font-semibold flex items-center gap-1">
+                  <span>🔒</span> Zablokowane na stałe
+                </span>
+              </label>
               <select
-                value={sceneCount}
-                onChange={(e) => setSceneCount(Number(e.target.value))}
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500"
+                value={4}
+                disabled
+                className="w-full bg-slate-900 border border-amber-500/50 rounded-xl px-3 py-2.5 text-xs text-amber-300 font-semibold cursor-not-allowed opacity-90"
               >
-                <option value={4}>⚡ 4 sceny po 4.5s (18s - Rekomendowane: idealne tempo)</option>
+                <option value={4}>🔒 Zablokowane: 4 sceny po 4.5s (Zawsze dokładnie 18.0s)</option>
               </select>
             </div>
 

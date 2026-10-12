@@ -1951,14 +1951,30 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
     const targetHeight = parts[1] || 1280;
     const targetFps = payload.fps || 30;
 
-    const scenes = payload.scenes || [];
-    if (!Array.isArray(scenes) || scenes.length === 0) {
+    const rawScenes = payload.scenes || [];
+    if (!Array.isArray(rawScenes) || rawScenes.length === 0) {
       throw new Error('Payload must contain at least one valid scene in "scenes" array.');
+    }
+
+    // Blokada pipeline'u na stałe: ZAWSZE dokładnie 4 sceny po 4.5s = łączny czas 18.0s
+    let scenes = [...rawScenes];
+    if (scenes.length > 4) {
+      scenes = scenes.slice(0, 4);
+    } else if (scenes.length < 4) {
+      while (scenes.length < 4) {
+        const copyFrom = scenes[scenes.length - 1] || scenes[0];
+        scenes.push({
+          ...copyFrom,
+          subtitles: `${copyFrom.subtitles || 'PODSUMOWANIE'}`,
+          voiceover_text: `${copyFrom.voiceover_text || copyFrom.subtitles || 'Podsumowanie'}`,
+          duration: 4.5
+        });
+      }
     }
 
     updateJobProgress(
       jobId,
-      { step: `Pobieranie ${scenes.length} klipów wideo`, progress: 10 },
+      { step: `Pobieranie ${scenes.length} klipów wideo (zablokowany standard 4 scen / 18s)`, progress: 10 },
       `Rozpoczynanie pobierania ${scenes.length} plików wideo/obrazów...`
     );
 
@@ -2016,12 +2032,9 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
         ''
       ).trim();
 
-      // Initial Scene duration
-      let sceneDuration = scene.duration || scene.scene_duration || 5;
-      if (typeof scene.trimStart === 'number' && typeof scene.trimEnd === 'number' && scene.trimEnd > scene.trimStart) {
-        sceneDuration = scene.trimEnd - scene.trimStart;
-      }
-      let captionDuration = sceneDuration;
+      // Zablokowana długość sceny na stałe: dokładnie 4.5s (4 sceny = 18.0s)
+      let sceneDuration = 4.5;
+      let captionDuration = 4.5;
       const sceneWordTimings: CaptionWordTiming[] = [];
       let ttsFitFailure: Error | null = null;
 
@@ -2043,7 +2056,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
             hasTtsAudio = true;
             captionDuration = Math.min(sceneDuration, ttsDuration);
             const targetSpeechDuration = Math.max(0.1, sceneDuration - 0.12);
-            if (payload.lockSceneDurations === true && ttsDuration > targetSpeechDuration + 0.03) {
+            if (ttsDuration > targetSpeechDuration + 0.03) {
               const speedFactor = ttsDuration / targetSpeechDuration;
               const atempoFilters: string[] = [];
               let remainingSpeed = speedFactor;
@@ -2072,12 +2085,11 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
                 console.warn(`⚠️ Nie udało się dopasować TTS sceny ${sceneNum}; przerwanie zadania, aby nie opublikować uciętego lektora:`, (fitErr as Error).message);
                 throw new Error('TTS_FIT_FAILED');
               }
-            } else if (payload.lockSceneDurations !== true && payload.syncDurationWithVoice !== false) {
-              // Legacy/general render mode: expand a scene to preserve the full narration.
-              const syncedDuration = Math.round((ttsDuration + 0.35) * 10) / 10;
-              sceneDuration = Math.max(syncedDuration, sceneDuration);
-              console.log(`✓ Scene ${sceneNum} synchronized with TTS voice duration: ${sceneDuration}s (TTS: ${ttsDuration}s)`);
+            } else {
+              captionDuration = Math.min(sceneDuration, ttsDuration);
             }
+            // Zablokowane na stałe: każda z 4 scen ma zawsze równe 4.5s
+            sceneDuration = 4.5;
           }
         } catch (ttsErr) {
           if (ttsFitFailure) {
@@ -2167,11 +2179,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
         if (typeof scene.trimStart === 'number' && scene.trimStart >= 0) {
           trimOpts.push('-ss', scene.trimStart.toString());
         }
-        if (typeof scene.trimEnd === 'number' && scene.trimEnd > (scene.trimStart || 0)) {
-          trimOpts.push('-to', scene.trimEnd.toString());
-        } else if (sceneDuration > 0) {
-          trimOpts.push('-t', sceneDuration.toString());
-        }
+        trimOpts.push('-t', sceneDuration.toString());
 
         if (hasTtsAudio) {
           // Use synthesized TTS voice narration as audio track with seamless video loop
@@ -2228,9 +2236,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
         if (typeof scene.trimStart === 'number' && scene.trimStart >= 0) {
           trimOptsFallback.push('-ss', scene.trimStart.toString());
         }
-        if (typeof scene.trimEnd === 'number' && scene.trimEnd > (scene.trimStart || 0)) {
-          trimOptsFallback.push('-to', scene.trimEnd.toString());
-        }
+        trimOptsFallback.push('-t', sceneDuration.toString());
 
         const fallbackArgs = [
           '-y',
@@ -2664,7 +2670,7 @@ function buildSmartFallbackScript(
   topic: string,
   niche: string,
   language: string,
-  count: number = 4,
+  _requestedCount: number = 4,
   articleContext?: string,
   bankierArticle?: any,
   pairedKeywords?: string[]
@@ -2700,8 +2706,8 @@ function buildSmartFallbackScript(
     videoIndex = 7;
   }
 
-  // 2-scene 18-second architecture (2 x 9s from Pexels: dynamic cut to avoid monotony + mandatory CTA)
-  if (count === 2 || count <= 0) {
+  // Zablokowana na stałe architektura: zawsze dokładnie 4 sceny po 4.5s (łącznie 18.0s)
+  if (false) {
     let s1Voiceover = '';
     let s2Voiceover = '';
     let kw1 = Array.isArray(pairedKeywords) && pairedKeywords[0] ? pairedKeywords[0] : 'stock exchange screen numbers flashing';
@@ -2801,8 +2807,8 @@ function buildSmartFallbackScript(
     };
   }
 
-  // Single 18-second scene architecture (if user explicitly forces 1 scene)
-  if (count === 1) {
+  // Single 18-second scene architecture (wyłączona - wymóg 4 scen)
+  if (false) {
     let rawVoiceover = '';
     if (isPl) {
       if (videoIndex === 0 || videoIndex === 3) {
@@ -2850,8 +2856,9 @@ function buildSmartFallbackScript(
     };
   }
 
-  // Short, source-grounded multi-scene fallback when Gemini is unavailable.
-  const dur = Number((18 / count).toFixed(1));
+  // Zablokowane na stałe: Dokładnie 4 sceny po 4.5s (łącznie 18.0s)
+  const count = 4;
+  const dur = 4.5;
   const rawSourceSummary = String(bankierArticle?.description || bankierArticle?.summary || articleContext || '').trim();
   const firstSourceSentence = rawSourceSummary.split(/(?<=[.!?])\s+/)[0] || '';
   const compactWords = (value: string, maxWords: number) => {
@@ -3957,15 +3964,25 @@ router.post('/auto-pilot-shorts', async (req, res) => {
 
       title = scriptData.title || topicToUse;
       description = scriptData.description || description;
-      scenesToRender = scriptData.scenes;
-      if (body.lockSceneDurations !== false && scenesToRender.length === 4) {
-        lockSceneDurations = true;
-      }
+      scenesToRender = scriptData.scenes || [];
     }
 
-    if (lockSceneDurations && scenesToRender.length === 4) {
-      scenesToRender = scenesToRender.map((scene) => ({ ...scene, duration: 4.5 }));
+    // Zablokuj czas i sceny na stałe: Zawsze dokładnie 4 sceny po 4.5s (łącznie 18.0s)
+    if (scenesToRender.length > 4) {
+      scenesToRender = scenesToRender.slice(0, 4);
+    } else if (scenesToRender.length < 4) {
+      while (scenesToRender.length < 4) {
+        const copyFrom = scenesToRender[scenesToRender.length - 1] || scenesToRender[0];
+        scenesToRender.push({
+          ...copyFrom,
+          subtitles: `${copyFrom.subtitles || 'PODSUMOWANIE'}`,
+          voiceover_text: `${copyFrom.voiceover_text || copyFrom.subtitles || 'Podsumowanie'}`,
+          duration: 4.5
+        });
+      }
     }
+    scenesToRender = scenesToRender.map((scene) => ({ ...scene, duration: 4.5 }));
+    lockSceneDurations = true;
 
     const autoDecisions: AiViralDecisions = scriptData?.aiDecisions || deriveAiViralDecisions(
       topic || 'Analiza rynkowa',
@@ -4093,13 +4110,26 @@ router.post('/combine-scenes', async (req, res) => {
     });
   }
 
-  const normalizedScenes = scenesList.map((sc: any, idx: number) =>
+  let normalizedScenes = scenesList.map((sc: any, idx: number) =>
     normalizeSceneItem(sc, idx, scenesList!.length)
   );
-  const lockSceneDurations = body.lockSceneDurations === true;
-  if (lockSceneDurations && normalizedScenes.length === 4) {
-    normalizedScenes.forEach((scene) => { scene.duration = 4.5; });
+
+  // Zablokuj czas i sceny na stałe: Zawsze dokładnie 4 sceny po 4.5s (łącznie 18.0s)
+  if (normalizedScenes.length > 4) {
+    normalizedScenes = normalizedScenes.slice(0, 4);
+  } else if (normalizedScenes.length < 4) {
+    while (normalizedScenes.length < 4) {
+      const copyFrom = normalizedScenes[normalizedScenes.length - 1] || normalizedScenes[0];
+      normalizedScenes.push({
+        ...copyFrom,
+        subtitles: `${copyFrom.subtitles || 'PODSUMOWANIE'}`,
+        voiceover_text: `${copyFrom.voiceover_text || copyFrom.subtitles || 'Podsumowanie'}`,
+        duration: 4.5
+      });
+    }
   }
+  normalizedScenes = normalizedScenes.map((scene) => ({ ...scene, duration: 4.5 }));
+  const lockSceneDurations = true;
 
   const payload: CombineScenesPayload = {
     scenes: normalizedScenes,

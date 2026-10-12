@@ -314,27 +314,54 @@ export const GoogleSheetsManager: React.FC<GoogleSheetsManagerProps> = ({
 
     setAppendingRow(true);
     try {
+      // 1. Zbuduj zbiór ID zadań już istniejących w arkuszu, aby uniknąć duplikatów
+      const existingJobIds = new Set<string>();
+      if (sheetValues?.values) {
+        sheetValues.values.forEach((row) => {
+          row.forEach((cell) => {
+            if (typeof cell === 'string' && (cell.startsWith('job_') || cell.startsWith('job-'))) {
+              existingJobIds.add(cell.trim());
+            }
+          });
+        });
+      }
+
       let added = 0;
       for (const job of recentJobs) {
-        if (job.status === 'completed') {
+        if (job.status === 'completed' && !existingJobIds.has(job.id)) {
+          // 2. Wyodrębnij autentyczny tytuł filmu lub newsa
+          let meaningfulTitle = (job as any).title;
+          if (!meaningfulTitle && job.step) {
+            const match = job.step.match(/["„](.+?)["”]/);
+            if (match) meaningfulTitle = match[1];
+          }
+          if (!meaningfulTitle && job.outputFilename) {
+            meaningfulTitle = job.outputFilename.replace(/\.mp4$/, '').replace(/^combined_video_/, '').replace(/_/g, ' ');
+          }
+          if (!meaningfulTitle) {
+            meaningfulTitle = `Short Finansowy (${job.id.slice(0, 14)})`;
+          }
+
           await logVideoRenderToSheet(selectedSheetId, activeTabTitle, {
-            title: job.jobId || 'AI Viral Shorts',
-            duration: 18,
+            title: meaningfulTitle,
+            duration: job.duration || 18,
             sceneCount: 4,
             voice: 'pl-PL-MarekNeural',
-            jobId: job.jobId,
+            jobId: job.id,
             status: 'Wyrenderowane (Zakończone)',
-            videoUrl: job.videoUrl
+            videoUrl: job.outputUrl,
+            createdAt: job.createdAt
           });
           added++;
+          existingJobIds.add(job.id);
         }
       }
 
       if (added > 0) {
-        onToast?.('success', 'Synchronizacja zakończona', `Dodano ${added} rekord(ów) wyrenderowanych filmów do arkusza.`);
+        onToast?.('success', 'Synchronizacja zakończona', `Dodano ${added} nowych film(ów) do arkusza.`);
         await loadTabValues(selectedSheetId, activeTabTitle);
       } else {
-        onToast?.('info', 'Brak ukończonych zadań', 'Tylko zakończone rendery są synchronizowane.');
+        onToast?.('info', 'Wszystkie wideo zsynchronizowane', 'Wszystkie ukończone wideo znajdują się już w tym arkuszu.');
       }
     } catch (err: any) {
       onToast?.('error', 'Błąd synchronizacji', err.message);
@@ -717,15 +744,29 @@ export const GoogleSheetsManager: React.FC<GoogleSheetsManagerProps> = ({
                       Dodaj wiersz
                     </button>
 
-                    <button
-                      onClick={handleSyncRecentJobs}
-                      disabled={appendingRow}
-                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shadow-sm disabled:opacity-50"
-                      title="Dopisuje wyrenderowane wideo z bieżącej sesji do tego arkusza"
-                    >
-                      <Upload className="w-3.5 h-3.5" />
-                      Zsynchronizuj wideo ({recentJobs.filter((j) => j.status === 'completed').length})
-                    </button>
+                    {(() => {
+                      const completedJobs = recentJobs.filter((j) => j.status === 'completed');
+                      const unsyncedJobs = completedJobs.filter((j) => {
+                        if (!sheetValues?.values) return true;
+                        return !sheetValues.values.some((row) => row.some((cell) => typeof cell === 'string' && cell.trim() === j.id));
+                      });
+
+                      return (
+                        <button
+                          onClick={handleSyncRecentJobs}
+                          disabled={appendingRow || unsyncedJobs.length === 0}
+                          className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shadow-sm disabled:opacity-50 disabled:bg-slate-800 disabled:text-slate-500"
+                          title={
+                            unsyncedJobs.length > 0
+                              ? `Dopisuje ${unsyncedJobs.length} nowych filmów do arkusza bez duplikatów`
+                              : 'Wszystkie wyrenderowane filmy są już zapisane w tym arkuszu'
+                          }
+                        >
+                          <Upload className="w-3.5 h-3.5" />
+                          Zsynchronizuj wideo ({unsyncedJobs.length})
+                        </button>
+                      );
+                    })()}
 
                     <button
                       onClick={() => {
