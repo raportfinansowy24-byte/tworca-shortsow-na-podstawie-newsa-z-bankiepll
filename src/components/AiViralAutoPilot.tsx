@@ -254,7 +254,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
 
   // Lektor Text-to-Speech (TTS) State
   const [ttsEnabled, setTtsEnabled] = useState(true);
-  const [ttsVoice, setTtsVoice] = useState('eleven_antoni');
+  const [ttsVoice, setTtsVoice] = useState('04BD7Fenyf9Ysq983wrd');
   const [ttsSpeed, setTtsSpeed] = useState(1.0);
   const syncDurationWithVoice = true;
   const [voicePreviewLoading, setVoicePreviewLoading] = useState(false);
@@ -276,10 +276,12 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
         }
         const voices = Array.isArray(data.voices) ? data.voices : [];
         setElevenLabsVoices(voices);
-        setTtsConnectionMessage('');
         const defaultVoiceId = typeof data.defaultVoiceId === 'string' ? data.defaultVoiceId : '';
-        const availableDefaultVoiceId = voices.find((voice: { id?: string }) => voice.id === defaultVoiceId)?.id || voices[0]?.id || defaultVoiceId;
-        setTtsVoice((current) => current === 'eleven_antoni' || /Neural$/i.test(current) ? (availableDefaultVoiceId || current) : current);
+        const selectedVoiceAvailable = voices.some((voice: { id?: string }) => voice.id === defaultVoiceId);
+        setTtsConnectionMessage(defaultVoiceId && voices.length > 0 && !selectedVoiceAvailable
+          ? `Wskazany głos ${defaultVoiceId} nie pojawia się w katalogu tego konta. Zachowuję wybór; sprawdź dostęp do tego Voice ID w ElevenLabs.`
+          : '');
+        setTtsVoice((current) => current === '04BD7Fenyf9Ysq983wrd' || current === 'eleven_antoni' || /Neural$/i.test(current) ? (defaultVoiceId || current) : current);
       })
       .catch(() => {
         if (active) setTtsConnectionMessage('Nie udało się pobrać głosów ElevenLabs. Sprawdź połączenie API.');
@@ -2440,8 +2442,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
                             </>
                           ) : (
                             <>
-                              <option value="eleven_antoni">Antoni — domyślny profil ElevenLabs</option>
-                              <option value="eleven_adam">Adam — profil ElevenLabs</option>
+                              <option value="04BD7Fenyf9Ysq983wrd">Wybrany głos ElevenLabs (04BD7Fenyf9Ysq983wrd)</option>
                             </>
                           )}
                         </select>

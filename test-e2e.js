@@ -157,8 +157,9 @@ async function main() {
     if (!voicesRes.ok || !voicesData.success || voicesData.provider !== 'elevenlabs' || !Array.isArray(voicesData.voices)) {
       throw new Error(voicesData.message || `Nie można pobrać głosów ElevenLabs (HTTP ${voicesRes.status}).`);
     }
-    const voiceId = voicesData.voices.find((voice) => voice.id === voicesData.defaultVoiceId)?.id || voicesData.voices[0]?.id;
-    if (!voiceId) throw new Error('Konto ElevenLabs nie udostępnia żadnego głosu.');
+    const voiceId = process.env.ELEVENLABS_VOICE_ID || '04BD7Fenyf9Ysq983wrd';
+    if (voicesData.defaultVoiceId !== voiceId) throw new Error(`Oczekiwano domyślnego voice ID ${voiceId}, otrzymano ${voicesData.defaultVoiceId || 'brak'}.`);
+    if (!voicesData.voices.some((voice) => voice.id === voiceId)) throw new Error(`Konto ElevenLabs nie udostępnia wskazanego voice ID ${voiceId}.`);
     const sampleText = generatedScript?.scenes?.[0]?.voiceover_text || 'To jest test głosu lektora.';
     const params = new URLSearchParams({
       text: sampleText.slice(0, 160),

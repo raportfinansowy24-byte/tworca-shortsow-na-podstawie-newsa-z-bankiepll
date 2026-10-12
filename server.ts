@@ -1247,6 +1247,7 @@ export const ELEVEN_VOICES_MAP: Record<string, string> = {
   'eleven_george': 'JBFqnCBsd6RMkjVDRZzb',
   'eleven_liam': 'TX3LPaxmHKxFdv7VOQHJ'
 };
+export const DEFAULT_ELEVENLABS_VOICE_ID = '04BD7Fenyf9Ysq983wrd';
 
 type ElevenLabsAlignment = {
   characters?: string[];
@@ -1263,7 +1264,7 @@ function resolveElevenLabsVoiceId(requestedVoice?: string): string {
   }
   // Preserve a chosen ElevenLabs voice ID. Legacy Edge Neural names resolve to the configured account voice.
   if (/^[A-Za-z0-9]{16,32}$/.test(requested)) return requested;
-  return process.env.ELEVENLABS_VOICE_ID?.trim() || ELEVEN_VOICES_MAP.eleven_antoni;
+  return process.env.ELEVENLABS_VOICE_ID?.trim() || DEFAULT_ELEVENLABS_VOICE_ID;
 }
 
 function requestElevenLabsApi(method: 'GET' | 'POST', endpoint: string, payload?: unknown): Promise<{ statusCode: number; body: string }> {
@@ -1408,7 +1409,7 @@ async function generateTtsAudio(
   const safeSpeed = typeof speedMultiplier === 'number' && Number.isFinite(speedMultiplier)
     ? Math.max(0.7, Math.min(speedMultiplier, 1.2))
     : 1.0;
-  const selectedVoice = requestedVoice || process.env.ELEVENLABS_VOICE_ID || 'eleven_antoni';
+  const selectedVoice = requestedVoice || process.env.ELEVENLABS_VOICE_ID || DEFAULT_ELEVENLABS_VOICE_ID;
   return generateElevenLabsAudio(cleanText, selectedVoice, destPath, safeSpeed, wordTimingsOut, previousText, nextText);
 }
 
@@ -1702,7 +1703,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
     let totalEstimatedDuration = 0;
     const ttsEnabled = payload.tts !== false;
     const ttsLanguage = normalizeLanguageCode(payload.ttsLanguage || (payload as any).language || 'pl');
-    const ttsVoice = payload.ttsVoice || (payload as any).tts_voice || (payload as any).voice || (payload as any).lektor || (payload as any).glos || process.env.ELEVENLABS_VOICE_ID || 'eleven_antoni';
+    const ttsVoice = payload.ttsVoice || (payload as any).tts_voice || (payload as any).voice || (payload as any).lektor || (payload as any).glos || process.env.ELEVENLABS_VOICE_ID || DEFAULT_ELEVENLABS_VOICE_ID;
     const requestedTtsSpeed = typeof payload.ttsSpeed === 'number' && payload.ttsSpeed > 0 ? payload.ttsSpeed : (typeof (payload as any).tts_speed === 'number' ? (payload as any).tts_speed : 1.0);
     const ttsSpeed = Math.max(0.7, Math.min(requestedTtsSpeed, 1.2));
     const defaultCaptionAnim = 'single-word';
@@ -3085,7 +3086,7 @@ function deriveAiViralDecisions(
   }
 
   // 4. Voice and speed are global ElevenLabs settings, not AI-selected per scene.
-  const optimalVoice = process.env.ELEVENLABS_VOICE_ID?.trim() || 'eleven_antoni';
+  const optimalVoice = process.env.ELEVENLABS_VOICE_ID?.trim() || DEFAULT_ELEVENLABS_VOICE_ID;
   const voiceSpeed = 1.0;
 
   return {
@@ -3710,7 +3711,7 @@ router.post('/auto-pilot-shorts', async (req, res) => {
       body.bankierArticle?.category || niche
     );
 
-    const effectiveVoice = body.ttsVoice || body.tts_voice || body.voice || body.lektor || body.glos || process.env.ELEVENLABS_VOICE_ID || 'eleven_antoni';
+    const effectiveVoice = body.ttsVoice || body.tts_voice || body.voice || body.lektor || body.glos || process.env.ELEVENLABS_VOICE_ID || DEFAULT_ELEVENLABS_VOICE_ID;
     const requestedSpeed = typeof body.ttsSpeed === 'number' && Number.isFinite(body.ttsSpeed) ? body.ttsSpeed : 1.0;
     const effectiveSpeed = Math.max(0.7, Math.min(requestedSpeed, 1.2));
     autoDecisions.optimalVoice = String(effectiveVoice);
@@ -4173,10 +4174,7 @@ router.get('/tts/voices', async (req, res) => {
       category: voice.category || 'voice',
       labels: voice.labels || {}
     }));
-    const configuredVoiceId = process.env.ELEVENLABS_VOICE_ID?.trim() || '';
-    const defaultVoiceId = configuredVoiceId && voices.some((voice) => voice.id === configuredVoiceId)
-      ? configuredVoiceId
-      : (voices[0]?.id || configuredVoiceId || ELEVEN_VOICES_MAP.eleven_antoni);
+    const defaultVoiceId = process.env.ELEVENLABS_VOICE_ID?.trim() || DEFAULT_ELEVENLABS_VOICE_ID;
     res.json({
       success: true,
       provider: 'elevenlabs',
@@ -4195,7 +4193,7 @@ router.get('/tts/stream', async (req, res) => {
   try {
     const rawText = ((req.query.text as string) || 'Cześć! To jest podgląd ultra-realistycznego lektora sztucznej inteligencji.').trim();
     const lang = normalizeLanguageCode((req.query.lang as string) || 'pl');
-    const requestedVoice = (req.query.voice as string) || process.env.ELEVENLABS_VOICE_ID || 'eleven_antoni';
+    const requestedVoice = (req.query.voice as string) || process.env.ELEVENLABS_VOICE_ID || DEFAULT_ELEVENLABS_VOICE_ID;
     const speed = parseFloat(req.query.speed as string) || 1.0;
 
     const tempAudio = path.join(TEMP_DIR, `stream_preview_${Date.now()}_${Math.random().toString(36).substring(2, 6)}.mp3`);
@@ -4223,7 +4221,7 @@ router.post('/tts/preview', async (req, res) => {
     }
 
     const cleanLang = normalizeLanguageCode(language);
-    const selectedVoice = voice || process.env.ELEVENLABS_VOICE_ID || 'eleven_antoni';
+    const selectedVoice = voice || process.env.ELEVENLABS_VOICE_ID || DEFAULT_ELEVENLABS_VOICE_ID;
     const requestedSpeed = typeof speed === 'number' && Number.isFinite(speed) ? speed : 1.0;
     const speedMultiplier = Math.max(0.7, Math.min(requestedSpeed, 1.2));
 
@@ -5519,7 +5517,7 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
       async: true,
       tts: true,
       ttsLanguage: 'pl',
-      ttsVoice: schedulerState.voice || process.env.ELEVENLABS_VOICE_ID || 'eleven_antoni',
+      ttsVoice: schedulerState.voice || process.env.ELEVENLABS_VOICE_ID || DEFAULT_ELEVENLABS_VOICE_ID,
       ttsSpeed: 1.0,
       syncDurationWithVoice: true,
       lockSceneDurations: true,
