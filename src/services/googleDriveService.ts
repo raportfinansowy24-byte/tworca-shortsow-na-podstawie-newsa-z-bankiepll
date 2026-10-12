@@ -37,15 +37,22 @@ const provider = new GoogleAuthProvider();
 SCOPES.forEach((scope) => {
   provider.addScope(scope);
 });
+// Allow automatic account selection without forcing prompt select_account every time
 provider.setCustomParameters({
-  prompt: 'select_account'
+  // Removed prompt: 'select_account' to avoid repeated forcing
 });
 
 // Flag and promise lock to track sign-in status and prevent concurrent popup collisions
 let isSigningIn = false;
 let activeSignInPromise: Promise<{ user: User; accessToken: string } | null> | null = null;
-// Strictly in-memory token cache (never stored in localStorage or sessionStorage)
-let cachedAccessToken: string | null = null;
+// Token cache persisted in sessionStorage (survives page reloads within the tab session)
+let cachedAccessToken: string | null = (() => {
+  try {
+    return sessionStorage.getItem('gdrive_access_token');
+  } catch {
+    return null;
+  }
+})();
 
 export interface DriveFileItem {
   id: string;
@@ -78,15 +85,25 @@ export const initAuth = (
 ) => {
   return onAuthStateChanged(auth, async (user: User | null) => {
     if (user) {
+      if (!cachedAccessToken) {
+        try {
+          cachedAccessToken = sessionStorage.getItem('gdrive_access_token');
+        } catch {
+          // ignore
+        }
+      }
       if (cachedAccessToken) {
         if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
       } else if (!isSigningIn) {
-        // If user is logged in to Firebase but token is missing from memory,
+        // If user is logged in to Firebase but token is missing from memory/session,
         // trigger sign-in or prompt user
         if (onAuthFailure) onAuthFailure();
       }
     } else {
       cachedAccessToken = null;
+      try {
+        sessionStorage.removeItem('gdrive_access_token');
+      } catch {}
       if (onAuthFailure) onAuthFailure();
     }
   });
@@ -108,6 +125,9 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
       }
 
       cachedAccessToken = credential.accessToken;
+      try {
+        sessionStorage.setItem('gdrive_access_token', cachedAccessToken);
+      } catch {}
       return { user: result.user, accessToken: cachedAccessToken };
     } catch (error: any) {
       const errMsg = String(error?.message || error || '');
@@ -136,12 +156,20 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
 };
 
 export const getAccessToken = async (): Promise<string | null> => {
+  if (!cachedAccessToken) {
+    try {
+      cachedAccessToken = sessionStorage.getItem('gdrive_access_token');
+    } catch {}
+  }
   return cachedAccessToken;
 };
 
 export const logoutGoogleDrive = async () => {
   await signOut(auth);
   cachedAccessToken = null;
+  try {
+    sessionStorage.removeItem('gdrive_access_token');
+  } catch {}
 };
 
 // ---------------- Google Drive API Client Calls ----------------
