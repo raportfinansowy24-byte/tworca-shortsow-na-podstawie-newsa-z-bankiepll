@@ -39,7 +39,7 @@ System składa się z dwóch ściśle zintegrowanych warstw:
 ┌────────────────────────────────────▼───────────────────────────────────┐
 │                     BACKEND & SERWER (Node.js / Express)               │
 │  - Asynchroniczny pipeline FFmpeg (montaż, napisy ASS, skalowanie)     │
-│  - Wielosilnikowy generator mowy: Edge Neural HD + ElevenLabs fallback │
+│  - Jeden provider mowy ElevenLabs (stały głos, bez fallbacku)          │
 │  - Pobieranie i weryfikacja assetów stockowych (Pexels / CDN)          │
 │  - Serwer plików statycznych & kolejka zadań na dysku                  │
 └────────────────────────────────────────────────────────────────────────┘
@@ -166,8 +166,10 @@ Generuje scenariusz, dopasowuje klipy stockowe i renderuje wideo na podstawie te
 - `GET /api/jobs/:jobId/stream`: Strumień Server-Sent Events (SSE) do natychmiastowego odświeżania paska postępu w interfejsie bez odpytywania (polling).
 
 ### 4. `POST /api/tts/preview` & `GET /api/tts/voices`
-- `POST /api/tts/preview`: Generuje natychmiastową próbkę wybranego głosu lektorskiego dla podanego tekstu.
-- `GET /api/tts/voices`: Zwraca pełen katalog dostępnych głosów wraz z ich parametrami i opisami.
+- `POST /api/tts/preview`: Generuje próbkę przez ElevenLabs dla wybranego głosu i globalnego tempa.
+- `GET /api/tts/voices`: Zwraca głosy dostępne dla skonfigurowanego konta ElevenLabs.
+- W renderze czterech scen ten sam `voice_id`, model i ustawienia głosu obowiązują w całym Shortcie. Jeśli potrzebne jest dopasowanie długości, identyczny mnożnik `atempo` jest stosowany do wszystkich scen.
+- Nie ma fallbacku do Microsoft Edge ani Google TTS. Brak klucza, błąd API lub zbyt długa kwestia zatrzymują render, zamiast zmieniać głos lub ucinać lektora.
 
 ---
 
@@ -209,13 +211,15 @@ npm start
 
 ## 🔐 Zmienne Środowiskowe (`.env`)
 
-Skopiuj plik `.env.example` do `.env` i uzupełnij opcjonalne klucze:
+Skopiuj plik `.env.example` do `.env`. `ELEVENLABS_API_KEY` jest wymagany, gdy synteza TTS jest włączona; pozostałe klucze są opcjonalne zależnie od funkcji:
 
 | Zmienna | Wymagana | Opis |
 |---|---|---|
 | `PORT` | Nie (domyślnie 3000) | Port nasłuchiwania serwera Express |
 | `GEMINI_API_KEY` | Opcjonalna | Klucz do modeli Gemini dla zaawansowanego scenopisarstwa |
-| `ELEVENLABS_API_KEY` | Opcjonalna | Klucz do ElevenLabs (w przypadku braku używany jest silnik Edge Neural) |
+| `ELEVENLABS_API_KEY` | Tak dla TTS | Klucz ElevenLabs. Bez niego render TTS kończy się czytelnym błędem; nie ma fallbacku do Google/Edge. |
+| `ELEVENLABS_VOICE_ID` | Nie | Domyślne konto ID głosu; można też wybrać głos z katalogu ElevenLabs w interfejsie. |
+| `ELEVENLABS_MODEL_ID` | Nie | Domyślnie `eleven_multilingual_v2`. |
 | `PEXELS_API_KEY` | Opcjonalna | Klucz do dynamicznego wyszukiwania klipów w Pexels API |
 
 ---
