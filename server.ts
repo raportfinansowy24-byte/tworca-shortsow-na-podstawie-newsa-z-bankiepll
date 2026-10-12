@@ -1310,13 +1310,16 @@ function splitIntoTtsChunks(text: string, maxLen: number = 180): string[] {
   return chunks.length > 0 ? chunks : [clean];
 }
 
+type CaptionWordTiming = { word: string; start: number; end: number };
+
 // Generate single chunk using Microsoft Edge Neural TTS
 async function generateEdgeNeuralChunk(
   text: string,
   voice: string,
   destPath: string,
   speed: number = 1.15,
-  timeoutMs: number = 6000
+  timeoutMs: number = 6000,
+  wordTimingsOut: CaptionWordTiming[] = []
 ): Promise<boolean> {
   return new Promise(async (resolve) => {
     let resolved = false;
@@ -1356,25 +1359,76 @@ async function generateEdgeNeuralChunk(
       }
 
       const tts = new MsEdgeTTS();
-      await tts.setMetadata(baseVoice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
+      await tts.setMetadata(baseVoice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3, {
+        wordBoundaryEnabled: true,
+        sentenceBoundaryEnabled: true
+      });
       const rateStr = calculateRateString(speed);
       const streamObj = tts.toStream(text, { rate: rateStr, pitch: pitchStr });
-      
+      let audioWriteFinished = false;
+      let metadataFinished = !streamObj.metadataStream;
+      let audioWriteSucceeded = false;
+      const finishIfReady = () => {
+        if (!audioWriteFinished || !metadataFinished || resolved) return;
+        const exists = fs.existsSync(destPath) && fs.statSync(destPath).size > 200;
+        cleanup();
+        resolve(audioWriteSucceeded && exists);
+      };
+
+      streamObj.metadataStream?.on('data', (chunk: Buffer) => {
+        try {
+          const payload = JSON.parse(chunk.toString('utf8'));
+          const metadataItems = Array.isArray(payload.Metadata) ? payload.Metadata : [];
+          metadataItems.forEach((item: any) => {
+            if (item?.Type !== 'WordBoundary') return;
+            const data = item.Data || {};
+            const word = String(data.text?.Text || '').trim();
+            const offset = Number(data.Offset) / 10_000_000;
+            const duration = Number(data.Duration) / 10_000_000;
+            if (word && Number.isFinite(offset) && Number.isFinite(duration) && duration > 0) {
+              wordTimingsOut.push({ word, start: offset, end: offset + duration });
+            }
+          });
+        } catch (metadataErr) {
+          console.warn('[TTS word-boundary metadata] Ignoring an invalid metadata chunk:', (metadataErr as Error).message);
+        }
+      });
+      streamObj.metadataStream?.once('end', () => {
+        metadataFinished = true;
+        finishIfReady();
+      });
+      streamObj.metadataStream?.once('close', () => {
+        metadataFinished = true;
+        finishIfReady();
+      });
+      streamObj.metadataStream?.once('error', () => {
+        metadataFinished = true;
+        finishIfReady();
+      });
+
       const file = fs.createWriteStream(destPath);
       streamObj.audioStream.pipe(file);
 
       file.on('finish', () => {
         file.close(() => {
-          cleanup();
-          const exists = fs.existsSync(destPath) && fs.statSync(destPath).size > 200;
-          resolve(exists);
+          audioWriteFinished = true;
+          audioWriteSucceeded = true;
+          finishIfReady();
         });
       });
 
       file.on('error', () => {
         file.close();
-        cleanup();
-        resolve(false);
+        audioWriteFinished = true;
+        audioWriteSucceeded = false;
+        streamObj.metadataStream?.destroy();
+        finishIfReady();
+      });
+      streamObj.audioStream.once('error', () => {
+        audioWriteFinished = true;
+        audioWriteSucceeded = false;
+        streamObj.metadataStream?.destroy();
+        finishIfReady();
       });
     } catch (err) {
       cleanup();
@@ -1428,7 +1482,8 @@ async function generateTtsAudio(
   destPath: string,
   tempDir: string,
   requestedVoice?: string,
-  speedMultiplier: number = 1.15
+  speedMultiplier: number = 1.15,
+  wordTimingsOut?: CaptionWordTiming[]
 ): Promise<number> {
   const cleanLang = normalizeLanguageCode(lang);
   const voiceToUse = resolveNeuralVoice(requestedVoice, cleanLang);
@@ -1454,13 +1509,14 @@ async function generateTtsAudio(
 
   // 2. Try Neural TTS with Microsoft Edge (Ultra realistic, diverse & fast)
   try {
-    const neuralSuccess = await generateEdgeNeuralChunk(cleanText, voiceToUse, destPath, safeSpeed, 7000);
+    const neuralSuccess = await generateEdgeNeuralChunk(cleanText, voiceToUse, destPath, safeSpeed, 7000, wordTimingsOut);
     if (neuralSuccess && fs.existsSync(destPath)) {
       const dur = await getAudioDuration(destPath);
       if (dur > 0) {
         return dur;
       }
     }
+    if (wordTimingsOut) wordTimingsOut.length = 0;
   } catch (neuralErr) {
     console.warn(`[Neural TTS Info] Switch to accelerated fallback voice:`, (neuralErr as Error).message);
   }
@@ -1521,12 +1577,13 @@ function generateWordByWordAss(
     position?: 'bottom' | 'center' | 'top';
     fontSize?: number;
     outlineWidth?: number;
-  } = {}
+  } = {},
+  ttsWordTimings: CaptionWordTiming[] = []
 ): string {
   const words = text.trim().replace(/[\r\n]+/g, ' ').split(/\s+/).filter(Boolean);
   if (words.length === 0) return '';
 
-  const safeDuration = Math.max(duration, 1.0);
+  const safeDuration = Math.max(Number.isFinite(duration) ? duration : 0, 0.05);
   // Styl: single-word na sztywno czerwone (format ASS: &HAABBGGRR - nasycona czerwień)
   const highlightColor = '&H002222FF&'; // Czysty, wyrazisty czerwony
 
@@ -1539,18 +1596,34 @@ function generateWordByWordAss(
   const fontSize = baseSize >= 64 ? baseSize : Math.round(baseSize * 1.25);
   const outlineWidth = options.outlineWidth ? Math.round(options.outlineWidth * 1.25) : Math.round(fontSize * 0.12);
 
-  let totalChars = 0;
-  words.forEach((w) => { totalChars += Math.max(w.length, 2); });
+  const normalizeWord = (word: string) => word.toLocaleLowerCase('pl-PL').replace(/[^\p{L}\p{N}]/gu, '');
+  const hasMatchingTtsTimings = ttsWordTimings.length === words.length && ttsWordTimings.every((timing, index) =>
+    normalizeWord(timing.word) === normalizeWord(words[index]) && Number.isFinite(timing.start) && Number.isFinite(timing.end) && timing.end > timing.start
+  );
 
-  const wordTimings: { word: string; start: number; end: number }[] = [];
-  let currentTime = 0;
-  words.forEach((w, i) => {
-    const wordDur = (Math.max(w.length, 2) / totalChars) * safeDuration;
-    const start = currentTime;
-    const end = i === words.length - 1 ? safeDuration : currentTime + wordDur;
-    currentTime += wordDur;
-    wordTimings.push({ word: w, start, end });
-  });
+  let wordTimings: CaptionWordTiming[] = [];
+  if (hasMatchingTtsTimings) {
+    wordTimings = ttsWordTimings.map((timing, index) => ({
+      word: words[index],
+      start: Math.max(0, Math.min(safeDuration, timing.start)),
+      end: Math.max(0, Math.min(safeDuration, timing.end))
+    }));
+    if (wordTimings.some((timing) => timing.end <= timing.start)) wordTimings = [];
+  }
+
+  if (wordTimings.length === 0) {
+    let totalChars = 0;
+    words.forEach((word) => { totalChars += Math.max(word.length, 2); });
+
+    let currentTime = 0;
+    words.forEach((word, index) => {
+      const wordDur = (Math.max(word.length, 2) / totalChars) * safeDuration;
+      const start = currentTime;
+      const end = index === words.length - 1 ? safeDuration : currentTime + wordDur;
+      currentTime += wordDur;
+      wordTimings.push({ word, start, end });
+    });
+  }
 
   // Styl: single-word na środku z powiększeniem zachowującym proporcje 1:1 (\fscx130\fscy130)
   let dialogues = '';
@@ -1768,6 +1841,9 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
       if (typeof scene.trimStart === 'number' && typeof scene.trimEnd === 'number' && scene.trimEnd > scene.trimStart) {
         sceneDuration = scene.trimEnd - scene.trimStart;
       }
+      let captionDuration = sceneDuration;
+      const sceneWordTimings: CaptionWordTiming[] = [];
+      let ttsFitFailure: Error | null = null;
 
       // 1. Text-to-Speech Generation
       let hasTtsAudio = false;
@@ -1782,11 +1858,13 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
             {},
             `Generowanie głosu lektora TTS (${sceneVoice.split('-')[2] || sceneVoice} @ ${sceneSpeed}x): "${speechText.slice(0, 40)}..."`
           );
-          const ttsDuration = await generateTtsAudio(speechText, ttsLanguage, sceneTtsPath, jobTempDir, sceneVoice, sceneSpeed);
+          const ttsDuration = await generateTtsAudio(speechText, ttsLanguage, sceneTtsPath, jobTempDir, sceneVoice, sceneSpeed, sceneWordTimings);
           if (ttsDuration > 0 && fs.existsSync(sceneTtsPath)) {
             hasTtsAudio = true;
-            if (payload.lockSceneDurations === true && ttsDuration > sceneDuration + 0.03) {
-              const speedFactor = ttsDuration / sceneDuration;
+            captionDuration = Math.min(sceneDuration, ttsDuration);
+            const targetSpeechDuration = Math.max(0.1, sceneDuration - 0.12);
+            if (payload.lockSceneDurations === true && ttsDuration > targetSpeechDuration + 0.03) {
+              const speedFactor = ttsDuration / targetSpeechDuration;
               const atempoFilters: string[] = [];
               let remainingSpeed = speedFactor;
               while (remainingSpeed > 2) {
@@ -1801,9 +1879,18 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
                   throw new Error('FFmpeg nie utworzył poprawnego, dopasowanego pliku TTS.');
                 }
                 fs.renameSync(fittedTtsPath, sceneTtsPath);
-                console.log(`✓ Scene ${sceneNum} TTS fitted ${speedFactor.toFixed(2)}x into locked ${sceneDuration}s scene.`);
+                const measuredFittedDuration = await getAudioDuration(sceneTtsPath);
+                captionDuration = Math.min(sceneDuration, measuredFittedDuration || targetSpeechDuration);
+                const timingScale = measuredFittedDuration > 0 ? measuredFittedDuration / ttsDuration : 1 / speedFactor;
+                sceneWordTimings.forEach((timing) => {
+                  timing.start *= timingScale;
+                  timing.end *= timingScale;
+                });
+                console.log(`✓ Scene ${sceneNum} TTS fitted ${speedFactor.toFixed(2)}x to ${captionDuration.toFixed(2)}s inside locked ${sceneDuration}s scene.`);
               } catch (fitErr) {
-                console.warn(`⚠️ Nie udało się dopasować TTS sceny ${sceneNum}; scena pozostaje ograniczona do ${sceneDuration}s:`, (fitErr as Error).message);
+                ttsFitFailure = fitErr as Error;
+                console.warn(`⚠️ Nie udało się dopasować TTS sceny ${sceneNum}; przerwanie zadania, aby nie opublikować uciętego lektora:`, (fitErr as Error).message);
+                throw new Error('TTS_FIT_FAILED');
               }
             } else if (payload.lockSceneDurations !== true && payload.syncDurationWithVoice !== false) {
               // Legacy/general render mode: expand a scene to preserve the full narration.
@@ -1813,6 +1900,9 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
             }
           }
         } catch (ttsErr) {
+          if (ttsFitFailure) {
+            throw new Error(`Nie można bezpiecznie zsynchronizować lektora ze sceną ${sceneNum}: ${ttsFitFailure.message}`);
+          }
           console.warn(`⚠️ TTS warning for scene ${sceneNum}:`, (ttsErr as Error).message);
           updateJobProgress(jobId, {}, `Lektor TTS dla sceny ${sceneNum} niedostępny, używanie domyślnego audio.`);
         }
@@ -1833,13 +1923,14 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
 
       if (speechText.length > 0) {
         try {
-          const assContent = generateWordByWordAss(speechText, sceneDuration, {
+          console.log(`[Subtitle sync] Scene ${sceneNum}: audio=${captionDuration.toFixed(2)}s, scene=${sceneDuration.toFixed(2)}s, TTS word boundaries=${sceneWordTimings.length}/${speechText.split(/\s+/).filter(Boolean).length}.`);
+          const assContent = generateWordByWordAss(speechText, captionDuration, {
             animation: animMode,
             highlightColor: highlightCol,
             position,
             fontSize,
             outlineWidth
-          });
+          }, sceneWordTimings);
           fs.writeFileSync(sceneAssPath, assContent, 'utf8');
           // Escape single quotes and backslashes for FFmpeg filter
           const cleanAssPath = sceneAssPath.replace(/\\/g, '/').replace(/'/g, "'\\\\''");
