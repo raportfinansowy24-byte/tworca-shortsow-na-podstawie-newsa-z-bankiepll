@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test:e2e": "node test-e2e.js"
+    "test:e2e": "node test-e2e.js",
+    "test:scene-matching": "tsx test-finance-scene-matching.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

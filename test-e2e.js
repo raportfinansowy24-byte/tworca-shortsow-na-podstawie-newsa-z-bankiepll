@@ -26,6 +26,7 @@ async function main() {
   const report = [];
   let bankierArticle = null;
   let generatedScript = null;
+  let sceneAnalysis = null;
 
   report.push(await runStep('1. Katalog profili nisz', async () => {
     const res = await fetch(`${BASE_URL}/api/viral-niches`);
@@ -73,8 +74,36 @@ async function main() {
     if (keywords.length !== 4 || keywords.some((keyword) => typeof keyword !== 'string' || !keyword.trim())) {
       throw new Error(`Oczekiwano 4 niepustych słów kluczowych, otrzymano ${keywords.length}.`);
     }
+    sceneAnalysis = data;
+    if (data.topicCategory === 'rates-credit' && keywords.some((keyword) => /cash|banknotes?|counting|bullion|gold vault|crypto|bitcoin/i.test(keyword))) {
+      throw new Error('News o stopach/kredycie otrzymał ujęcie gotówki, złota lub krypto.');
+    }
     console.log(`  Słowa dla 4 scen: ${keywords.join(', ')}`);
     return data;
+  }));
+
+  report.push(await runStep('3a. Kontrola semantyczna scen dla newsa o RPP', async () => {
+    const fixtureArticle = {
+      title: 'RPP utrzymuje stopy. Co oznacza to dla rat kredytów?',
+      description: 'Rada Polityki Pieniężnej pozostawiła stopy procentowe bez zmian; materiał omawia możliwy wpływ na raty kredytowe.',
+      category: 'Wiadomości'
+    };
+    const res = await fetch(`${BASE_URL}/api/news/analyze-scene-keywords`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ article: fixtureArticle, sceneCount: 4, niche: 'Finanse & Inwestycje' })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.details || `HTTP ${res.status}: ${res.statusText}`);
+    const keywords = (data.segments || []).map((segment) => segment.primaryKeyword);
+    if (data.topicCategory !== 'rates-credit' || keywords.length !== 4) {
+      throw new Error(`Oczekiwano kategorii rates-credit i czterech scen; otrzymano ${data.topicCategory || 'brak'} / ${keywords.length}.`);
+    }
+    if (keywords.some((keyword) => /cash|banknotes?|counting|bullion|gold vault|crypto|bitcoin/i.test(keyword))) {
+      throw new Error(`Wykryto ujęcie spoza newsa o RPP: ${keywords.join(', ')}`);
+    }
+    console.log(`  Kategoria: ${data.topicCategory}; ujęcia: ${keywords.join(', ')}`);
+    return { topicCategory: data.topicCategory, keywords };
   }));
 
   report.push(await runStep('4. Generowanie skryptu: 4 sceny × 4,5 s', async () => {
@@ -93,6 +122,9 @@ async function main() {
     const data = await res.json();
     if (!Array.isArray(data.scenes) || data.scenes.length !== 4) {
       throw new Error(`Oczekiwano 4 scen, otrzymano ${data.scenes?.length || 0}.`);
+    }
+    if (data.scenes.some((scene) => scene.source !== 'pexels' || !scene.pexelsId)) {
+      throw new Error('Newsowy Short musi mieć cztery dopasowane klipy Pexels; test zatrzymuje się przed renderem.');
     }
     const durations = data.scenes.map((scene) => Number(scene.duration));
     if (durations.some((duration) => duration !== 4.5)) {
@@ -136,22 +168,41 @@ async function main() {
     return state;
   }));
 
-  report.push(await runStep('6. Pobranie ujęcia stock dla sceny', async () => {
-    const keyword = generatedScript?.scenes?.[0]?.searchKeyword || 'finance investment graph';
+  report.push(await runStep('6. Pobranie czterech, tematycznie zweryfikowanych ujęć Pexels', async () => {
+    const keywords = sceneAnalysis?.segments?.map((segment) => segment.primaryKeyword)
+      || generatedScript?.scenes?.map((scene) => scene.searchKeyword)
+      || ['loan payment calculator', 'interest rate chart', 'loan advisor client', 'monthly loan budget'];
     const res = await fetch(`${BASE_URL}/api/stock/fetch-scene-footage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ keyword, duration: 4.5, orientation: 'portrait' })
+      body: JSON.stringify({
+        keywords,
+        topic: bankierArticle.title,
+        article: bankierArticle,
+        requirePexelsMatch: true,
+        duration: 4.5,
+        orientation: 'portrait'
+      })
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
     const data = await res.json();
-    const videoUrl = data.videoUrl || data.footage?.[0]?.videoUrl;
-    if (!data.success || !videoUrl) throw new Error('Endpoint nie zwrócił działającego wyniku z URL-em wideo.');
-    console.log(`  Źródło: ${data.source || data.footage?.[0]?.source || 'niepodane'}`);
+    if (!res.ok) throw new Error(data.details || `HTTP ${res.status}: ${res.statusText}`);
+    if (!data.success || !Array.isArray(data.footage) || data.footage.length !== 4) {
+      throw new Error(`Oczekiwano czterech ujęć, otrzymano ${data.footage?.length || 0}.`);
+    }
+    if (data.footage.some((item) => !item.videoUrl || item.source !== 'pexels' || !item.pexelsId)) {
+      throw new Error('Co najmniej jedna scena nie ma unikalnego klipu Pexels.');
+    }
+    if (new Set(data.footage.map((item) => item.pexelsId)).size !== 4) {
+      throw new Error('Ten sam klip Pexels został przypisany do więcej niż jednej sceny.');
+    }
+    console.log(`  Źródło: Pexels; cztery różne identyfikatory: ${data.footage.map((item) => item.pexelsId).join(', ')}`);
     return data;
   }));
 
   report.push(await runStep('7. Katalog głosów konta i strumień ElevenLabs TTS', async () => {
+    if (!generatedScript || !Array.isArray(generatedScript.scenes) || generatedScript.scenes.some((scene) => scene.source !== 'pexels' || !scene.pexelsId)) {
+      throw new Error('Pomijam wywołanie ElevenLabs, aby nie zużyć limitu, gdy test nie ma kompletnego scenariusza z czterema klipami Pexels.');
+    }
     const voicesRes = await fetch(`${BASE_URL}/api/tts/voices`);
     const voicesData = await voicesRes.json();
     if (!voicesRes.ok || !voicesData.success || voicesData.provider !== 'elevenlabs' || !Array.isArray(voicesData.voices)) {

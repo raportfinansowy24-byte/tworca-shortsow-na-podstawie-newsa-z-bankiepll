@@ -880,10 +880,16 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
       const res = await fetch('/api/stock/fetch-scene-footage', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ keywords, topic, avoidIds })
+        body: JSON.stringify({
+          keywords,
+          topic,
+          avoidIds,
+          article: selectedBankierArticle,
+          requirePexelsMatch: true
+        })
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Nie udało się odświeżyć ujęć z Pexels');
+      if (!res.ok) throw new Error(data.details || data.error || 'Nie udało się odświeżyć ujęć z Pexels');
 
       if (data.footage && Array.isArray(data.footage)) {
         const updatedScenes = generatedScript.scenes.map((sc: any, idx: number) => {
