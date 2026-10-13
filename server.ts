@@ -18,11 +18,109 @@ import {
   isVisualQueryAlignedWithNews,
   scorePexelsCandidate
 } from './src/utils/financeSceneMatching';
+import {
+  buildOfferMatchPromptInstructions,
+  createEmptyOfferCatalogSnapshot,
+  matchNewsToCurrentOffers,
+  OFFER_CATEGORIES,
+  OFFER_CATALOG_SOURCE_URL,
+  parseOfferCatalogPayload,
+  type OfferCatalogSnapshot,
+  type OfferMatchPreview
+} from './src/utils/financeOfferMatching';
 
 const execPromise = promisify(exec);
 
 const PORT = 3000;
 const app = express();
+
+const OFFER_CATALOG_REFRESH_INTERVAL_MS = Math.max(
+  60_000,
+  Number(process.env.OFFER_CATALOG_REFRESH_INTERVAL_MS) || 6 * 60 * 60 * 1000
+);
+let offerCatalogSnapshot: OfferCatalogSnapshot = createEmptyOfferCatalogSnapshot();
+let offerCatalogRefreshPromise: Promise<void> | null = null;
+
+async function refreshOfferCatalogSnapshot(): Promise<void> {
+  if (offerCatalogRefreshPromise) return offerCatalogRefreshPromise;
+
+  offerCatalogRefreshPromise = (async () => {
+    const sourceBase = (process.env.OFFER_CATALOG_SOURCE_URL || OFFER_CATALOG_SOURCE_URL).trim().replace(/\/+$/, '');
+    const attemptedAt = new Date().toISOString();
+    const previous = offerCatalogSnapshot;
+
+    const results = await Promise.all(OFFER_CATEGORIES.map(async (definition) => {
+      try {
+        const endpoint = new URL(`/get-category-campaigns/${encodeURIComponent(definition.apiKey)}`, sourceBase);
+        const response = await fetch(endpoint, {
+          headers: { Accept: 'application/json', 'User-Agent': 'raport-finansowy24-offer-catalog/1.0' },
+          signal: AbortSignal.timeout(8000)
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const payload = await response.json();
+        if (!Array.isArray(payload)) throw new Error('Odpowiedź katalogu nie jest tablicą kart.');
+        return { definition, offers: parseOfferCatalogPayload(payload) };
+      } catch (error) {
+        return { definition, error: (error as Error).message || 'Błąd pobierania' };
+      }
+    }));
+
+    const categories: OfferCatalogSnapshot['categories'] = {};
+    let successCount = 0;
+    for (const result of results) {
+      const oldCategory = previous.categories[result.definition.id];
+      if ('offers' in result) {
+        successCount += 1;
+        categories[result.definition.id] = {
+          categoryId: result.definition.id,
+          offers: result.offers,
+          status: 'fresh',
+          fetchedAt: attemptedAt
+        };
+      } else if (oldCategory) {
+        categories[result.definition.id] = {
+          ...oldCategory,
+          status: 'stale',
+          error: result.error
+        };
+      } else {
+        categories[result.definition.id] = {
+          categoryId: result.definition.id,
+          offers: [],
+          status: 'unavailable',
+          error: result.error
+        };
+      }
+    }
+
+    const hasStaleCategories = Object.values(categories).some((category) => category.status === 'stale');
+    const status: OfferCatalogSnapshot['status'] = successCount === 0
+      ? (hasStaleCategories ? 'stale' : 'unavailable')
+      : (successCount === OFFER_CATEGORIES.length ? 'fresh' : 'partial');
+
+    offerCatalogSnapshot = {
+      status,
+      lastAttemptAt: attemptedAt,
+      lastSuccessAt: successCount > 0 ? attemptedAt : previous.lastSuccessAt,
+      categories
+    };
+    console.log(`[Offer catalog] Odświeżono ${successCount}/${OFFER_CATEGORIES.length} kategorii; status=${status}.`);
+  })().finally(() => {
+    offerCatalogRefreshPromise = null;
+  });
+
+  return offerCatalogRefreshPromise;
+}
+
+function getNewsOfferMatch(article: any, context?: string): OfferMatchPreview {
+  return matchNewsToCurrentOffers({
+    title: article?.title,
+    description: article?.description,
+    summary: article?.summary,
+    category: article?.category,
+    context
+  }, offerCatalogSnapshot);
+}
 
 // Initialize GoogleGenAI SDK on server
 const ai = new GoogleGenAI({
@@ -2239,6 +2337,35 @@ router.get('/health', async (req, res) => {
   });
 });
 
+// Read-only offer catalog status and article-to-category preview.
+router.get('/offers/catalog-status', (_req, res) => {
+  return res.json({
+    success: true,
+    status: offerCatalogSnapshot.status,
+    lastAttemptAt: offerCatalogSnapshot.lastAttemptAt,
+    lastSuccessAt: offerCatalogSnapshot.lastSuccessAt,
+    categories: OFFER_CATEGORIES.map((definition) => {
+      const category = offerCatalogSnapshot.categories[definition.id];
+      return {
+        id: definition.id,
+        name: definition.name,
+        path: definition.pagePath,
+        status: category?.status || 'unavailable',
+        visibleUnverifiedOfferCount: category?.offers.length || 0,
+        fetchedAt: category?.fetchedAt
+      };
+    }),
+    policy: 'Widoczne karty są kandydatami do ręcznej weryfikacji; endpoint nie potwierdza aktywności ani warunków ofert.'
+  });
+});
+
+router.post('/offers/match', async (req, res) => {
+  if (offerCatalogSnapshot.status === 'loading') await refreshOfferCatalogSnapshot();
+  const article = req.body?.article && typeof req.body.article === 'object' ? req.body.article : req.body;
+  const match = getNewsOfferMatch(article, typeof req.body?.context === 'string' ? req.body.context : undefined);
+  return res.json({ success: true, offerMatch: match });
+});
+
 // Viral Niches Catalog Endpoint (/api/viral-niches)
 router.get('/viral-niches', (req, res) => {
   res.json({
@@ -3145,6 +3272,7 @@ async function generateSmartOrGeminiViralScript({
   const cleanTopic = (topic || 'Analiza rynkowa').trim();
   const count = 4;
   const sceneDuration = 4.5;
+  if (offerCatalogSnapshot.status === 'loading') await refreshOfferCatalogSnapshot();
   const visualContext = [
     cleanTopic,
     articleContext,
@@ -3153,6 +3281,8 @@ async function generateSmartOrGeminiViralScript({
     bankierArticle?.category
   ].filter((part) => typeof part === 'string' && part.trim()).join('\n');
   const requireNewsPexels = Boolean(bankierArticle || (articleContext && articleContext.trim()));
+  const offerMatch = getNewsOfferMatch(bankierArticle || { title: cleanTopic, category: niche }, articleContext);
+  const offerMatchPrompt = buildOfferMatchPromptInstructions(offerMatch);
   if (Number(sceneCount) !== count) {
     console.warn(`[Viral Script] Wymuszam ${count} scen po ${sceneDuration}s (odebrano sceneCount=${sceneCount}).`);
   }
@@ -3252,6 +3382,7 @@ WYMAGANY PŁASKI FORMAT JSON:
     const prompt = `Jesteś elitarnym twórcą viralowych formatów wideo dla portalu raport-finansowy24.pl (w stylu CNBC, Bloomberg, Hormozi).
 Stwórz wysoce merytoryczny, porywający scenariusz na 18-sekundowy film złożony z DOKŁADNIE ${count} dynamicznych scen (po ${sceneDuration}s każda, łącznie dokładnie 18.0 sekund) w języku: ${language} na temat: "${cleanTopic}" (Kategoria: ${niche}).
 ${dataBoundaryInstructions}
+${offerMatchPrompt}
 ${nichePromptInstructions}
 ${bankierNewsSection}
 ${pairedKeywordsInstruction}
@@ -3377,6 +3508,7 @@ Każda scena w tablicy "scenes" musi mieć pole "duration": ${sceneDuration}.`;
           backgroundMusicUrl: parsed.backgroundMusicUrl || 'https://assets.mixkit.co/music/preview/mixkit-tech-house-vibes-130.mp3',
           audioVolume: parsed.audioVolume || 0.25,
           aiDecisions,
+          offerMatch,
           generator: geminiResult.modelUsed
         };
       }
@@ -3423,7 +3555,8 @@ Każda scena w tablicy "scenes" musi mieć pole "duration": ${sceneDuration}.`;
   return {
     ...fallbackScript,
     scenes: fallbackScenesWithVideo,
-    aiDecisions
+    aiDecisions,
+    offerMatch
   };
 }
 
@@ -4999,6 +5132,7 @@ interface AutopilotRunRecord {
   duration?: number;
   error?: string;
   aiDecisions?: AiViralDecisions;
+  offerMatch?: OfferMatchPreview;
   viralityScore?: ViralityScore;
   projectedEarnings?: {
     estViews: number;
@@ -5242,8 +5376,7 @@ let cachedCandidateDecision: {
 } | null = null;
 const CANDIDATE_CACHE_TTL = 3 * 60 * 1000; // 3 minuty
 
-// AI Virality Selector: Evaluates candidate fresh Bankier.pl articles with Gemini AI to choose the single strongest viral news
-// with maximum conversion to credit & bank account affiliate funnels (CPA 42-200 EUR) for the 10,000 EUR/month goal.
+// AI selector: chooses source-grounded Bankier.pl news; current visible offer categories are a secondary relevance signal.
 async function selectMostViralBankierArticleWithGemini(
   articles: any[]
 ): Promise<{
@@ -5254,10 +5387,20 @@ async function selectMostViralBankierArticleWithGemini(
   if (!articles || articles.length === 0) {
     throw new Error('Brak artykułów do analizy wiralowej.');
   }
+  if (offerCatalogSnapshot.status === 'loading') await refreshOfferCatalogSnapshot();
 
   // Filter out articles already processed if possible
   const pool = articles.filter(a => !schedulerState.processedUrls.includes(a.link));
-  const candidatePool = (pool.length > 0 ? pool : articles).slice(0, 12);
+  const candidatePoolRaw = (pool.length > 0 ? pool : articles).slice(0, 12);
+  const articlesWithOfferMatches = candidatePoolRaw.map((article) => ({
+    article,
+    offerMatch: getNewsOfferMatch(article)
+  }));
+  const offerAlignedPool = articlesWithOfferMatches
+    .filter(({ offerMatch }) => offerMatch.status === 'matched' && offerMatch.catalogStatus === 'fresh' && offerMatch.observedOfferCount > 0)
+    .map(({ article }) => article);
+  // Prefer articles with fresh visible category inventory, but keep an editorial fallback if none qualify.
+  const candidatePool = offerAlignedPool.length > 0 ? offerAlignedPool : candidatePoolRaw;
 
   if (candidatePool.length === 1) {
     const only = candidatePool[0];
@@ -5269,7 +5412,7 @@ async function selectMostViralBankierArticleWithGemini(
     };
   }
 
-  // Fallback heuristic scoring function that prioritizes credit & bank account conversions
+  // Fallback heuristic scoring function; the candidate pool above already prioritizes fresh category matches when available.
   const runHeuristicSelection = () => {
     let bestArticle = candidatePool[0];
     let bestScore = calculateViralityScore(bestArticle.title, bestArticle.description, bestArticle.category);
@@ -5278,7 +5421,7 @@ async function selectMostViralBankierArticleWithGemini(
       const art = candidatePool[i];
       const score = calculateViralityScore(art.title, art.description, art.category);
 
-      // Weighting: Credit & Bank Accounts conversion priority (CPA 42-200€)
+      // Editorial trend weight only; do not infer or promise conversion outcomes.
       let weightedTotal = score.totalScore;
       if (score.trendAlignment.trendRank === 1 || score.trendAlignment.trendRank === 2) {
         weightedTotal += 8; // Stopy, RPP, Kredyty, Hipoteki
@@ -5309,21 +5452,28 @@ async function selectMostViralBankierArticleWithGemini(
   // Attempt selection via Gemini AI comparative reasoning
   try {
     const articlesPromptList = candidatePool.map((a, idx) => {
+      const offerMatch = getNewsOfferMatch(a);
+      const offerLine = offerMatch.categoryName
+        ? `Wstępna kategoria oferty: ${offerMatch.categoryName}; widoczne karty: ${offerMatch.observedOfferCount}; status katalogu: ${offerMatch.catalogStatus}; niezweryfikowane: TAK.`
+        : `Dopasowanie do konkretnej kategorii oferty: brak; materiał może pozostać redakcyjny.`;
       return `[ID: ${idx}]
 Tytuł: "${a.title}"
 Kategoria: ${a.category || 'Wiadomości'}
-Podsumowanie: "${(a.description || '').replace(/\\s+/g, ' ').slice(0, 220)}"`;
+Podsumowanie: "${(a.description || '').replace(/\s+/g, ' ').slice(0, 220)}"
+${offerLine}`;
     }).join('\n\n');
 
-    const prompt = `Jesteś Dyrektorem Wirusowych Formatów Wideo i Głównym Analitykiem Monetyzacji portalu RaportFinansowy24.
-Przeanalizuj poniższe ${candidatePool.length} najświeższych artykułów z portalu Bankier.pl i wybierz DOKŁADNIE JEDEN artykuł o NAJWIĘKSZYM POTENCJALE WIRALOWYM ORAZ NAJWYŻSZEJ KONWERSJI AFILIACYJNEJ.
+    const prompt = `Jesteś redaktorem krótkich, organicznych materiałów finansowych dla portalu RaportFinansowy24.
+Przeanalizuj poniższe ${candidatePool.length} najświeższych artykułów z portalu Bankier.pl i wybierz DOKŁADNIE JEDEN artykuł o najwyższym potencjale zaangażowania, który można rzetelnie opowiedzieć w 18 sekund.
 
-GŁÓWNY CEL: Maksymalna konwersja do kredytów i kont bankowych (CPA 42 - 200 €) w drodze do celu 10 000 euro miesięcznie zysku.
+GŁÓWNY CEL: organiczna wartość dla widza, mocny lecz prawdziwy hook oraz naturalne przejście do raport-finansowy24.pl. Dopasowanie do widocznej kategorii katalogu jest pomocnicze i nie dowodzi aktywności ani warunków oferty.
 
 ŻELAZNE ZASADY SELEKCJI:
 1. BEZWZGLĘDNY PRIORYTET: Tematy dotyczące portfela milionów Polaków (stopy procentowe RPP, raty kredytów hipotecznych/gotówkowych, ceny mieszkań, podatki/ZUS, konta bankowe, lokaty) MAJĄ ABSOLUTNY PRIORYTET nad niszowymi newsami giełdowymi pojedynczych spółek czy surowcami.
-2. ZASADA 3 SEKUND (HOOK & PATTERN INTERRUPT): Artykuł musi dawać możliwość stworzenia natychmiastowego, szokującego otwarcia w pierwszych 3 sekundach (np. "Właśnie zapadła decyzja RPP, która podniesie Twoją ratę!").
-3. LEJEK FINANSOWY (CPA): Wybrany news musi naturalnie i wiarygodnie kierować widza do kalkulatora lub rankingu na raport-finansowy24.pl.
+2. ZASADA 3 SEKUND (HOOK & PATTERN INTERRUPT): Artykuł musi dawać możliwość stworzenia natychmiastowego, źródłowo uzasadnionego otwarcia w pierwszych 3 sekundach; nie dopisuj skutków decyzji, których nie potwierdza artykuł.
+3. DOPASOWANIE DO KATALOGU: Gdy kilka artykułów ma podobny potencjał, preferuj temat z jasnym dopasowaniem do kategorii i świeżymi widocznymi kartami. Są to wyłącznie kandydaci, nie potwierdzenie aktywnej oferty ani jej warunków.
+4. CTA: Użyj tylko neutralnego CTA do raport-finansowy24.pl. Jeśli nie ma dopasowanej kategorii, wybierz najlepszy fakt redakcyjny; nie wciskaj produktu i nie wymyślaj ofert.
+5. NIE TWÓRZ liczb, bonusów, stóp, RRSO, gwarancji ani korzyści z widocznych kart; wszelkie warunki wymagają ręcznej weryfikacji u dostawcy.
 
 KANDYDACI Z BANKIER.PL:
 ${articlesPromptList}
@@ -5604,6 +5754,7 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
       jobId,
       status: 'processing',
       aiDecisions,
+      offerMatch: scriptData.offerMatch,
       viralityScore,
       projectedEarnings
     };
@@ -5939,6 +6090,11 @@ async function startServer() {
   loadJobsFromDisk();
   loadSchedulerStateFromDisk();
   ensureMontserratFont().catch(console.error);
+  void refreshOfferCatalogSnapshot();
+  const offerCatalogRefreshTimer = setInterval(() => {
+    void refreshOfferCatalogSnapshot();
+  }, OFFER_CATALOG_REFRESH_INTERVAL_MS);
+  offerCatalogRefreshTimer.unref?.();
 
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
