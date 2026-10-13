@@ -1,3 +1,5 @@
+import type { OfferMatchPreview } from './utils/financeOfferMatching';
+
 export interface CaptionStyle {
   fontSize?: number;
   fontColor?: string;
@@ -278,6 +280,7 @@ export interface AutopilotRunRecord {
   duration?: number;
   error?: string;
   aiDecisions?: AiViralDecisions;
+  offerMatch?: OfferMatchPreview;
   viralityScore?: ViralityScore;
   projectedEarnings?: {
     estViews: number;

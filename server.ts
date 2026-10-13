@@ -12,11 +12,115 @@ import {
   getNicheProfile,
   VIRAL_NICHE_PROFILES
 } from './src/utils/viralNicheProfiles';
+import {
+  classifyFinanceVisualCategory,
+  getFinanceSceneVisualPlan,
+  isVisualQueryAlignedWithNews,
+  scorePexelsCandidate
+} from './src/utils/financeSceneMatching';
+import {
+  buildOfferMatchPromptInstructions,
+  createEmptyOfferCatalogSnapshot,
+  matchNewsToCurrentOffers,
+  OFFER_CATEGORIES,
+  OFFER_CATALOG_SOURCE_URL,
+  parseOfferCatalogPayload,
+  type OfferCatalogSnapshot,
+  type OfferMatchPreview
+} from './src/utils/financeOfferMatching';
 
 const execPromise = promisify(exec);
 
 const PORT = 3000;
 const app = express();
+
+const OFFER_CATALOG_REFRESH_INTERVAL_MS = Math.max(
+  60_000,
+  Number(process.env.OFFER_CATALOG_REFRESH_INTERVAL_MS) || 6 * 60 * 60 * 1000
+);
+let offerCatalogSnapshot: OfferCatalogSnapshot = createEmptyOfferCatalogSnapshot();
+let offerCatalogRefreshPromise: Promise<void> | null = null;
+
+async function refreshOfferCatalogSnapshot(): Promise<void> {
+  if (offerCatalogRefreshPromise) return offerCatalogRefreshPromise;
+
+  offerCatalogRefreshPromise = (async () => {
+    const sourceBase = (process.env.OFFER_CATALOG_SOURCE_URL || OFFER_CATALOG_SOURCE_URL).trim().replace(/\/+$/, '');
+    const attemptedAt = new Date().toISOString();
+    const previous = offerCatalogSnapshot;
+
+    const results = await Promise.all(OFFER_CATEGORIES.map(async (definition) => {
+      try {
+        const endpoint = new URL(`/get-category-campaigns/${encodeURIComponent(definition.apiKey)}`, sourceBase);
+        const response = await fetch(endpoint, {
+          headers: { Accept: 'application/json', 'User-Agent': 'raport-finansowy24-offer-catalog/1.0' },
+          signal: AbortSignal.timeout(8000)
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const payload = await response.json();
+        if (!Array.isArray(payload)) throw new Error('Odpowiedź katalogu nie jest tablicą kart.');
+        return { definition, offers: parseOfferCatalogPayload(payload) };
+      } catch (error) {
+        return { definition, error: (error as Error).message || 'Błąd pobierania' };
+      }
+    }));
+
+    const categories: OfferCatalogSnapshot['categories'] = {};
+    let successCount = 0;
+    for (const result of results) {
+      const oldCategory = previous.categories[result.definition.id];
+      if ('offers' in result) {
+        successCount += 1;
+        categories[result.definition.id] = {
+          categoryId: result.definition.id,
+          offers: result.offers,
+          status: 'fresh',
+          fetchedAt: attemptedAt
+        };
+      } else if (oldCategory) {
+        categories[result.definition.id] = {
+          ...oldCategory,
+          status: 'stale',
+          error: result.error
+        };
+      } else {
+        categories[result.definition.id] = {
+          categoryId: result.definition.id,
+          offers: [],
+          status: 'unavailable',
+          error: result.error
+        };
+      }
+    }
+
+    const hasStaleCategories = Object.values(categories).some((category) => category.status === 'stale');
+    const status: OfferCatalogSnapshot['status'] = successCount === 0
+      ? (hasStaleCategories ? 'stale' : 'unavailable')
+      : (successCount === OFFER_CATEGORIES.length ? 'fresh' : 'partial');
+
+    offerCatalogSnapshot = {
+      status,
+      lastAttemptAt: attemptedAt,
+      lastSuccessAt: successCount > 0 ? attemptedAt : previous.lastSuccessAt,
+      categories
+    };
+    console.log(`[Offer catalog] Odświeżono ${successCount}/${OFFER_CATEGORIES.length} kategorii; status=${status}.`);
+  })().finally(() => {
+    offerCatalogRefreshPromise = null;
+  });
+
+  return offerCatalogRefreshPromise;
+}
+
+function getNewsOfferMatch(article: any, context?: string): OfferMatchPreview {
+  return matchNewsToCurrentOffers({
+    title: article?.title,
+    description: article?.description,
+    summary: article?.summary,
+    category: article?.category,
+    context
+  }, offerCatalogSnapshot);
+}
 
 // Initialize GoogleGenAI SDK on server
 const ai = new GoogleGenAI({
@@ -195,6 +299,14 @@ function translateAndEnrichViralKeyword(
   context?: string
 ): string {
   const trimmedRaw = (rawQuery || '').trim();
+  const hasKnownContextCategory = Boolean(context?.trim()) && classifyFinanceVisualCategory(context || '') !== 'general-finance';
+  const newsVisualContext = hasKnownContextCategory ? (context || '') : [context || '', trimmedRaw].filter(Boolean).join(' ');
+  const requiredSceneCount = Math.min(4, Math.max(totalScenes, sceneIndex + 1));
+  const plannedScene = getFinanceSceneVisualPlan(newsVisualContext, requiredSceneCount)?.[sceneIndex];
+  if (plannedScene && !isVisualQueryAlignedWithNews(newsVisualContext, trimmedRaw)) {
+    return plannedScene.primaryKeyword;
+  }
+
   // If already an English multi-word query without Polish special characters, preserve and clean it directly
   const hasPolishChars = /[ąćęłńóśźż]/i.test(trimmedRaw);
   const isEnglishWords = /^[a-zA-Z0-9\s-]+$/.test(trimmedRaw) && trimmedRaw.split(/\s+/).length >= 2;
@@ -369,7 +481,7 @@ function translateAndEnrichViralKeyword(
 // Dynamically search vertical portrait (9:16) stock video from Pexels API with viral candidate scoring & deduplication
 async function searchPexelsVideoDetailed(
   query: string,
-  options?: { sceneIndex?: number; avoidVideoIds?: number[]; avoidUrls?: string[]; context?: string }
+  options?: { sceneIndex?: number; avoidVideoIds?: number[]; avoidUrls?: string[]; context?: string; requireTopicMatch?: boolean }
 ): Promise<ResolvedStockVideo | null> {
   const pexelsKey = process.env.PEXELS_API_KEY;
   if (!pexelsKey || !pexelsKey.trim()) return null;
@@ -406,6 +518,8 @@ async function searchPexelsVideoDetailed(
         const slug = (video.url || '').toLowerCase();
         const hasNegative = NEGATIVE_VIDEO_SLUG_TERMS.some((neg) => slug.includes(neg));
         if (hasNegative) continue;
+        const relevance = scorePexelsCandidate(options?.context || enrichedQuery, enrichedQuery, slug);
+        if ((options?.requireTopicMatch || options?.context) && !relevance.relevant) continue;
 
         if (Array.isArray(video.video_files)) {
           // Look for vertical MP4 (1080p, 720p)
@@ -418,7 +532,7 @@ async function searchPexelsVideoDetailed(
           if (verticalMp4 && verticalMp4.link) {
             if (avoidUrls.includes(verticalMp4.link)) continue;
 
-            let score = 50;
+            let score = 50 + (relevance.relevant ? relevance.score : 0);
             // Reward high-energy motion b-roll keywords
             for (const boost of DYNAMIC_VIRAL_BOOST_TERMS) {
               if (slug.includes(boost)) score += 25;
@@ -453,28 +567,6 @@ async function searchPexelsVideoDetailed(
         };
       }
 
-      // Fallback within Pexels if all candidates were filtered
-      for (const video of data.videos) {
-        if (Array.isArray(video.video_files)) {
-          const verticalMp4 = video.video_files.find((f: any) =>
-            f.file_type === 'video/mp4' && f.height > f.width
-          );
-          if (verticalMp4 && verticalMp4.link) {
-            return {
-              videoUrl: verticalMp4.link,
-              thumbnailUrl: video.image || video.video_pictures?.[0]?.picture || '',
-              pexelsId: video.id,
-              width: verticalMp4.width,
-              height: verticalMp4.height,
-              duration: video.duration,
-              photographer: video.user?.name,
-              photographerUrl: video.user?.url,
-              searchKeyword: enrichedQuery,
-              source: 'pexels'
-            };
-          }
-        }
-      }
     }
   } catch (err) {
     console.warn(`[Pexels API Błąd]`, (err as Error).message);
@@ -486,12 +578,13 @@ async function searchPexelsVideoDetailed(
 async function searchPexelsMultiple(
   query: string,
   perPage: number = 8,
-  avoidVideoIds?: number[]
+  avoidVideoIds?: number[],
+  context?: string
 ): Promise<ResolvedStockVideo[]> {
   const pexelsKey = process.env.PEXELS_API_KEY;
   if (!pexelsKey || !pexelsKey.trim()) return [];
 
-  const enrichedQuery = translateAndEnrichViralKeyword(query, 0, 2);
+  const enrichedQuery = translateAndEnrichViralKeyword(query, 0, 4, context);
 
   try {
     const searchUrl = `https://api.pexels.com/videos/search?query=${encodeURIComponent(enrichedQuery)}&orientation=portrait&per_page=${Math.max(perPage, 14)}`;
@@ -514,6 +607,8 @@ async function searchPexelsMultiple(
       const slug = (video.url || '').toLowerCase();
       const hasNegative = NEGATIVE_VIDEO_SLUG_TERMS.some((neg) => slug.includes(neg));
       if (hasNegative) continue;
+      const relevance = scorePexelsCandidate(context || enrichedQuery, enrichedQuery, slug);
+      if (context && !relevance.relevant) continue;
 
       if (Array.isArray(video.video_files)) {
         const verticalMp4 = video.video_files.find((f: any) =>
@@ -523,7 +618,7 @@ async function searchPexelsMultiple(
         );
 
         if (verticalMp4 && verticalMp4.link) {
-          let score = 50;
+          let score = 50 + (relevance.relevant ? relevance.score : 0);
           for (const boost of DYNAMIC_VIRAL_BOOST_TERMS) {
             if (slug.includes(boost)) score += 20;
           }
@@ -587,14 +682,24 @@ function getStockVideoUrl(query: string, index: number): string {
 async function resolveStockOrPexelsVideoDetailed(
   query: string,
   index: number = 0,
-  avoidVideoIds?: number[]
+  avoidVideoIds?: number[],
+  options?: { context?: string; requirePexels?: boolean }
 ): Promise<ResolvedStockVideo> {
-  if (process.env.PEXELS_API_KEY && process.env.PEXELS_API_KEY.trim()) {
+  const hasPexelsKey = Boolean(process.env.PEXELS_API_KEY?.trim());
+  if (options?.requirePexels && !hasPexelsKey) {
+    throw new Error('Brak PEXELS_API_KEY. Dla newsa nie zostanie użyty niepowiązany klip zastępczy.');
+  }
+  if (hasPexelsKey) {
     const pexelsResult = await searchPexelsVideoDetailed(query, {
       sceneIndex: index,
-      avoidVideoIds
+      avoidVideoIds,
+      context: options?.context,
+      requireTopicMatch: options?.requirePexels
     });
     if (pexelsResult) return pexelsResult;
+  }
+  if (options?.requirePexels) {
+    throw new Error(`Nie znaleziono pionowego klipu Pexels zgodnego z tematem sceny: "${query}".`);
   }
   const fallback = getStockVideoWithThumbnail(query, index);
   return {
@@ -2232,6 +2337,35 @@ router.get('/health', async (req, res) => {
   });
 });
 
+// Read-only offer catalog status and article-to-category preview.
+router.get('/offers/catalog-status', (_req, res) => {
+  return res.json({
+    success: true,
+    status: offerCatalogSnapshot.status,
+    lastAttemptAt: offerCatalogSnapshot.lastAttemptAt,
+    lastSuccessAt: offerCatalogSnapshot.lastSuccessAt,
+    categories: OFFER_CATEGORIES.map((definition) => {
+      const category = offerCatalogSnapshot.categories[definition.id];
+      return {
+        id: definition.id,
+        name: definition.name,
+        path: definition.pagePath,
+        status: category?.status || 'unavailable',
+        visibleUnverifiedOfferCount: category?.offers.length || 0,
+        fetchedAt: category?.fetchedAt
+      };
+    }),
+    policy: 'Widoczne karty są kandydatami do ręcznej weryfikacji; endpoint nie potwierdza aktywności ani warunków ofert.'
+  });
+});
+
+router.post('/offers/match', async (req, res) => {
+  if (offerCatalogSnapshot.status === 'loading') await refreshOfferCatalogSnapshot();
+  const article = req.body?.article && typeof req.body.article === 'object' ? req.body.article : req.body;
+  const match = getNewsOfferMatch(article, typeof req.body?.context === 'string' ? req.body.context : undefined);
+  return res.json({ success: true, offerMatch: match });
+});
+
 // Viral Niches Catalog Endpoint (/api/viral-niches)
 router.get('/viral-niches', (req, res) => {
   res.json({
@@ -2744,6 +2878,7 @@ function buildHeuristicSceneKeywords(
   }
 
   const safeCount = Math.min(Math.max(count, 1), 4);
+  const visualPlan = getFinanceSceneVisualPlan(full, safeCount);
   const segments = [];
 
   for (let idx = 0; idx < safeCount; idx++) {
@@ -2767,7 +2902,13 @@ function buildHeuristicSceneKeywords(
     let visualMood = 'Dynamiczny nocny montaż 9:16, neonowe wykresy giełdowe, ruch uliczny';
     let reasoning = 'Wizualne zilustrowanie dynamiki rynkowej w oparciu o treść newsa.';
 
-    if (full.includes('rpp') || full.includes('stóp') || full.includes('stopy') || full.includes('nbp') || full.includes('odsetk') || full.includes('kredyt')) {
+    if (visualPlan?.[idx]) {
+      const planned = visualPlan[idx];
+      primaryKeyword = planned.primaryKeyword;
+      alternativeKeywords = planned.alternativeKeywords;
+      visualMood = planned.visualMood;
+      reasoning = planned.reasoning;
+    } else if (full.includes('rpp') || full.includes('stóp') || full.includes('stopy') || full.includes('nbp') || full.includes('odsetk') || full.includes('kredyt')) {
       if (isFirst) {
         primaryKeyword = 'stock exchange screen numbers flashing';
         alternativeKeywords = ['city traffic night hyperlapse', 'central bank gold vault bullion', 'counting cash money bills dynamic'];
@@ -2868,6 +3009,7 @@ function buildHeuristicSceneKeywords(
     success: true,
     articleTitle: title,
     sourceCategory: category,
+    topicCategory: classifyFinanceVisualCategory(full),
     keyEntities,
     marketEmotion,
     coreMetrics,
@@ -2895,6 +3037,8 @@ async function analyzeNewsSceneKeywords({
   const category = (article?.category || niche || 'Finanse & Biznes').trim();
   const count = Math.min(Math.max(Number(sceneCount) || 4, 1), 4);
   const context = `Tytuł newsa: "${title}"\nOpis / Fakty: "${description}"\nKategoria: ${category}\n${article?.keyTakeaway ? `Kluczowy wniosek: "${article.keyTakeaway}"` : ''}`;
+  const visualPlan = getFinanceSceneVisualPlan(context, count);
+  const topicCategory = classifyFinanceVisualCategory(context);
 
   const prompt = `Jesteś reżyserem wizualnym formatów wideo 9:16 (YouTube Shorts / TikTok / Reels) i analitykiem finansowym portalu raport-finansowy24.pl.
 Przeanalizuj treść poniższego newsa z portalu Bankier.pl i dopasuj precyzyjne, dynamiczne zapytania wideo Pexels w języku angielskim INDYWIDUALNIE DLA KAŻDEGO Z ${count} SEGMENTÓW SCEN.
@@ -2903,8 +3047,10 @@ TREŚĆ NEWSA:
 ${context}
 
 ZASADY DOPASOWANIA KADRÓW DLA SEGMENTÓW:
-- Segment #1 (Scena 1: 0-3s Hook & Retencja): Maksymalna dynamika, zatrzymanie wzroku w 3 sekundy (np. "stock exchange screen numbers flashing", "city traffic night hyperlapse", "counting cash money bills dynamic", "crypto trading chart dynamic").
-- Segment #2 i kolejne (Scena 2: Fakty, Mechanizm i CTA): Ujęcia uzupełniające ilustrujące wnioski, gospodarkę, rezerwy lub metropolię (np. "dynamic financial stock market display animation", "central bank gold vault bullion", "corporate boardroom financial discussion glass office", "aerial night view vibrant city skyline").
+- Każdy klip musi wynikać z konkretnego faktu lub działania opisanego w newsie, a nie tylko wyglądać „finansowo”. Zachowaj jedną kategorię tematyczną przez wszystkie cztery sceny.
+- Każde zapytanie ma ilustrować dokładnie wypowiadaną treść danej sceny; alternatywy muszą pozostać w tej samej kategorii i nie mogą zmieniać tematu artykułu.
+- Dla newsa o RPP, stopach lub ratach kredytów używaj ujęć kalkulatora raty, wykresu stóp, rozmowy o kredycie albo planowania raty. Nie używaj liczenia gotówki, banknotów, skarbca złota, kryptowalut ani ogólnego parkietu giełdowego, jeśli artykuł o nich nie mówi.
+- Dla innych kategorii dobieraj wyłącznie obiekty, osoby i działania widoczne w samym newsie; nie wstawiaj ogólnego miasta, skarbca, gotówki ani giełdy jako uniwersalnego tła.
 - Wszystkie słowa kluczowe ("primaryKeyword" oraz "alternativeKeywords") MUSZĄ być w języku angielskim i gotowe do wyszukiwarki Pexels.
 - Całkowity zakaz słów typu: "illustration", "warning", "concept", "paper", "reading", "drawing".
 
@@ -2972,6 +3118,7 @@ Format JSON:
           success: true,
           articleTitle: parsed.articleTitle || title,
           sourceCategory: category,
+          topicCategory,
           keyEntities: Array.isArray(parsed.keyEntities) ? parsed.keyEntities : [],
           marketEmotion: parsed.marketEmotion || 'Wysoka dynamika rynkowa',
           coreMetrics: Array.isArray(parsed.coreMetrics) ? parsed.coreMetrics : [],
@@ -2980,10 +3127,10 @@ Format JSON:
             sceneIndex: typeof seg.sceneIndex === 'number' ? seg.sceneIndex : idx,
             segmentName: seg.segmentName || `Scena ${idx + 1}`,
             narrativeRole: seg.narrativeRole || (idx === 0 ? 'Hook & Retencja' : 'Fakty i Wnioski'),
-            primaryKeyword: translateAndEnrichViralKeyword(seg.primaryKeyword, idx, count),
+            primaryKeyword: translateAndEnrichViralKeyword(seg.primaryKeyword, idx, count, context),
             alternativeKeywords: Array.isArray(seg.alternativeKeywords) && seg.alternativeKeywords.length > 0
-              ? seg.alternativeKeywords.map((k: string) => translateAndEnrichViralKeyword(k, idx, count))
-              : ['stock exchange screen numbers flashing', 'city traffic night hyperlapse'],
+              ? seg.alternativeKeywords.map((k: string) => translateAndEnrichViralKeyword(k, idx, count, context))
+              : (visualPlan?.[idx]?.alternativeKeywords || ['financial data analysis on screen', 'person reviewing financial information']),
             visualMood: seg.visualMood || 'Dynamiczne ujęcie 9:16',
             reasoning: seg.reasoning || 'Dopasowano do tematu newsa.'
           })),
@@ -3003,7 +3150,7 @@ Format JSON:
   // Enrich each segment with live Pexels preview clips!
   for (const seg of resultData.segments) {
     try {
-      const clips = await searchPexelsMultiple(seg.primaryKeyword, 4);
+      const clips = await searchPexelsMultiple(seg.primaryKeyword, 4, undefined, context);
       if (clips && clips.length > 0) {
         seg.previewVideos = clips.map((c: any) => ({
           id: c.pexelsId || Math.floor(Math.random() * 100000),
@@ -3125,6 +3272,17 @@ async function generateSmartOrGeminiViralScript({
   const cleanTopic = (topic || 'Analiza rynkowa').trim();
   const count = 4;
   const sceneDuration = 4.5;
+  if (offerCatalogSnapshot.status === 'loading') await refreshOfferCatalogSnapshot();
+  const visualContext = [
+    cleanTopic,
+    articleContext,
+    bankierArticle?.title,
+    bankierArticle?.description,
+    bankierArticle?.category
+  ].filter((part) => typeof part === 'string' && part.trim()).join('\n');
+  const requireNewsPexels = Boolean(bankierArticle || (articleContext && articleContext.trim()));
+  const offerMatch = getNewsOfferMatch(bankierArticle || { title: cleanTopic, category: niche }, articleContext);
+  const offerMatchPrompt = buildOfferMatchPromptInstructions(offerMatch);
   if (Number(sceneCount) !== count) {
     console.warn(`[Viral Script] Wymuszam ${count} scen po ${sceneDuration}s (odebrano sceneCount=${sceneCount}).`);
   }
@@ -3224,12 +3382,15 @@ WYMAGANY PŁASKI FORMAT JSON:
     const prompt = `Jesteś elitarnym twórcą viralowych formatów wideo dla portalu raport-finansowy24.pl (w stylu CNBC, Bloomberg, Hormozi).
 Stwórz wysoce merytoryczny, porywający scenariusz na 18-sekundowy film złożony z DOKŁADNIE ${count} dynamicznych scen (po ${sceneDuration}s każda, łącznie dokładnie 18.0 sekund) w języku: ${language} na temat: "${cleanTopic}" (Kategoria: ${niche}).
 ${dataBoundaryInstructions}
+${offerMatchPrompt}
 ${nichePromptInstructions}
 ${bankierNewsSection}
 ${pairedKeywordsInstruction}
 ${autonomousPromptInstructions}
 ZASADA WYSOKIEJ DOPASOWANIA WIZUALNEJ (PEXELS RELEVANCE):
 Dla każdej z ${count} scen musisz podać unikalne, bardzo konkretne angielskie zapytanie "searchKeyword" ściśle powiązane z dokładną treścią i słowami wypowiadanymi w tej scenie (np. jeśli mowa o inflacji i cenach w sklepach: "grocery store shopping cart inflation", jeśli o stopy procentowe NBP: "central bank press conference microphone", jeśli o giełdzie: "stock market trading floor traders red charts", jeśli o kryptowalutach: "cryptocurrency trading chart screen"). Unikaj ogólników!
+- Wszystkie cztery ujęcia muszą pozostać w temacie konkretnego artykułu; samo „finansowe” podobieństwo nie wystarcza. Nie dodawaj skarbca złota, liczenia banknotów, kryptowalut, wieżowców ani parkietu giełdowego, jeśli news nie dotyczy bezpośrednio tych rzeczy.
+- Dla newsa o RPP, stopach lub kredytach preferuj kolejno ratę/kalkulator kredytowy, wykres stóp lub konferencję banku centralnego, rozmowę o warunkach kredytu oraz planowanie budżetu raty. Nie pokazuj gotówki jako zamiennika informacji o stopach.
 Każda scena w tablicy "scenes" musi mieć pole "duration": ${sceneDuration}.`;
 
     const geminiResult = await callGeminiWithCascade({
@@ -3290,7 +3451,10 @@ Każda scena w tablicy "scenes" musi mieć pole "duration": ${sceneDuration}.`;
             ? effectivePairedKeywords[idx]
             : (sc.searchKeyword || 'stock exchange screen numbers flashing');
 
-          const resolved = await resolveStockOrPexelsVideoDetailed(targetKeyword, idx, usedPexelsIds);
+          const resolved = await resolveStockOrPexelsVideoDetailed(targetKeyword, idx, usedPexelsIds, {
+            context: visualContext,
+            requirePexels: requireNewsPexels
+          });
           if (resolved.pexelsId) {
             usedPexelsIds.push(resolved.pexelsId);
           }
@@ -3344,6 +3508,7 @@ Każda scena w tablicy "scenes" musi mieć pole "duration": ${sceneDuration}.`;
           backgroundMusicUrl: parsed.backgroundMusicUrl || 'https://assets.mixkit.co/music/preview/mixkit-tech-house-vibes-130.mp3',
           audioVolume: parsed.audioVolume || 0.25,
           aiDecisions,
+          offerMatch,
           generator: geminiResult.modelUsed
         };
       }
@@ -3362,7 +3527,10 @@ Każda scena w tablicy "scenes" musi mieć pole "duration": ${sceneDuration}.`;
     const targetKw = (Array.isArray(effectivePairedKeywords) && effectivePairedKeywords[idx])
       ? effectivePairedKeywords[idx]
       : sc.searchKeyword;
-    const resolved = await resolveStockOrPexelsVideoDetailed(targetKw, idx, usedPexelsIds);
+    const resolved = await resolveStockOrPexelsVideoDetailed(targetKw, idx, usedPexelsIds, {
+      context: visualContext,
+      requirePexels: requireNewsPexels
+    });
     if (resolved.pexelsId) {
       usedPexelsIds.push(resolved.pexelsId);
     }
@@ -3387,7 +3555,8 @@ Każda scena w tablicy "scenes" musi mieć pole "duration": ${sceneDuration}.`;
   return {
     ...fallbackScript,
     scenes: fallbackScenesWithVideo,
-    aiDecisions
+    aiDecisions,
+    offerMatch
   };
 }
 
@@ -4417,17 +4586,29 @@ router.get('/stock/curated', (req, res) => {
 // Endpoint: Fetch Fresh Stock Footage for Multiple Scenes (/api/stock/fetch-scene-footage)
 router.post('/stock/fetch-scene-footage', async (req, res) => {
   try {
-    const { keywords = [], keyword = '', topic = '', avoidIds = [] } = req.body || {};
+    const { keywords = [], keyword = '', topic = '', avoidIds = [], article, newsContext = '', requirePexelsMatch = false } = req.body || {};
     const queries: string[] = Array.isArray(keywords) && keywords.length > 0
       ? keywords
       : (keyword ? [keyword] : [topic || 'finance stock market', 'business corporate data']);
+    const visualContext = [
+      topic,
+      newsContext,
+      article?.title,
+      article?.description,
+      article?.summary,
+      article?.category
+    ].filter((part) => typeof part === 'string' && part.trim()).join('\n');
+    const mustUseMatchedPexels = requirePexelsMatch === true || Boolean(article && typeof article === 'object');
 
     const usedPexelsIds: number[] = Array.isArray(avoidIds) ? [...avoidIds] : [];
     const resolved = [];
 
     for (let idx = 0; idx < queries.length; idx++) {
       const query = queries[idx];
-      const item = await resolveStockOrPexelsVideoDetailed(query, idx, usedPexelsIds);
+      const item = await resolveStockOrPexelsVideoDetailed(query, idx, usedPexelsIds, {
+        context: visualContext,
+        requirePexels: mustUseMatchedPexels
+      });
       if (item.pexelsId) {
         usedPexelsIds.push(item.pexelsId);
       }
@@ -4453,9 +4634,13 @@ router.post('/stock/fetch-scene-footage', async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching scene footage:', error);
-    return res.status(500).json({
+    const details = (error as Error).message;
+    const statusCode = /PEXELS_API_KEY/i.test(details) ? 503 : /Pexels/i.test(details) ? 422 : 500;
+    return res.status(statusCode).json({
+      success: false,
       error: 'Błąd pobierania materiałów wideo dla scen',
-      details: (error as Error).message
+      details,
+      requirePexelsMatch: true
     });
   }
 });
@@ -4947,6 +5132,7 @@ interface AutopilotRunRecord {
   duration?: number;
   error?: string;
   aiDecisions?: AiViralDecisions;
+  offerMatch?: OfferMatchPreview;
   viralityScore?: ViralityScore;
   projectedEarnings?: {
     estViews: number;
@@ -5190,8 +5376,7 @@ let cachedCandidateDecision: {
 } | null = null;
 const CANDIDATE_CACHE_TTL = 3 * 60 * 1000; // 3 minuty
 
-// AI Virality Selector: Evaluates candidate fresh Bankier.pl articles with Gemini AI to choose the single strongest viral news
-// with maximum conversion to credit & bank account affiliate funnels (CPA 42-200 EUR) for the 10,000 EUR/month goal.
+// AI selector: chooses source-grounded Bankier.pl news; current visible offer categories are a secondary relevance signal.
 async function selectMostViralBankierArticleWithGemini(
   articles: any[]
 ): Promise<{
@@ -5202,10 +5387,20 @@ async function selectMostViralBankierArticleWithGemini(
   if (!articles || articles.length === 0) {
     throw new Error('Brak artykułów do analizy wiralowej.');
   }
+  if (offerCatalogSnapshot.status === 'loading') await refreshOfferCatalogSnapshot();
 
   // Filter out articles already processed if possible
   const pool = articles.filter(a => !schedulerState.processedUrls.includes(a.link));
-  const candidatePool = (pool.length > 0 ? pool : articles).slice(0, 12);
+  const candidatePoolRaw = (pool.length > 0 ? pool : articles).slice(0, 12);
+  const articlesWithOfferMatches = candidatePoolRaw.map((article) => ({
+    article,
+    offerMatch: getNewsOfferMatch(article)
+  }));
+  const offerAlignedPool = articlesWithOfferMatches
+    .filter(({ offerMatch }) => offerMatch.status === 'matched' && offerMatch.catalogStatus === 'fresh' && offerMatch.observedOfferCount > 0)
+    .map(({ article }) => article);
+  // Prefer articles with fresh visible category inventory, but keep an editorial fallback if none qualify.
+  const candidatePool = offerAlignedPool.length > 0 ? offerAlignedPool : candidatePoolRaw;
 
   if (candidatePool.length === 1) {
     const only = candidatePool[0];
@@ -5217,7 +5412,7 @@ async function selectMostViralBankierArticleWithGemini(
     };
   }
 
-  // Fallback heuristic scoring function that prioritizes credit & bank account conversions
+  // Fallback heuristic scoring function; the candidate pool above already prioritizes fresh category matches when available.
   const runHeuristicSelection = () => {
     let bestArticle = candidatePool[0];
     let bestScore = calculateViralityScore(bestArticle.title, bestArticle.description, bestArticle.category);
@@ -5226,7 +5421,7 @@ async function selectMostViralBankierArticleWithGemini(
       const art = candidatePool[i];
       const score = calculateViralityScore(art.title, art.description, art.category);
 
-      // Weighting: Credit & Bank Accounts conversion priority (CPA 42-200€)
+      // Editorial trend weight only; do not infer or promise conversion outcomes.
       let weightedTotal = score.totalScore;
       if (score.trendAlignment.trendRank === 1 || score.trendAlignment.trendRank === 2) {
         weightedTotal += 8; // Stopy, RPP, Kredyty, Hipoteki
@@ -5257,21 +5452,28 @@ async function selectMostViralBankierArticleWithGemini(
   // Attempt selection via Gemini AI comparative reasoning
   try {
     const articlesPromptList = candidatePool.map((a, idx) => {
+      const offerMatch = getNewsOfferMatch(a);
+      const offerLine = offerMatch.categoryName
+        ? `Wstępna kategoria oferty: ${offerMatch.categoryName}; widoczne karty: ${offerMatch.observedOfferCount}; status katalogu: ${offerMatch.catalogStatus}; niezweryfikowane: TAK.`
+        : `Dopasowanie do konkretnej kategorii oferty: brak; materiał może pozostać redakcyjny.`;
       return `[ID: ${idx}]
 Tytuł: "${a.title}"
 Kategoria: ${a.category || 'Wiadomości'}
-Podsumowanie: "${(a.description || '').replace(/\\s+/g, ' ').slice(0, 220)}"`;
+Podsumowanie: "${(a.description || '').replace(/\s+/g, ' ').slice(0, 220)}"
+${offerLine}`;
     }).join('\n\n');
 
-    const prompt = `Jesteś Dyrektorem Wirusowych Formatów Wideo i Głównym Analitykiem Monetyzacji portalu RaportFinansowy24.
-Przeanalizuj poniższe ${candidatePool.length} najświeższych artykułów z portalu Bankier.pl i wybierz DOKŁADNIE JEDEN artykuł o NAJWIĘKSZYM POTENCJALE WIRALOWYM ORAZ NAJWYŻSZEJ KONWERSJI AFILIACYJNEJ.
+    const prompt = `Jesteś redaktorem krótkich, organicznych materiałów finansowych dla portalu RaportFinansowy24.
+Przeanalizuj poniższe ${candidatePool.length} najświeższych artykułów z portalu Bankier.pl i wybierz DOKŁADNIE JEDEN artykuł o najwyższym potencjale zaangażowania, który można rzetelnie opowiedzieć w 18 sekund.
 
-GŁÓWNY CEL: Maksymalna konwersja do kredytów i kont bankowych (CPA 42 - 200 €) w drodze do celu 10 000 euro miesięcznie zysku.
+GŁÓWNY CEL: organiczna wartość dla widza, mocny lecz prawdziwy hook oraz naturalne przejście do raport-finansowy24.pl. Dopasowanie do widocznej kategorii katalogu jest pomocnicze i nie dowodzi aktywności ani warunków oferty.
 
 ŻELAZNE ZASADY SELEKCJI:
 1. BEZWZGLĘDNY PRIORYTET: Tematy dotyczące portfela milionów Polaków (stopy procentowe RPP, raty kredytów hipotecznych/gotówkowych, ceny mieszkań, podatki/ZUS, konta bankowe, lokaty) MAJĄ ABSOLUTNY PRIORYTET nad niszowymi newsami giełdowymi pojedynczych spółek czy surowcami.
-2. ZASADA 3 SEKUND (HOOK & PATTERN INTERRUPT): Artykuł musi dawać możliwość stworzenia natychmiastowego, szokującego otwarcia w pierwszych 3 sekundach (np. "Właśnie zapadła decyzja RPP, która podniesie Twoją ratę!").
-3. LEJEK FINANSOWY (CPA): Wybrany news musi naturalnie i wiarygodnie kierować widza do kalkulatora lub rankingu na raport-finansowy24.pl.
+2. ZASADA 3 SEKUND (HOOK & PATTERN INTERRUPT): Artykuł musi dawać możliwość stworzenia natychmiastowego, źródłowo uzasadnionego otwarcia w pierwszych 3 sekundach; nie dopisuj skutków decyzji, których nie potwierdza artykuł.
+3. DOPASOWANIE DO KATALOGU: Gdy kilka artykułów ma podobny potencjał, preferuj temat z jasnym dopasowaniem do kategorii i świeżymi widocznymi kartami. Są to wyłącznie kandydaci, nie potwierdzenie aktywnej oferty ani jej warunków.
+4. CTA: Użyj tylko neutralnego CTA do raport-finansowy24.pl. Jeśli nie ma dopasowanej kategorii, wybierz najlepszy fakt redakcyjny; nie wciskaj produktu i nie wymyślaj ofert.
+5. NIE TWÓRZ liczb, bonusów, stóp, RRSO, gwarancji ani korzyści z widocznych kart; wszelkie warunki wymagają ręcznej weryfikacji u dostawcy.
 
 KANDYDACI Z BANKIER.PL:
 ${articlesPromptList}
@@ -5552,6 +5754,7 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
       jobId,
       status: 'processing',
       aiDecisions,
+      offerMatch: scriptData.offerMatch,
       viralityScore,
       projectedEarnings
     };
@@ -5887,6 +6090,11 @@ async function startServer() {
   loadJobsFromDisk();
   loadSchedulerStateFromDisk();
   ensureMontserratFont().catch(console.error);
+  void refreshOfferCatalogSnapshot();
+  const offerCatalogRefreshTimer = setInterval(() => {
+    void refreshOfferCatalogSnapshot();
+  }, OFFER_CATALOG_REFRESH_INTERVAL_MS);
+  offerCatalogRefreshTimer.unref?.();
 
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({

@@ -49,6 +49,7 @@ import {
   Square
 } from 'lucide-react';
 import { User } from 'firebase/auth';
+import type { OfferMatchPreview } from '../utils/financeOfferMatching';
 import {
   initAuth,
   googleSignIn,
@@ -239,6 +240,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
     hook: string;
     scenes: any[];
     backgroundMusicUrl: string;
+    offerMatch?: OfferMatchPreview;
   } | null>(null);
 
   // Stock Footage Verification & Preview state (false by default for 100% full zero-touch automation)
@@ -880,10 +882,16 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
       const res = await fetch('/api/stock/fetch-scene-footage', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ keywords, topic, avoidIds })
+        body: JSON.stringify({
+          keywords,
+          topic,
+          avoidIds,
+          article: selectedBankierArticle,
+          requirePexelsMatch: true
+        })
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Nie udało się odświeżyć ujęć z Pexels');
+      if (!res.ok) throw new Error(data.details || data.error || 'Nie udało się odświeżyć ujęć z Pexels');
 
       if (data.footage && Array.isArray(data.footage)) {
         const updatedScenes = generatedScript.scenes.map((sc: any, idx: number) => {
@@ -2676,6 +2684,28 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
               <p className="text-xs text-slate-400 mt-1 line-clamp-2">
                 {generatedScript?.description}
               </p>
+              {generatedScript?.offerMatch && (
+                <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-950/20 p-3 text-xs text-amber-100 space-y-1.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-semibold text-amber-300">Dopasowanie do katalogu:</span>
+                    <span>{generatedScript.offerMatch.categoryName || 'brak konkretnego dopasowania'}</span>
+                    {generatedScript.offerMatch.categoryName && (
+                      <span className="text-amber-200/70">
+                        · {generatedScript.offerMatch.observedOfferCount} widocznych kart · katalog: {generatedScript.offerMatch.catalogStatus}
+                      </span>
+                    )}
+                  </div>
+                  {generatedScript.offerMatch.candidateOffers.length > 0 && (
+                    <p className="text-amber-100/80">
+                      Kandydaci do ręcznej weryfikacji: {generatedScript.offerMatch.candidateOffers.join(' · ')}
+                    </p>
+                  )}
+                  <p className="text-amber-100/70">{generatedScript.offerMatch.reason}</p>
+                  <p className="text-amber-100/70">
+                    Karty nie są potwierdzone u dostawcy; nie używaj ich warunków ani korzyści w reklamie. CTA pozostaje ogólne: {generatedScript.offerMatch.brandCtaUrl}. Render nie publikuje materiału — publikacja wymaga Twojej osobnej akceptacji.
+                  </p>
+                </div>
+              )}
             </div>
 
             {jobStatus?.outputUrl && (
