@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Render an 18-second, vertical Bankier short from approved scene copy using FFmpeg only.
 
-No stock-footage API, hosted video-generation API, MoviePy, or cloud TTS is used.
+No stock-footage API, hosted video-generation API, or cloud TTS is used.
 Narration is optional and must be supplied as a local audio file.
 """
 from __future__ import annotations
@@ -265,7 +265,7 @@ def render(manifest: dict, output: Path, voice_audio: Path | None = None, demo: 
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Offline renderer shorta Bankier 9:16 / 18 s (FFmpeg, bez MoviePy i API).")
+    parser = argparse.ArgumentParser(description="Offline renderer shorta Bankier 9:16 / 18 s (lokalny FFmpeg, bez API).")
     parser.add_argument("--input", type=Path, help="JSON z artykułem zweryfikowanym redakcyjnie i dokładnie 4 scenami.")
     parser.add_argument("--output", type=Path, default=Path("exports/offline-bankier-short.mp4"), help="Ścieżka wyjściowego MP4.")
     parser.add_argument("--voice-audio", type=Path, help="Opcjonalny lokalny lektor WAV/MP3; bez pliku wynik jest bez dźwięku.")

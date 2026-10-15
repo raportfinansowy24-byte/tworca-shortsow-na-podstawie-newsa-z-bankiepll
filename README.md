@@ -212,7 +212,7 @@ npm start
 
 ## Lokalny render offline shorta
 
-`scripts/render_offline_short.py` jest niezależną ścieżką awaryjną opartą wyłącznie na FFmpeg i Pythonie z biblioteki standardowej. Tworzy cztery animowane plansze tekstowe po 4,5 s (łącznie 18 s), 1080×1920, 30 fps. Nie wywołuje Pexels, Hugging Face, Veo, MoviePy ani usług TTS. Opcjonalnie przyjmuje istniejący lokalny plik lektora audio; bez niego MP4 jest bez dźwięku.
+`scripts/render_offline_short.py` jest niezależną ścieżką awaryjną opartą wyłącznie na FFmpeg i Pythonie z biblioteki standardowej. Tworzy cztery animowane plansze tekstowe po 4,5 s (łącznie 18 s), 1080×1920, 30 fps. Nie wywołuje Pexels, Hugging Face, Veo ani usług TTS. Opcjonalnie przyjmuje istniejący lokalny plik lektora audio; bez niego MP4 jest bez dźwięku.
 
 Uruchom demonstrację (zawsze oznaczoną „PRÓBA — NIE PUBLIKOWAĆ”):
 

@@ -2,7 +2,7 @@
 
 ## Decyzja
 
-Użyć istniejącego repozytorium Bankier jako źródła artykułu i przebiegu redakcyjnego, a jego ścieżkę Pexels/ElevenLabs uzupełnić niezależnym, lokalnym rendererem FFmpeg. Przygotowany prototyp tworzy cztery plansze typograficzne po 4,5 s (łącznie 18 s), 1080×1920, 30 fps; przyjmuje tekst scenariusza, który musi mieć status weryfikacji i zachowuje źródło w metadanych. Może dodać lokalny plik audio, ale sam nie syntetyzuje głosu. Nie korzysta z MoviePy, Pexels, Hugging Face, Veo ani płatnego generowania wideo.
+Użyć istniejącego repozytorium Bankier jako źródła artykułu i przebiegu redakcyjnego, a jego ścieżkę Pexels/ElevenLabs uzupełnić niezależnym, lokalnym rendererem FFmpeg. Przygotowany prototyp tworzy cztery plansze typograficzne po 4,5 s (łącznie 18 s), 1080×1920, 30 fps; przyjmuje tekst scenariusza, który musi mieć status weryfikacji i zachowuje źródło w metadanych. Może dodać lokalny plik audio, ale sam nie syntetyzuje głosu. Nie korzysta z Pexels, Hugging Face, Veo ani płatnego generowania wideo.
 
 To najmniej zależny od zewnętrznych limitów wariant renderowania, nie dowód na kompletną, bezpłatną produkcję czterech gotowych filmów dziennie. W tym przeglądzie nie potwierdzono licencji ani stałych limitów dla zewnętrznych usług; środowisko/hosting, TTS i prawa do assetów nadal trzeba rozstrzygnąć. Zamiast losowego stocku używane są abstrakcyjne plansze; nie przedstawiają fałszywych kursów ani wykresów.
 
