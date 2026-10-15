@@ -209,6 +209,30 @@ npm start
 
 ---
 
+## 🐍 Skrypt Python: artykuł Bankier.pl → MP4
+
+`scripts/bankier_article_to_mp4.py` pobiera świeży artykuł z RSS lub wskazany link, a następnie zleca generację istniejącemu endpointowi `/api/auto-pilot-shorts`. Skrypt nie dubluje silnika TTS/FFmpeg i nie publikuje filmu. Wymaga uruchomionej aplikacji Node oraz jej standardowej konfiguracji sekretów.
+
+```bash
+# Terminal 1 — w katalogu repozytorium
+npm install
+# Skonfiguruj .env na podstawie .env.example, w tym ELEVENLABS_API_KEY dla lektora
+npm run dev
+
+# Terminal 2 — lista newsów, wybór i potwierdzenie przed renderem
+python3 scripts/bankier_article_to_mp4.py
+
+# Lub jawnie wybierz najnowszy artykuł i uruchom render bez pytania
+python3 scripts/bankier_article_to_mp4.py --latest --yes
+
+# W przypadku wdrożonej instancji użyj jej adresu HTTPS
+python3 scripts/bankier_article_to_mp4.py --latest --app-url https://twoja-instancja.example --yes
+```
+
+Pełną treść strony skrypt pobiera przed renderem. Jeśli Bankier.pl nie udostępni jej w HTML, domyślnie zatrzyma się; `--allow-summary-only` zezwala na render wyłącznie z opisu RSS. MP4 i plik JSON z metadanymi trafiają domyślnie do `exports/`. Użyj `--help`, aby zobaczyć wszystkie opcje.
+
+---
+
 ## 🔐 Zmienne Środowiskowe (`.env`)
 
 Skopiuj plik `.env.example` do `.env`. `ELEVENLABS_API_KEY` jest wymagany, gdy synteza TTS jest włączona; pozostałe klucze są opcjonalne zależnie od funkcji:
