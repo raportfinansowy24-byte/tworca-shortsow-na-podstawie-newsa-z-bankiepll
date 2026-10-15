@@ -1,0 +1,16 @@
+{
+  "article": {
+    "title": "UZUPEŁNIJ: tytuł sprawdzonego artykułu",
+    "source_url": "https://www.bankier.pl/UZUPEŁNIJ-LINK",
+    "published": "UZUPEŁNIJ: data publikacji artykułu",
+    "verified_at": "UZUPEŁNIJ: data i godzina sprawdzenia faktów",
+    "fact_check_status": "needs_fact_check"
+  },
+  "scenes": [
+    {"role": "HOOK", "text": "UZUPEŁNIJ: krótki hook oparty na źródle"},
+    {"role": "FAKT", "text": "UZUPEŁNIJ: jeden potwierdzony fakt"},
+    {"role": "KONTEKST", "text": "UZUPEŁNIJ: krótki, źródłowy kontekst"},
+    {"role": "CTA", "text": "Sprawdź pełny artykuł i źródła"}
+  ],
+  "voice_audio": null
+}

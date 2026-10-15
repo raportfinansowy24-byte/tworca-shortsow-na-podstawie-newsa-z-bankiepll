@@ -18,6 +18,7 @@ Zaawansowany silnik automatyzacji produkcji wideo pionowego (Shorts, TikTok, Ins
   - [4. POST /api/tts/preview & GET /api/tts/voices](#4-post-apittspreview--get-apittsvoices)
 - [Zasady Bezpieczeństwa i Zgodności](#zasady-bezpieczeństwa-i-zgodności)
 - [Instalacja i Uruchomienie](#instalacja-i-uruchomienie)
+- [Lokalny render offline shorta](#lokalny-render-offline-shorta)
 - [Zmienne Środowiskowe](#zmienne-środowiskowe)
 
 ---
@@ -206,6 +207,31 @@ npm run build
 # Uruchomienie serwera produkcyjnego
 npm start
 ```
+
+---
+
+## Lokalny render offline shorta
+
+`scripts/render_offline_short.py` jest niezależną ścieżką awaryjną opartą wyłącznie na FFmpeg i Pythonie z biblioteki standardowej. Tworzy cztery animowane plansze tekstowe po 4,5 s (łącznie 18 s), 1080×1920, 30 fps. Nie wywołuje Pexels, Hugging Face, Veo, MoviePy ani usług TTS. Opcjonalnie przyjmuje istniejący lokalny plik lektora audio; bez niego MP4 jest bez dźwięku.
+
+Uruchom demonstrację (zawsze oznaczoną „PRÓBA — NIE PUBLIKOWAĆ”):
+
+```bash
+python3 scripts/render_offline_short.py --demo --output exports/offline-render-demo.mp4
+```
+
+Render produkcyjny wymaga manifestu JSON na bazie `examples/offline-short.example.json`: uzupełnij URL artykułu w domenie Bankier.pl, daty, cztery krótkie teksty scen i zmień `article.fact_check_status` na `verified` dopiero po redakcyjnym sprawdzeniu. Opcjonalny lektor musi być lokalnym WAV/MP3.
+
+```bash
+python3 scripts/render_offline_short.py \\
+  --input examples/my-approved-story.json \\
+  --voice-audio exports/approved-voice.wav \\
+  --output exports/my-short.mp4
+```
+
+Skrypt jest osobnym CLI — nie jest jeszcze podłączony do interfejsu Auto-Pilota ani nie pobiera sam RSS Bankier.pl. Nie generuje scenariusza, nie weryfikuje merytorycznie faktów i nie publikuje filmu. Zapisuje obok MP4 manifest oraz sprawdza `ffprobe` (18 s, pionowe 1080×1920); nie nadpisuje istniejących plików bez `--overwrite`. To lokalny renderer, a nie gwarancja darmowego lektora, assetów, hostingu czy pełnej produkcji czterech newsów dziennie.
+
+Audyt alternatywnych repozytoriów i granice kosztów: [`docs/video-renderer-repo-audit.md`](docs/video-renderer-repo-audit.md).
 
 ---
 
