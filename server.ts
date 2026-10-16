@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
@@ -28,6 +29,13 @@ import {
   type OfferCatalogSnapshot,
   type OfferMatchPreview
 } from './src/utils/financeOfferMatching';
+import {
+  answerTelegramCallback,
+  isValidTelegramWebhookSecret,
+  registerTelegramWebhook,
+  sendTelegramApprovalRequest,
+  updateTelegramApprovalMessage
+} from './src/server/telegramApproval';
 
 const execPromise = promisify(exec);
 
@@ -833,6 +841,11 @@ interface Job {
   duration?: number;
   fileSize?: number;
   error?: string;
+  telegramApprovalRequested?: boolean;
+  telegramApprovalStatus?: 'waiting_for_render' | 'pending' | 'approved' | 'rejected' | 'failed_to_send';
+  telegramApprovalMessageId?: number;
+  approvalTitle?: string;
+  approvalSourceUrl?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -996,6 +1009,10 @@ function updateJobProgress(
   if (update.thumbnailFilename) job.thumbnailFilename = update.thumbnailFilename;
   if (update.fileSize) job.fileSize = update.fileSize;
   if (update.error) job.error = update.error;
+  if (update.telegramApprovalStatus) job.telegramApprovalStatus = update.telegramApprovalStatus;
+  if (typeof update.telegramApprovalMessageId === 'number') job.telegramApprovalMessageId = update.telegramApprovalMessageId;
+  if (update.approvalTitle) job.approvalTitle = update.approvalTitle;
+  if (update.approvalSourceUrl) job.approvalSourceUrl = update.approvalSourceUrl;
   job.updatedAt = new Date().toISOString();
 
   if (logMsg) {
@@ -1018,6 +1035,27 @@ function updateJobProgress(
   }
 
   saveJobsToDisk();
+}
+
+async function sendJobTelegramApprovalRequest(jobId: string, outputUrl: string): Promise<void> {
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  const job = jobsStore.get(jobId);
+  if (!job || !botToken || !chatId) {
+    throw new Error('Brakuje TELEGRAM_BOT_TOKEN lub TELEGRAM_CHAT_ID w konfiguracji aplikacji.');
+  }
+  const sent = await sendTelegramApprovalRequest({
+    botToken,
+    chatId,
+    jobId,
+    title: job.approvalTitle || 'Short z Bankier.pl',
+    outputUrl,
+    sourceUrl: job.approvalSourceUrl
+  });
+  updateJobProgress(jobId, {
+    telegramApprovalStatus: 'pending',
+    telegramApprovalMessageId: sent.message_id
+  }, 'Wysłano na Telegram prośbę o akceptację gotowego MP4.');
 }
 
 // Download Montserrat-Bold.ttf font if missing
@@ -1325,6 +1363,7 @@ interface CombineScenesPayload {
   lockSceneDurations?: boolean;
   captionAnimation?: 'word-by-word' | 'single-word' | 'karaoke' | 'classic';
   highlightColor?: 'yellow' | 'green' | 'lime' | 'cyan' | 'red' | 'white';
+  telegramApproval?: boolean;
 }
 
 // Normalize language codes for narration metadata and text generation.
@@ -2222,6 +2261,15 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
     );
 
     console.log(`✓ Job ${jobId} completed successfully: ${outputUrl}`);
+
+    if (payload.telegramApproval === true) {
+      try {
+        await sendJobTelegramApprovalRequest(jobId, outputUrl);
+      } catch (telegramError) {
+        updateJobProgress(jobId, { telegramApprovalStatus: 'failed_to_send' }, `Nie udało się wysłać prośby o akceptację na Telegram: ${(telegramError as Error).message}`);
+        console.warn(`[Telegram Approval] Nie wysłano prośby dla zadania ${jobId}:`, (telegramError as Error).message);
+      }
+    }
 
     // Handle webhook callback if provided in payload
     if (payload.webhookUrl) {
@@ -3913,7 +3961,8 @@ router.post('/auto-pilot-shorts', async (req, res) => {
       syncDurationWithVoice: body.syncDurationWithVoice !== false,
       lockSceneDurations,
       captionAnimation: effectiveAnimation,
-      highlightColor: effectiveHighlight
+      highlightColor: effectiveHighlight,
+      telegramApproval: body.telegramApproval === true
     };
 
     const jobId = `job_make_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -3924,6 +3973,10 @@ router.post('/auto-pilot-shorts', async (req, res) => {
       status: 'queued',
       progress: 0,
       step: 'Przetwarzanie żądania z Make.com: weryfikacja scen i renderowanie FFmpeg',
+      telegramApprovalRequested: body.telegramApproval === true,
+      telegramApprovalStatus: body.telegramApproval === true ? 'waiting_for_render' : undefined,
+      approvalTitle: String(body.topic || body.bankierArticle?.title || title),
+      approvalSourceUrl: String(body.bankierArticle?.link || body.bankierArticle?.url || body.articleUrl || ''),
       logs: [`[${new Date().toLocaleTimeString()}] Odebrano zadanie z Make.com (${scenesToRender.length} scen)`],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -6081,6 +6134,55 @@ router.get('/news/analyze-scene-keywords', async (req, res) => {
   }
 });
 
+router.post('/telegram/webhook', async (req, res) => {
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  const configuredChatId = process.env.TELEGRAM_CHAT_ID;
+  if (!botToken || !expectedSecret || !configuredChatId) {
+    return res.status(503).json({ error: 'Integracja Telegram nie jest skonfigurowana.' });
+  }
+  if (!isValidTelegramWebhookSecret(req.get('x-telegram-bot-api-secret-token'), expectedSecret)) {
+    return res.sendStatus(401);
+  }
+
+  const callback = req.body?.callback_query;
+  if (!callback?.id || typeof callback.data !== 'string') return res.json({ ok: true });
+  const match = /^shortapproval:(approve|reject):(job_[A-Za-z0-9_-]+)$/.exec(callback.data);
+  if (!match) {
+    await answerTelegramCallback(botToken, callback.id, 'Nieznana akcja.');
+    return res.json({ ok: true });
+  }
+
+  const callbackChatId = String(callback.message?.chat?.id ?? '');
+  const senderId = String(callback.from?.id ?? '');
+  if (callbackChatId !== String(configuredChatId) || (process.env.TELEGRAM_APPROVER_USER_ID && senderId !== process.env.TELEGRAM_APPROVER_USER_ID)) {
+    await answerTelegramCallback(botToken, callback.id, 'Ta akcja nie jest autoryzowana.');
+    return res.json({ ok: true });
+  }
+
+  const jobId = match[2];
+  const job = jobsStore.get(jobId);
+  if (!job || job.status !== 'completed' || job.telegramApprovalStatus !== 'pending') {
+    await answerTelegramCallback(botToken, callback.id, 'Ta prośba nie jest już aktywna.');
+    return res.json({ ok: true });
+  }
+
+  const decision = match[1] === 'approve' ? 'approved' : 'rejected';
+  updateJobProgress(jobId, { telegramApprovalStatus: decision }, decision === 'approved'
+    ? 'Użytkownik zaakceptował materiał w Telegramie. Film nie został opublikowany.'
+    : 'Użytkownik odrzucił materiał w Telegramie. Film nie został opublikowany.');
+  await answerTelegramCallback(botToken, callback.id, decision === 'approved' ? 'Short zaakceptowany. Nie został opublikowany.' : 'Short odrzucony. Nie został opublikowany.');
+
+  const messageId = Number(callback.message?.message_id);
+  if (Number.isFinite(messageId) && job.outputUrl) {
+    try {
+      await updateTelegramApprovalMessage(botToken, configuredChatId, messageId, job.approvalTitle || 'Short z Bankier.pl', job.outputUrl, decision);
+    } catch (error) {
+      console.warn(`[Telegram Approval] Nie udało się zaktualizować wiadomości dla ${jobId}:`, (error as Error).message);
+    }
+  }
+  return res.json({ ok: true, decision });
+});
 
 // Mount API router
 app.use('/api', router);
@@ -6112,6 +6214,18 @@ async function startServer() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Video Combiner Express Server listening on http://0.0.0.0:${PORT}`);
+    const botToken = process.env.TELEGRAM_BOT_TOKEN;
+    const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+    const appUrl = process.env.APP_URL;
+    if (process.env.TELEGRAM_REGISTER_WEBHOOK_ON_START === 'true' && botToken && webhookSecret && appUrl) {
+      void registerTelegramWebhook(botToken, appUrl, webhookSecret).then(() => {
+        console.log('✓ Telegram approval webhook registered.');
+      }).catch((error) => {
+        console.warn('[Telegram Approval] Webhook registration failed:', (error as Error).message);
+      });
+    } else if (process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID) {
+      console.log('[Telegram Approval] Approval sending is configured; automatic webhook registration is disabled. Set TELEGRAM_REGISTER_WEBHOOK_ON_START=true to enable Telegram buttons.');
+    }
   });
 }
 

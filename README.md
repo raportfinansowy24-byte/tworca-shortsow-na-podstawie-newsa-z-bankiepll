@@ -225,6 +225,9 @@ python3 scripts/bankier_article_to_mp4.py
 # Lub jawnie wybierz najnowszy artykuł i uruchom render bez pytania
 python3 scripts/bankier_article_to_mp4.py --latest --yes
 
+# Po renderze wyślij na Telegram prośbę o akceptację gotowego MP4
+python3 scripts/bankier_article_to_mp4.py --latest --yes --telegram-approval
+
 # W przypadku wdrożonej instancji użyj jej adresu HTTPS
 python3 scripts/bankier_article_to_mp4.py --latest --app-url https://twoja-instancja.example --yes
 ```
@@ -245,6 +248,15 @@ Skopiuj plik `.env.example` do `.env`. `ELEVENLABS_API_KEY` jest wymagany, gdy s
 | `ELEVENLABS_VOICE_ID` | Nie | Domyślnie `onwK4e9ZLuTAKqWW03F9` (Daniel, premade); można wybrać inny głos z katalogu konta w interfejsie. |
 | `ELEVENLABS_MODEL_ID` | Nie | Domyślnie `eleven_multilingual_v2`. |
 | `PEXELS_API_KEY` | Opcjonalna | Klucz do dynamicznego wyszukiwania klipów w Pexels API |
+| `TELEGRAM_BOT_TOKEN` | Opcjonalna | Token bota Telegrama. Przechowuj wyłącznie w sekretach środowiska wdrożenia. |
+| `TELEGRAM_CHAT_ID` | Wymagana dla Telegram approval | Docelowy czat, do którego trafia prośba o akceptację. |
+| `TELEGRAM_WEBHOOK_SECRET` | Wymagana dla Telegram approval | Losowy sekret webhooka przekazywany przez Telegram w nagłówku `X-Telegram-Bot-Api-Secret-Token`. |
+| `TELEGRAM_REGISTER_WEBHOOK_ON_START` | Nie (domyślnie `false`) | Ustaw `true`, aby aplikacja zarejestrowała Telegram webhook przy starcie. Używaj wyłącznie dla bota przeznaczonego dla tej aplikacji — rejestracja zmienia webhook bota. |
+| `TELEGRAM_APPROVER_USER_ID` | Opcjonalna | Ogranicza przyciski akceptacji do jednego konta Telegram; zalecane dla grup. |
+
+### Akceptacja shorta przez Telegram
+
+Ustaw `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` i `TELEGRAM_WEBHOOK_SECRET` w sekretach wdrożenia oraz publiczny adres HTTPS w `APP_URL`. Dla bota dedykowanego tej aplikacji ustaw `TELEGRAM_REGISTER_WEBHOOK_ON_START=true`; aplikacja zarejestruje wtedy webhook i obsłuży przyciski. Uruchom skrypt z `--telegram-approval` (albo wyślij `telegramApproval: true` do `/api/auto-pilot-shorts`), aby po zakończeniu renderu wysłać do wskazanego czatu link do MP4 z przyciskami **Akceptuję** i **Odrzucam**. Decyzja jest zapisywana przy zadaniu; samo zaakceptowanie nie publikuje filmu. Bez konfiguracji Telegrama render nadal może się zakończyć, ale status zadania pokaże błąd wysyłki prośby.
 
 ---
 

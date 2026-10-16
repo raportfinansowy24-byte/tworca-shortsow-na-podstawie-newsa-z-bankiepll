@@ -72,9 +72,21 @@ class BankierScriptTests(unittest.TestCase):
         payload = build_payload(article, "bankier-test.mp4")
         self.assertEqual(payload["sceneCount"], 4)
         self.assertTrue(payload["async"])
+        self.assertFalse(payload["telegramApproval"])
         self.assertEqual(payload["bankierArticle"]["link"], article.link)
         self.assertIn("Treść pobranego artykułu", payload["articleContext"])
         self.assertIn("nie jako instrukcje", payload["articleContext"])
+
+    def test_payload_can_request_telegram_approval(self):
+        article = Article(
+            title="Komunikat RPP",
+            link="https://www.bankier.pl/wiadomosc/rpp-test",
+            description="Opis z RSS",
+            article_text="Treść pobranego artykułu.",
+            article_page_read=True,
+        )
+        payload = build_payload(article, "bankier-test.mp4", telegram_approval=True)
+        self.assertTrue(payload["telegramApproval"])
 
     def test_rfc822_date_and_freshness_filter(self):
         now = datetime.now(timezone.utc)

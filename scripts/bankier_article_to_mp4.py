@@ -407,7 +407,7 @@ def app_api_root(app_url: str) -> str:
     return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
 
 
-def build_payload(article: Article, filename: str) -> dict[str, Any]:
+def build_payload(article: Article, filename: str, telegram_approval: bool = False) -> dict[str, Any]:
     source_text = article.article_text or article.description
     source_label = "pełna treść strony artykułu" if article.article_page_read else "opis RSS"
     context = (
@@ -438,6 +438,7 @@ def build_payload(article: Article, filename: str) -> dict[str, Any]:
         "outputResolution": "720x1280",
         "async": True,
         "tts": True,
+        "telegramApproval": telegram_approval,
     }
 
 
@@ -479,8 +480,14 @@ def app_request(api_root: str, path: str, *, payload: dict[str, Any] | None = No
         raise ScriptError(f"Przekroczono limit czasu żądania do aplikacji ({url}).") from exc
 
 
-def start_render(api_root: str, article: Article, filename: str, http_timeout: int) -> dict[str, Any]:
-    payload = build_payload(article, filename)
+def start_render(
+    api_root: str,
+    article: Article,
+    filename: str,
+    http_timeout: int,
+    telegram_approval: bool = False,
+) -> dict[str, Any]:
+    payload = build_payload(article, filename, telegram_approval=telegram_approval)
     print("Wysyłam artykuł do istniejącego renderera aplikacji…")
     response = app_request(api_root, "auto-pilot-shorts", payload=payload, timeout=http_timeout)
     if response.get("error"):
@@ -632,6 +639,7 @@ def make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--app-url", default=os.getenv("BANKIER_SHORTS_APP_URL", "http://127.0.0.1:3000"), help="adres istniejącej aplikacji (zdalna instancja musi używać HTTPS)")
     parser.add_argument("--output", type=Path, help="ścieżka docelowa MP4; domyślnie exports/ w repozytorium")
     parser.add_argument("--yes", action="store_true", help="pomiń pytanie przed rozpoczęciem renderu")
+    parser.add_argument("--telegram-approval", action="store_true", help="po renderze wyślij na skonfigurowany Telegram prośbę o akceptację MP4")
     parser.add_argument("--overwrite", action="store_true", help="zastąp wskazany plik wyjściowy, jeśli istnieje")
     parser.add_argument("--render-timeout", type=int, default=3600, help="maksymalny czas oczekiwania na render w sekundach")
     parser.add_argument("--http-timeout", type=int, default=240, help="limit czasu pojedynczego żądania API w sekundach")
@@ -720,7 +728,13 @@ def main(argv: list[str] | None = None) -> int:
             raise ScriptError(f"Plik metadanych już istnieje: {metadata_path}. Użyj innej ścieżki albo --overwrite.")
 
         filename = output_path.name
-        submission = start_render(api_root, article, filename, args.http_timeout)
+        submission = start_render(
+            api_root,
+            article,
+            filename,
+            args.http_timeout,
+            telegram_approval=args.telegram_approval,
+        )
         job_id = str(submission["jobId"])
         print(f"Zadanie renderu: {job_id}")
         job = wait_for_job(
