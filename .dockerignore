@@ -1,0 +1,10 @@
+node_modules/
+build/
+dist/
+# Temporary neural-voice previews; do not add new generated audio to source control.
+exports/tts_preview_*.mp3
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
