@@ -14,7 +14,8 @@ Uruchom lokalny serwer aplikacji (npm run dev) i skonfiguruj jego sekrety
     python3 scripts/bankier_article_to_mp4.py --article-url https://www.bankier.pl/wiadomosc/... 
 
 Aplikacja domyślnie działa pod http://127.0.0.1:3000. Dla wdrożonej instancji
-ustaw BANKIER_SHORTS_APP_URL na jej adres HTTPS albo przekaż --app-url.
+ustaw BANKIER_SHORTS_APP_URL na jej adres HTTPS, BANKIER_SHORTS_API_TOKEN w
+środowisku procesu albo przekaż --app-url. Token nie może trafiać do repozytorium.
 """
 
 from __future__ import annotations
@@ -455,6 +456,13 @@ def read_json_response(response: Any) -> dict[str, Any]:
     return value
 
 
+def api_authorization_header() -> str:
+    api_token = os.environ.get("BANKIER_SHORTS_API_TOKEN", "").strip()
+    if not api_token:
+        raise ScriptError("Brak BANKIER_SHORTS_API_TOKEN w środowisku. Ustaw go w menedżerze sekretów przed wywołaniem API.")
+    return f"Bearer {api_token}"
+
+
 def app_request(api_root: str, path: str, *, payload: dict[str, Any] | None = None, timeout: int = 180) -> dict[str, Any]:
     url = f"{api_root.rstrip('/')}/{path.lstrip('/')}"
     data = json.dumps(payload, ensure_ascii=False).encode("utf-8") if payload is not None else None
@@ -464,6 +472,7 @@ def app_request(api_root: str, path: str, *, payload: dict[str, Any] | None = No
         headers={
             "Accept": "application/json",
             "User-Agent": "BankierArticleToMP4/1.0",
+            "Authorization": api_authorization_header(),
             **({"Content-Type": "application/json; charset=utf-8"} if data is not None else {}),
         },
         method="POST" if data is not None else "GET",
@@ -519,7 +528,13 @@ def download_video(api_root: str, job_id: str, destination: Path, *, overwrite: 
         raise ScriptError(f"Plik już istnieje: {destination}. Użyj --overwrite, aby go zastąpić.")
 
     url = f"{api_root.rstrip('/')}/jobs/{urllib.parse.quote(job_id, safe='')}/download"
-    request = urllib.request.Request(url, headers={"User-Agent": "BankierArticleToMP4/1.0"})
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "BankierArticleToMP4/1.0",
+            "Authorization": api_authorization_header(),
+        },
+    )
     fd, temporary_name = tempfile.mkstemp(prefix=f".{destination.name}.", suffix=".part", dir=destination.parent)
     total = 0
     try:

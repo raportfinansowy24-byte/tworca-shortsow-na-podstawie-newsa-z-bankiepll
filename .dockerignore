@@ -1,0 +1,13 @@
+.git
+.github
+node_modules
+dist
+coverage
+exports
+temp
+fonts
+.env
+.env.*
+*.log
+*.mp4
+*.mp3

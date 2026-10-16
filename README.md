@@ -176,6 +176,9 @@ Generuje scenariusz, dopasowuje klipy stockowe i renderuje wideo na podstawie te
 ## 🔒 Zasady Bezpieczeństwa i Zgodności
 
 - **Sekrety**: Żadne klucze API (`GEMINI_API_KEY`, `ELEVENLABS_API_KEY`, itp.) nie są kompilowane do bundle'a przeglądarki klienta — wszystkie zapytania zewnętrzne są przetwarzane po stronie serwera Node.js.
+- **Dostęp do API**: wszystkie trasy `/api/*` wymagają tokenu Firebase ID z konta `raportfinansowy24@gmail.com` albo osobnego `BANKIER_SHORTS_API_TOKEN`. Wyjątki to wyłącznie `GET /api/health` oraz webhook Telegrama, który sprawdza własny sekret nagłówka.
+- **Logowanie przeglądarkowe**: bramka Google/Firebase prosi tylko o potwierdzenie tożsamości; nie żąda zakresów Google Drive. Token Firebase jest dołączany tylko do żądań API tej samej aplikacji.
+- **Automatyzacja**: skrypt `bankier_article_to_mp4.py` wysyła `Authorization: Bearer …`. Token ustawiaj w menedżerze sekretów środowiska procesu i Fly.io; nigdy nie zapisuj go w repozytorium, promptach harmonogramu ani historii terminala.
 - **Rzetelność finansowa**: Aplikacja nie generuje sztucznych ani niepotwierdzonych wskaźników RRSO/oprocentowania. Dane dynamiczne są pobierane z aktualnych artykułów i oficjalnych źródeł, a treści przykładowe są wyraźnie oznaczone.
 
 ---
@@ -211,12 +214,12 @@ npm start
 
 ## 🐍 Skrypt Python: artykuł Bankier.pl → MP4
 
-`scripts/bankier_article_to_mp4.py` pobiera świeży artykuł z RSS lub wskazany link, a następnie zleca generację istniejącemu endpointowi `/api/auto-pilot-shorts`. Skrypt nie dubluje silnika TTS/FFmpeg i nie publikuje filmu. Wymaga uruchomionej aplikacji Node oraz jej standardowej konfiguracji sekretów.
+`scripts/bankier_article_to_mp4.py` pobiera świeży artykuł z RSS lub wskazany link, a następnie zleca generację istniejącemu endpointowi `/api/auto-pilot-shorts`. Skrypt nie dubluje silnika TTS/FFmpeg i nie publikuje filmu. Wymaga uruchomionej aplikacji Node oraz jej standardowej konfiguracji sekretów. Dla wdrożenia ustaw `BANKIER_SHORTS_API_TOKEN` w środowisku procesu skryptu; bez niego skrypt celowo odmawia wywołania API.
 
 ```bash
 # Terminal 1 — w katalogu repozytorium
 npm install
-# Skonfiguruj .env na podstawie .env.example, w tym ELEVENLABS_API_KEY dla lektora
+# Skonfiguruj .env na podstawie .env.example, w tym klucze usług i BANKIER_SHORTS_API_TOKEN
 npm run dev
 
 # Terminal 2 — lista newsów, wybór i potwierdzenie przed renderem
@@ -229,7 +232,7 @@ python3 scripts/bankier_article_to_mp4.py --latest --yes
 python3 scripts/bankier_article_to_mp4.py --latest --yes --telegram-approval
 
 # W przypadku wdrożonej instancji użyj jej adresu HTTPS
-python3 scripts/bankier_article_to_mp4.py --latest --app-url https://twoja-instancja.example --yes
+python3 scripts/bankier_article_to_mp4.py --latest --app-url https://twoja-instancja.example --yes --telegram-approval
 ```
 
 Pełną treść strony skrypt pobiera przed renderem. Jeśli Bankier.pl nie udostępni jej w HTML, domyślnie zatrzyma się; `--allow-summary-only` zezwala na render wyłącznie z opisu RSS. MP4 i plik JSON z metadanymi trafiają domyślnie do `exports/`. Użyj `--help`, aby zobaczyć wszystkie opcje.
@@ -238,12 +241,15 @@ Pełną treść strony skrypt pobiera przed renderem. Jeśli Bankier.pl nie udos
 
 ## 🔐 Zmienne Środowiskowe (`.env`)
 
-Skopiuj plik `.env.example` do `.env`. `ELEVENLABS_API_KEY` jest wymagany, gdy synteza TTS jest włączona; pozostałe klucze są opcjonalne zależnie od funkcji:
+Skopiuj plik `.env.example` do `.env`. Na Fly.io sekrety ustawiaj przez `fly secrets` lub panel, nie przez `fly.toml`. `BANKIER_SHORTS_API_TOKEN` musi mieć tę samą wartość w środowisku aplikacji Fly i procesu uruchamiającego skrypt automatyzacji.
 
 | Zmienna | Wymagana | Opis |
 |---|---|---|
 | `PORT` | Nie (domyślnie 3000) | Port nasłuchiwania serwera Express |
-| `GEMINI_API_KEY` | Opcjonalna | Klucz do modeli Gemini dla zaawansowanego scenopisarstwa |
+| `FIREBASE_PROJECT_ID` | Tak | Firebase project ID używany do weryfikacji tokenów ID po stronie serwera |
+| `AUTOPILOT_ALLOWED_EMAILS` | Tak | Dozwolone adresy e-mail rozdzielone przecinkami; w tym wdrożeniu `raportfinansowy24@gmail.com` |
+| `BANKIER_SHORTS_API_TOKEN` | Tak dla automatyzacji | Losowy, poufny token Bearer dla skryptów i integracji serwerowych |
+| `GEMINI_API_KEY` | Dla generowania AI | Klucz do modeli Gemini używanych przez scenopisarstwo i analizę |
 | `ELEVENLABS_API_KEY` | Tak dla TTS | Klucz ElevenLabs. Bez niego render TTS kończy się czytelnym błędem; nie ma fallbacku do Google/Edge. |
 | `ELEVENLABS_VOICE_ID` | Nie | Domyślnie `onwK4e9ZLuTAKqWW03F9` (Daniel, premade); można wybrać inny głos z katalogu konta w interfejsie. |
 | `ELEVENLABS_MODEL_ID` | Nie | Domyślnie `eleven_multilingual_v2`. |
@@ -256,7 +262,7 @@ Skopiuj plik `.env.example` do `.env`. `ELEVENLABS_API_KEY` jest wymagany, gdy s
 
 ### Akceptacja shorta przez Telegram
 
-Ustaw `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` i `TELEGRAM_WEBHOOK_SECRET` w sekretach wdrożenia oraz publiczny adres HTTPS w `APP_URL`. Dla bota dedykowanego tej aplikacji ustaw `TELEGRAM_REGISTER_WEBHOOK_ON_START=true`; aplikacja zarejestruje wtedy webhook i obsłuży przyciski. Uruchom skrypt z `--telegram-approval` (albo wyślij `telegramApproval: true` do `/api/auto-pilot-shorts`), aby po zakończeniu renderu wysłać do wskazanego czatu link do MP4 z przyciskami **Akceptuję** i **Odrzucam**. Decyzja jest zapisywana przy zadaniu; samo zaakceptowanie nie publikuje filmu. Bez konfiguracji Telegrama render nadal może się zakończyć, ale status zadania pokaże błąd wysyłki prośby.
+Ustaw `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` i `TELEGRAM_WEBHOOK_SECRET` w sekretach wdrożenia oraz publiczny adres HTTPS w `APP_URL`. Dla bota dedykowanego tej aplikacji ustaw `TELEGRAM_REGISTER_WEBHOOK_ON_START=true`; aplikacja zarejestruje wtedy webhook i obsłuży przyciski. Uruchom skrypt z `--telegram-approval` (albo wyślij `telegramApproval: true` do `/api/auto-pilot-shorts`), aby po zakończeniu renderu wysłać do wskazanego czatu **załączony plik MP4** z przyciskami **Akceptuję** i **Odrzucam**. Limit załącznika wynosi 45 MB. Decyzja jest zapisywana przy zadaniu, a podpis wiadomości aktualizowany; samo zaakceptowanie nie publikuje filmu. Bez konfiguracji Telegrama render może się zakończyć, ale status zadania pokaże błąd wysyłki prośby.
 
 ---
 
