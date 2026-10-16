@@ -36,6 +36,7 @@ import {
   sendTelegramApprovalRequest,
   updateTelegramApprovalMessage
 } from './src/server/telegramApproval';
+import { createApiAuthMiddleware } from './src/server/apiAuth';
 
 const execPromise = promisify(exec);
 
@@ -1037,19 +1038,19 @@ function updateJobProgress(
   saveJobsToDisk();
 }
 
-async function sendJobTelegramApprovalRequest(jobId: string, outputUrl: string): Promise<void> {
+async function sendJobTelegramApprovalRequest(jobId: string): Promise<void> {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
   const job = jobsStore.get(jobId);
-  if (!job || !botToken || !chatId) {
-    throw new Error('Brakuje TELEGRAM_BOT_TOKEN lub TELEGRAM_CHAT_ID w konfiguracji aplikacji.');
+  if (!job || !job.outputFilename || !botToken || !chatId) {
+    throw new Error('Brakuje gotowego pliku MP4, TELEGRAM_BOT_TOKEN lub TELEGRAM_CHAT_ID w konfiguracji aplikacji.');
   }
   const sent = await sendTelegramApprovalRequest({
     botToken,
     chatId,
     jobId,
     title: job.approvalTitle || 'Short z Bankier.pl',
-    outputUrl,
+    videoPath: path.join(EXPORTS_DIR, path.basename(job.outputFilename)),
     sourceUrl: job.approvalSourceUrl
   });
   updateJobProgress(jobId, {
@@ -2264,7 +2265,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
 
     if (payload.telegramApproval === true) {
       try {
-        await sendJobTelegramApprovalRequest(jobId, outputUrl);
+        await sendJobTelegramApprovalRequest(jobId);
       } catch (telegramError) {
         updateJobProgress(jobId, { telegramApprovalStatus: 'failed_to_send' }, `Nie udało się wysłać prośby o akceptację na Telegram: ${(telegramError as Error).message}`);
         console.warn(`[Telegram Approval] Nie wysłano prośby dla zadania ${jobId}:`, (telegramError as Error).message);
@@ -6176,13 +6177,21 @@ router.post('/telegram/webhook', async (req, res) => {
   const messageId = Number(callback.message?.message_id);
   if (Number.isFinite(messageId) && job.outputUrl) {
     try {
-      await updateTelegramApprovalMessage(botToken, configuredChatId, messageId, job.approvalTitle || 'Short z Bankier.pl', job.outputUrl, decision);
+      await updateTelegramApprovalMessage(botToken, configuredChatId, messageId, job.approvalTitle || 'Short z Bankier.pl', decision);
     } catch (error) {
       console.warn(`[Telegram Approval] Nie udało się zaktualizować wiadomości dla ${jobId}:`, (error as Error).message);
     }
   }
   return res.json({ ok: true, decision });
 });
+
+// Private API: browser sessions use Firebase ID tokens; unattended jobs use a separate bearer token.
+app.use('/api', createApiAuthMiddleware({
+  projectId: process.env.FIREBASE_PROJECT_ID || '',
+  allowedEmails: (process.env.AUTOPILOT_ALLOWED_EMAILS || '').split(','),
+  machineToken: process.env.BANKIER_SHORTS_API_TOKEN || '',
+  publicPaths: ['/health', '/telegram/webhook']
+}));
 
 // Mount API router
 app.use('/api', router);

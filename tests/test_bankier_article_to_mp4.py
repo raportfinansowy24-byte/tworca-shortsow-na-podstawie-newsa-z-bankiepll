@@ -1,12 +1,19 @@
+import io
+import os
+import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from unittest.mock import patch
 
 from scripts.bankier_article_to_mp4 import (
     Article,
     ArticlePageParser,
     ScriptError,
     app_api_root,
+    app_request,
     build_payload,
+    download_video,
     fresh_articles,
     is_bankier_url,
     parse_feed,
@@ -58,6 +65,48 @@ class BankierScriptTests(unittest.TestCase):
         self.assertEqual(app_api_root("https://shorts.example.com/api/"), "https://shorts.example.com/api")
         with self.assertRaises(ScriptError):
             app_api_root("http://shorts.example.com")
+
+    def test_app_request_sends_machine_bearer_token(self):
+        captured = {}
+
+        def fake_urlopen(request, timeout):
+            captured["request"] = request
+            captured["timeout"] = timeout
+            return io.BytesIO(b'{"jobId":"job-test"}')
+
+        with patch.dict(os.environ, {"BANKIER_SHORTS_API_TOKEN": "test-machine-token"}):
+            with patch("scripts.bankier_article_to_mp4.urllib.request.urlopen", side_effect=fake_urlopen):
+                result = app_request("https://shorts.example.com/api", "/auto-pilot-shorts", payload={"topic": "test"})
+
+        self.assertEqual(result["jobId"], "job-test")
+        self.assertEqual(captured["request"].get_header("Authorization"), "Bearer test-machine-token")
+        self.assertEqual(captured["request"].get_method(), "POST")
+
+    def test_app_request_fails_closed_without_machine_token(self):
+        with patch.dict(os.environ, {}, clear=False) as env:
+            env.pop("BANKIER_SHORTS_API_TOKEN", None)
+            with self.assertRaisesRegex(ScriptError, "BANKIER_SHORTS_API_TOKEN"):
+                app_request("https://shorts.example.com/api", "/auto-pilot-shorts", payload={"topic": "test"})
+
+    def test_download_video_sends_machine_bearer_token(self):
+        captured = {}
+
+        class FakeVideoResponse(io.BytesIO):
+            headers = {"Content-Type": "video/mp4"}
+
+        def fake_urlopen(request, timeout):
+            captured["request"] = request
+            return FakeVideoResponse(b"x" * 2048)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            destination = Path(temp_dir) / "render.mp4"
+            with patch.dict(os.environ, {"BANKIER_SHORTS_API_TOKEN": "test-machine-token"}):
+                with patch("scripts.bankier_article_to_mp4.urllib.request.urlopen", side_effect=fake_urlopen):
+                    size = download_video("https://shorts.example.com/api", "job-123", destination, overwrite=False)
+
+            self.assertEqual(size, 2048)
+            self.assertTrue(destination.exists())
+            self.assertEqual(captured["request"].get_header("Authorization"), "Bearer test-machine-token")
 
     def test_payload_passes_article_source_and_uses_four_scenes(self):
         article = Article(
