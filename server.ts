@@ -3307,7 +3307,8 @@ async function generateSmartOrGeminiViralScript({
   sceneCount = 4,
   articleContext,
   bankierArticle,
-  pairedKeywords
+  pairedKeywords,
+  requirePexelsClips = false
 }: {
   topic?: string;
   niche?: string;
@@ -3316,6 +3317,7 @@ async function generateSmartOrGeminiViralScript({
   articleContext?: string;
   bankierArticle?: any;
   pairedKeywords?: string[];
+  requirePexelsClips?: boolean;
   viralHookFormula?: string;
 }) {
   const cleanTopic = (topic || 'Analiza rynkowa').trim();
@@ -3329,7 +3331,7 @@ async function generateSmartOrGeminiViralScript({
     bankierArticle?.description,
     bankierArticle?.category
   ].filter((part) => typeof part === 'string' && part.trim()).join('\n');
-  const requireNewsPexels = Boolean(bankierArticle || (articleContext && articleContext.trim()));
+  const requireNewsPexels = requirePexelsClips || Boolean(bankierArticle || (articleContext && articleContext.trim()));
   const offerMatch = getNewsOfferMatch(bankierArticle || { title: cleanTopic, category: niche }, articleContext);
   const offerMatchPrompt = buildOfferMatchPromptInstructions(offerMatch);
   if (Number(sceneCount) !== count) {
@@ -3504,6 +3506,9 @@ Każda scena w tablicy "scenes" musi mieć pole "duration": ${sceneDuration}.`;
             context: visualContext,
             requirePexels: requireNewsPexels
           });
+          if (requireNewsPexels && (resolved.source !== 'pexels' || !resolved.pexelsId)) {
+            throw new Error(`Scena ${idx + 1} nie otrzymała klipu Pexels.`);
+          }
           if (resolved.pexelsId) {
             usedPexelsIds.push(resolved.pexelsId);
           }
@@ -3580,6 +3585,9 @@ Każda scena w tablicy "scenes" musi mieć pole "duration": ${sceneDuration}.`;
       context: visualContext,
       requirePexels: requireNewsPexels
     });
+    if (requireNewsPexels && (resolved.source !== 'pexels' || !resolved.pexelsId)) {
+      throw new Error(`Scena ${idx + 1} nie otrzymała klipu Pexels.`);
+    }
     if (resolved.pexelsId) {
       usedPexelsIds.push(resolved.pexelsId);
     }
@@ -3882,6 +3890,14 @@ router.post('/auto-pilot-shorts', async (req, res) => {
     const rawScenesList = extractScenesFromPayload(body);
     let lockSceneDurations = body.lockSceneDurations === true;
 
+    if ((!rawScenesList || rawScenesList.length === 0) && !process.env.PEXELS_API_KEY?.trim()) {
+      return res.status(503).json({
+        error: 'Auto-Pilot wymaga klucza PEXELS_API_KEY, aby pobrać cztery dynamiczne klipy Pexels.',
+        requiredConfig: 'PEXELS_API_KEY',
+        fallbackDisabled: true
+      });
+    }
+
     if (rawScenesList && rawScenesList.length > 0) {
       scenesToRender = rawScenesList.map((sc: any, idx: number) =>
         normalizeSceneItem(sc, idx, rawScenesList.length)
@@ -3898,12 +3914,23 @@ router.post('/auto-pilot-shorts', async (req, res) => {
         sceneCount: body.sceneCount || 4,
         articleContext: body.articleContext,
         bankierArticle: body.bankierArticle,
-        pairedKeywords: body.pairedKeywords
+        pairedKeywords: body.pairedKeywords,
+        requirePexelsClips: true
       });
 
       title = scriptData.title || topicToUse;
       description = scriptData.description || description;
       scenesToRender = scriptData.scenes || [];
+      const pexelsIds = scenesToRender.map((scene: any) => scene.pexelsId);
+      const hasFourUniquePexelsVideos = scenesToRender.length === 4 &&
+        scenesToRender.every((scene: any) => scene.source === 'pexels' && typeof scene.pexelsId === 'number' && Number.isFinite(scene.pexelsId)) &&
+        new Set(pexelsIds).size === 4;
+      if (!hasFourUniquePexelsVideos) {
+        return res.status(502).json({
+          error: 'Nie udało się dobrać czterech różnych klipów wideo z Pexels. Short nie został wyrenderowany.',
+          fallbackDisabled: true
+        });
+      }
     }
 
     // Zablokuj czas i sceny na stałe: Zawsze dokładnie 4 sceny po 4.5s (łącznie 18.0s)
@@ -4026,9 +4053,14 @@ router.post('/auto-pilot-shorts', async (req, res) => {
     }
   } catch (err) {
     console.error('❌ Endpoint /api/auto-pilot-shorts error:', err);
-    return res.status(500).json({
-      error: 'Błąd serwera podczas przetwarzania żądania Make.com:',
-      details: (err as Error).message
+    const details = (err as Error).message;
+    const isPexelsError = /pexels/i.test(details);
+    return res.status(isPexelsError ? 502 : 500).json({
+      error: isPexelsError
+        ? 'Nie udało się pobrać czterech dopasowanych klipów Pexels. Short nie został wyrenderowany.'
+        : 'Błąd serwera podczas przetwarzania żądania Make.com:',
+      details,
+      ...(isPexelsError ? { fallbackDisabled: true } : {})
     });
   }
 });

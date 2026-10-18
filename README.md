@@ -253,7 +253,7 @@ Skopiuj plik `.env.example` do `.env`. Na Fly.io sekrety ustawiaj przez `fly sec
 | `ELEVENLABS_API_KEY` | Tak dla TTS | Klucz ElevenLabs. Bez niego render TTS kończy się czytelnym błędem; nie ma fallbacku do Google/Edge. |
 | `ELEVENLABS_VOICE_ID` | Nie | Domyślnie `onwK4e9ZLuTAKqWW03F9` (Daniel, premade); można wybrać inny głos z katalogu konta w interfejsie. |
 | `ELEVENLABS_MODEL_ID` | Nie | Domyślnie `eleven_multilingual_v2`. |
-| `PEXELS_API_KEY` | Opcjonalna | Klucz do dynamicznego wyszukiwania klipów w Pexels API |
+| `PEXELS_API_KEY` | Wymagana dla Auto-Pilota | Klucz Pexels API; Auto-Pilot dobiera cztery różne, pionowe klipy wideo. Jeśli nie znajdzie kompletu, pokaże komunikat o problemie i przerwie render — nie podstawi przypadkowych klipów. Ręcznie podane adresy scen nadal można renderować bez klucza. |
 | `TELEGRAM_BOT_TOKEN` | Opcjonalna | Token bota Telegrama. Przechowuj wyłącznie w sekretach środowiska wdrożenia. |
 | `TELEGRAM_CHAT_ID` | Wymagana dla Telegram approval | Docelowy czat, do którego trafia prośba o akceptację. |
 | `TELEGRAM_WEBHOOK_SECRET` | Wymagana dla Telegram approval | Losowy sekret webhooka przekazywany przez Telegram w nagłówku `X-Telegram-Bot-Api-Secret-Token`. |
