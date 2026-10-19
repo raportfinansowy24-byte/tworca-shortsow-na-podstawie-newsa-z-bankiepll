@@ -71,7 +71,7 @@ export interface SystemHealth {
 
 export interface JobStatusResponse {
   id: string;
-  status: 'queued' | 'processing' | 'completed' | 'failed';
+  status: 'queued' | 'processing' | 'completed' | 'failed' | 'cancelled';
   progress: number;
   step: string;
   frame?: number;
@@ -86,6 +86,18 @@ export interface JobStatusResponse {
   duration?: number;
   fileSize?: number;
   error?: string;
+  source?: string;
+  title?: string;
+  articleTitle?: string;
+  articleUrl?: string;
+  articleCategory?: string;
+  scenes?: unknown[];
+  shortMetadata?: Record<string, unknown>;
+  exportStatus?: 'not_started' | 'uploading' | 'completed' | 'failed';
+  driveFileId?: string;
+  driveUrl?: string;
+  driveFileName?: string;
+  exportError?: string;
   createdAt: string;
   updatedAt: string;
 }

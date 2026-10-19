@@ -221,6 +221,7 @@ export const GoogleDriveManager: React.FC<GoogleDriveManagerProps> = ({
         videoUrl: job.outputUrl,
         fileName: filename,
         folderId: targetFolderId,
+        jobId: job.id,
         description: `Wideo wygenerowane przez Raport Finansowy 24 (Zadanie ID: ${job.id})`,
         onProgress: (pct) => setExportProgress(pct)
       });

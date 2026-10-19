@@ -399,31 +399,68 @@ export const exportVideoUrlToDrive = async (options: {
   videoUrl: string;
   fileName: string;
   folderId?: string;
+  jobId?: string;
   description?: string;
   onProgress?: (percent: number) => void;
 }): Promise<DriveFileItem> => {
+  const jobId = options.jobId && options.jobId.startsWith('job_') ? options.jobId : undefined;
+  const attemptId = jobId ? crypto.randomUUID() : undefined;
+  const startedAt = new Date().toISOString();
+
+  const reportStatus = async (status: 'uploading' | 'completed' | 'failed', details: {
+    driveFileId?: string;
+    driveWebViewLink?: string;
+    driveFileName?: string;
+    error?: string;
+  } = {}) => {
+    if (!jobId || !attemptId) return;
+    try {
+      const statusResponse = await fetch(`/api/jobs/${encodeURIComponent(jobId)}/exports`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ attemptId, startedAt, status, ...details })
+      });
+      if (!statusResponse.ok) {
+        console.warn(`[Supabase] Nie zapisano statusu eksportu shorta (HTTP ${statusResponse.status}).`);
+      }
+    } catch (error) {
+      console.warn('[Supabase] Nie udało się zgłosić statusu eksportu; przesyłanie do Drive będzie kontynuowane.', error);
+    }
+  };
+
   options.onProgress?.(10);
-  // 1. Download video blob from local/server endpoint
-  const response = await fetch(options.videoUrl);
-  if (!response.ok) {
-    throw new Error(`Nie udało się pobrać wyrenderowanego pliku wideo (${response.statusText})`);
+  await reportStatus('uploading');
+  try {
+    // 1. Download video blob from local/server endpoint
+    const response = await fetch(options.videoUrl);
+    if (!response.ok) {
+      throw new Error(`Nie udało się pobrać wyrenderowanego pliku wideo (${response.statusText})`);
+    }
+
+    options.onProgress?.(40);
+    const blob = await response.blob();
+
+    options.onProgress?.(70);
+    // 2. Upload blob to Google Drive
+    const result = await uploadFileToDrive({
+      name: options.fileName.endsWith('.mp4') ? options.fileName : `${options.fileName}.mp4`,
+      mimeType: 'video/mp4',
+      content: blob,
+      folderId: options.folderId,
+      description: options.description || 'Gotowy film Short 9:16 wyrenderowany przez FFmpeg & AI Auto-Pilot'
+    });
+
+    options.onProgress?.(100);
+    await reportStatus('completed', {
+      driveFileId: result.id,
+      driveWebViewLink: result.webViewLink,
+      driveFileName: result.name
+    });
+    return result;
+  } catch (error) {
+    await reportStatus('failed', { error: (error as Error).message || 'Błąd eksportu do Google Drive.' });
+    throw error;
   }
-
-  options.onProgress?.(40);
-  const blob = await response.blob();
-
-  options.onProgress?.(70);
-  // 2. Upload blob to Google Drive
-  const result = await uploadFileToDrive({
-    name: options.fileName.endsWith('.mp4') ? options.fileName : `${options.fileName}.mp4`,
-    mimeType: 'video/mp4',
-    content: blob,
-    folderId: options.folderId,
-    description: options.description || 'Gotowy film Short 9:16 wyrenderowany przez FFmpeg & AI Auto-Pilot'
-  });
-
-  options.onProgress?.(100);
-  return result;
 };
 
 /**

@@ -107,6 +107,14 @@ Aplikacja posiada pełną integrację z **Google Workspace APIs (Drive & Sheets 
 
 ---
 
+## 🗄️ Historia zadań w Supabase
+
+Serwer może synchronizować historię renderów i metadane shortów do Supabase Postgres. Tabela `short_jobs` przechowuje źródło, status renderowania, postęp, tytuł i artykuł, podsumowania scen, parametry TTS, linki MP4/miniatury oraz najnowszy status eksportu. Tabela `short_job_exports` zapisuje osobno każdą próbę eksportu do Google Drive wraz ze statusem, nazwą pliku i linkiem.
+
+Przed uruchomieniem integracji zastosuj migrację `supabase/migrations/20261018070800_create_short_history.sql` w SQL Editorze Supabase lub przez Supabase CLI. Ustaw `SUPABASE_URL` i `SUPABASE_KEY` w **sekretach środowiska serwera**; `SUPABASE_KEY` musi być kluczem secret/service_role i nigdy nie może trafić do kodu przeglądarki ani repozytorium. Po starcie aplikacja scala historię z Supabase z lokalnym `exports/jobs_history.json` i wykonuje idempotentny backfill istniejących wpisów. Gdy Supabase jest niedostępne, renderowanie nadal korzysta z lokalnej historii.
+
+---
+
 ## 🔄 Automatyzacja Make.com i n8n
 
 W folderze aplikacji znajduje się gotowy moduł HTTP Connector:
@@ -249,6 +257,8 @@ Skopiuj plik `.env.example` do `.env`. Na Fly.io sekrety ustawiaj przez `fly sec
 | `FIREBASE_PROJECT_ID` | Tak | Firebase project ID używany do weryfikacji tokenów ID po stronie serwera |
 | `AUTOPILOT_ALLOWED_EMAILS` | Tak | Dozwolone adresy e-mail rozdzielone przecinkami; w tym wdrożeniu `raportfinansowy24@gmail.com` |
 | `BANKIER_SHORTS_API_TOKEN` | Tak dla automatyzacji | Losowy, poufny token Bearer dla skryptów i integracji serwerowych |
+| `SUPABASE_URL` | Nie | HTTPS URL projektu Supabase; wymagany do zapisu historii zadań w Postgresie |
+| `SUPABASE_KEY` | Nie | Klucz secret/service_role używany wyłącznie po stronie serwera; wymagany razem z `SUPABASE_URL` |
 | `GEMINI_API_KEY` | Dla generowania AI | Klucz do modeli Gemini używanych przez scenopisarstwo i analizę |
 | `ELEVENLABS_API_KEY` | Tak dla TTS | Klucz ElevenLabs. Bez niego render TTS kończy się czytelnym błędem; nie ma fallbacku do Google/Edge. |
 | `ELEVENLABS_VOICE_ID` | Nie | Domyślnie `onwK4e9ZLuTAKqWW03F9` (Daniel, premade); można wybrać inny głos z katalogu konta w interfejsie. |

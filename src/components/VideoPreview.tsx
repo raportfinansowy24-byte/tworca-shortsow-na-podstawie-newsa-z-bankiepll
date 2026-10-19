@@ -114,6 +114,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
         videoUrl,
         fileName: filename,
         folderId,
+        jobId,
         onProgress: (pct) => setDriveUploadProgress(pct)
       });
 

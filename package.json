@@ -13,10 +13,12 @@
     "test:e2e": "node test-e2e.js",
     "test:scene-matching": "tsx test-finance-scene-matching.ts",
     "test:offer-matching": "tsx test-finance-offer-matching.ts",
-    "test:auth": "tsx tests/apiAuth.test.ts"
+    "test:auth": "tsx tests/apiAuth.test.ts",
+    "test:supabase-history": "tsx tests/supabaseJobStore.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
+    "@supabase/supabase-js": "^2.118.0",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
     "dotenv": "^17.2.3",

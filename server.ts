@@ -37,6 +37,15 @@ import {
   updateTelegramApprovalMessage
 } from './src/server/telegramApproval';
 import { createApiAuthMiddleware } from './src/server/apiAuth';
+import {
+  loadShortJobsFromSupabase,
+  persistShortJobSnapshot,
+  queueShortJobSnapshot,
+  upsertShortJobExport,
+  upsertShortJobsBatch,
+  type DriveExportStatus,
+  type ShortJobSnapshot
+} from './src/server/supabaseJobStore';
 
 const execPromise = promisify(exec);
 
@@ -847,8 +856,38 @@ interface Job {
   telegramApprovalMessageId?: number;
   approvalTitle?: string;
   approvalSourceUrl?: string;
+  source?: string;
+  title?: string;
+  articleTitle?: string;
+  articleUrl?: string;
+  articleCategory?: string;
+  scenes?: unknown[];
+  shortMetadata?: Record<string, unknown>;
+  exportStatus?: 'not_started' | DriveExportStatus;
+  driveFileId?: string;
+  driveUrl?: string;
+  driveFileName?: string;
+  exportError?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+function summarizeScenesForHistory(scenes: unknown[]): Record<string, unknown>[] {
+  return scenes.slice(0, 50).map((rawScene, index) => {
+    const scene = rawScene && typeof rawScene === 'object' ? rawScene as Record<string, unknown> : {};
+    const shortText = (value: unknown, maxLength: number) => typeof value === 'string' ? value.trim().slice(0, maxLength) : undefined;
+    const rawPexelsId = scene.pexelsId ?? scene.pexels_id;
+    const pexelsId = Number(rawPexelsId);
+    return {
+      index: index + 1,
+      title: shortText(scene.title ?? scene.subtitles ?? scene.caption, 300),
+      voiceoverText: shortText(scene.voiceover_text ?? scene.voiceoverText, 700),
+      searchKeyword: shortText(scene.searchKeyword ?? scene.search_keyword, 180),
+      source: shortText(scene.videoSource ?? scene.source, 80),
+      pexelsId: Number.isFinite(pexelsId) && pexelsId > 0 ? pexelsId : undefined,
+      duration: typeof scene.duration === 'number' && Number.isFinite(scene.duration) ? scene.duration : undefined
+    };
+  });
 }
 
 interface ActiveJobExecution {
@@ -988,6 +1027,33 @@ function loadJobsFromDisk() {
   }
 }
 
+async function hydrateJobsFromSupabase(): Promise<void> {
+  try {
+    const remoteJobs = await loadShortJobsFromSupabase(2000);
+    let changed = false;
+
+    for (const remoteJob of remoteJobs) {
+      const localJob = jobsStore.get(remoteJob.id);
+      const remoteUpdatedAt = Date.parse(remoteJob.updatedAt) || 0;
+      const localUpdatedAt = Date.parse(localJob?.updatedAt || '') || 0;
+      if (!localJob || remoteUpdatedAt > localUpdatedAt) {
+        jobsStore.set(remoteJob.id, {
+          ...remoteJob,
+          step: remoteJob.step || 'Historia zsynchronizowana z Supabase',
+          logs: localJob?.logs
+        });
+        changed = true;
+      }
+    }
+
+    if (changed) saveJobsToDisk();
+    // Idempotently backfill the local JSON history after the migration is installed.
+    await upsertShortJobsBatch(Array.from(jobsStore.values()));
+  } catch (error) {
+    console.warn('[Supabase] Nie udało się zsynchronizować historii przy starcie:', (error as Error).message);
+  }
+}
+
 // Broadcast job updates over SSE and update jobsStore
 function updateJobProgress(
   jobId: string,
@@ -1014,6 +1080,18 @@ function updateJobProgress(
   if (typeof update.telegramApprovalMessageId === 'number') job.telegramApprovalMessageId = update.telegramApprovalMessageId;
   if (update.approvalTitle) job.approvalTitle = update.approvalTitle;
   if (update.approvalSourceUrl) job.approvalSourceUrl = update.approvalSourceUrl;
+  if (update.source) job.source = update.source;
+  if (update.title) job.title = update.title;
+  if (update.articleTitle) job.articleTitle = update.articleTitle;
+  if (update.articleUrl) job.articleUrl = update.articleUrl;
+  if (update.articleCategory) job.articleCategory = update.articleCategory;
+  if (Array.isArray(update.scenes)) job.scenes = update.scenes;
+  if (update.shortMetadata && typeof update.shortMetadata === 'object') job.shortMetadata = update.shortMetadata;
+  if (update.exportStatus) job.exportStatus = update.exportStatus;
+  if (update.driveFileId !== undefined) job.driveFileId = update.driveFileId;
+  if (update.driveUrl !== undefined) job.driveUrl = update.driveUrl;
+  if (update.driveFileName !== undefined) job.driveFileName = update.driveFileName;
+  if (update.exportError !== undefined) job.exportError = update.exportError;
   job.updatedAt = new Date().toISOString();
 
   if (logMsg) {
@@ -1036,6 +1114,11 @@ function updateJobProgress(
   }
 
   saveJobsToDisk();
+  const importantUpdate = Boolean(
+    update.status || update.outputUrl || update.outputFilename || update.exportStatus ||
+    update.driveUrl || update.driveFileId || update.error || update.telegramApprovalStatus
+  );
+  queueShortJobSnapshot(job as ShortJobSnapshot, importantUpdate);
 }
 
 async function sendJobTelegramApprovalRequest(jobId: string): Promise<void> {
@@ -2384,6 +2467,80 @@ router.get('/health', async (req, res) => {
     activeJobsCount: jobsStore.size,
     timestamp: new Date().toISOString()
   });
+});
+
+// Record Google Drive export attempts server-side; this route is protected by the API auth middleware.
+router.post('/jobs/:jobId/exports', async (req, res) => {
+  const jobId = String(req.params.jobId || '');
+  const job = jobsStore.get(jobId);
+  if (!job) return res.status(404).json({ error: 'Nie znaleziono zadania renderowania.' });
+  if (job.status !== 'completed' || !job.outputUrl) {
+    return res.status(409).json({ error: 'Eksport można zapisać dopiero po zakończeniu renderowania.' });
+  }
+
+  const attemptId = String(req.body?.attemptId || '');
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(attemptId)) {
+    return res.status(400).json({ error: 'Nieprawidłowy identyfikator próby eksportu.' });
+  }
+  const status = req.body?.status as DriveExportStatus;
+  if (!['uploading', 'completed', 'failed'].includes(status)) {
+    return res.status(400).json({ error: 'Nieprawidłowy status eksportu.' });
+  }
+
+  const startedAtInput = String(req.body?.startedAt || '');
+  const parsedStartedAt = Date.parse(startedAtInput);
+  if (!Number.isFinite(parsedStartedAt)) {
+    return res.status(400).json({ error: 'Nieprawidłowy czas rozpoczęcia eksportu.' });
+  }
+
+  const now = new Date().toISOString();
+  const driveFileId = typeof req.body?.driveFileId === 'string' ? req.body.driveFileId.slice(0, 500) : undefined;
+  const driveWebViewLink = typeof req.body?.driveWebViewLink === 'string' ? req.body.driveWebViewLink.slice(0, 2000) : undefined;
+  const driveFileName = typeof req.body?.driveFileName === 'string' ? req.body.driveFileName.slice(0, 250) : undefined;
+  const error = typeof req.body?.error === 'string' ? req.body.error.slice(0, 1000) : undefined;
+
+  if (driveWebViewLink) {
+    try {
+      const parsedLink = new URL(driveWebViewLink);
+      if (parsedLink.protocol !== 'https:' || !['drive.google.com', 'docs.google.com'].includes(parsedLink.hostname)) {
+        return res.status(400).json({ error: 'Link eksportu musi prowadzić do Google Drive.' });
+      }
+    } catch {
+      return res.status(400).json({ error: 'Nieprawidłowy link do pliku Google Drive.' });
+    }
+  }
+
+  updateJobProgress(jobId, {
+    exportStatus: status,
+    driveFileId: status === 'uploading' ? '' : driveFileId,
+    driveUrl: status === 'uploading' ? '' : driveWebViewLink,
+    driveFileName: status === 'uploading' ? '' : driveFileName,
+    exportError: status === 'failed' ? (error || 'Eksport do Google Drive nie powiódł się.') : ''
+  }, status === 'uploading'
+    ? 'Rozpoczęto eksport do Google Drive.'
+    : status === 'completed'
+      ? 'Eksport do Google Drive zakończył się pomyślnie.'
+      : 'Eksport do Google Drive zakończył się błędem.');
+
+  const snapshotSaved = await persistShortJobSnapshot(job as ShortJobSnapshot);
+  const exportSaved = await upsertShortJobExport({
+    id: attemptId,
+    jobId,
+    provider: 'google_drive',
+    status,
+    driveFileId,
+    driveWebViewLink,
+    driveFileName,
+    error: status === 'failed' ? error : undefined,
+    startedAt: new Date(parsedStartedAt).toISOString(),
+    completedAt: status === 'uploading' ? undefined : now,
+    updatedAt: now
+  });
+
+  if (!snapshotSaved || !exportSaved) {
+    return res.status(503).json({ error: 'Status eksportu nie został zapisany w Supabase. Sprawdź konfigurację i migrację bazy.' });
+  }
+  return res.json({ success: true, jobId, attemptId, status });
 });
 
 // Read-only offer catalog status and article-to-category preview.
@@ -4005,6 +4162,24 @@ router.post('/auto-pilot-shorts', async (req, res) => {
       telegramApprovalStatus: body.telegramApproval === true ? 'waiting_for_render' : undefined,
       approvalTitle: String(body.topic || body.bankierArticle?.title || title),
       approvalSourceUrl: String(body.bankierArticle?.link || body.bankierArticle?.url || body.articleUrl || ''),
+      source: 'make',
+      title: String(body.topic || body.bankierArticle?.title || title),
+      articleTitle: String(body.bankierArticle?.title || body.articleTitle || title || ''),
+      articleUrl: String(body.bankierArticle?.link || body.bankierArticle?.url || body.articleUrl || ''),
+      articleCategory: String(body.bankierArticle?.category || body.category || ''),
+      scenes: summarizeScenesForHistory(scenesToRender),
+      shortMetadata: {
+        description: typeof (scriptData as any)?.description === 'string' ? (scriptData as any).description.slice(0, 1500) : undefined,
+        hook: typeof (scriptData as any)?.hook === 'string' ? (scriptData as any).hook.slice(0, 500) : undefined,
+        sceneCount: scenesToRender.length,
+        resolution: outputResolution,
+        fps: 30,
+        tts: payload.tts,
+        ttsLanguage: payload.ttsLanguage,
+        ttsVoice: effectiveVoice,
+        ttsSpeed: effectiveSpeed
+      },
+      exportStatus: 'not_started',
       logs: [`[${new Date().toLocaleTimeString()}] Odebrano zadanie z Make.com (${scenesToRender.length} scen)`],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -4012,6 +4187,7 @@ router.post('/auto-pilot-shorts', async (req, res) => {
 
     jobsStore.set(jobId, newJob);
     saveJobsToDisk();
+    queueShortJobSnapshot(newJob as ShortJobSnapshot, true);
 
     // Jeśli włączony tryb asynchroniczny (async=true), zwróć status 202
     if (payload.async) {
@@ -4135,6 +4311,22 @@ router.post('/combine-scenes', async (req, res) => {
     status: 'queued',
     progress: 0,
     step: 'Zadanie odebrane i zakolejkowane',
+    source: 'combine_scenes',
+    title: String(body.title || body.topic || ''),
+    articleTitle: String(body.articleTitle || body.bankierArticle?.title || ''),
+    articleUrl: String(body.articleUrl || body.bankierArticle?.link || ''),
+    articleCategory: String(body.articleCategory || body.bankierArticle?.category || ''),
+    scenes: summarizeScenesForHistory(normalizedScenes),
+    shortMetadata: {
+      sceneCount: normalizedScenes.length,
+      resolution: payload.outputResolution,
+      fps: payload.fps,
+      tts: payload.tts,
+      ttsLanguage: payload.ttsLanguage,
+      ttsVoice: payload.ttsVoice,
+      ttsSpeed: payload.ttsSpeed
+    },
+    exportStatus: 'not_started',
     logs: [`[${new Date().toLocaleTimeString()}] Utworzono nowe zadanie renderowania ${jobId}`],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
@@ -4142,6 +4334,7 @@ router.post('/combine-scenes', async (req, res) => {
 
   jobsStore.set(jobId, newJob);
   saveJobsToDisk();
+  queueShortJobSnapshot(newJob as ShortJobSnapshot, true);
 
   const isAsync = payload.async === true || Boolean(payload.webhookUrl);
 
@@ -4333,12 +4526,28 @@ const handleInboundWebhook = async (req: express.Request, res: express.Response)
         status: 'queued',
         progress: 0,
         step: 'Webhook odebrany: uruchamianie renderowania MP4',
+        source: 'webhook',
+        title: String(body.title || body.topic || ''),
+        articleTitle: String(body.articleTitle || body.bankierArticle?.title || ''),
+        articleUrl: String(body.articleUrl || body.bankierArticle?.link || ''),
+        articleCategory: String(body.articleCategory || body.bankierArticle?.category || ''),
+        scenes: summarizeScenesForHistory(scenesToRender),
+        shortMetadata: {
+          sceneCount: scenesToRender.length,
+          resolution: payload.outputResolution,
+          fps: payload.fps,
+          tts: payload.tts,
+          ttsLanguage: payload.ttsLanguage,
+          ttsSpeed: payload.ttsSpeed
+        },
+        exportStatus: 'not_started',
         logs: [`[${new Date().toLocaleTimeString()}] Odebrano wywołanie Webhook z Make.com (${scenesToRender.length} scen)`],
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       };
       jobsStore.set(jobId, newJob);
       saveJobsToDisk();
+      queueShortJobSnapshot(newJob as ShortJobSnapshot, true);
 
       // Start asynchronous job
       processCombineScenesJob(jobId, payload, baseUrl);
@@ -5818,6 +6027,21 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
       status: 'queued',
       progress: 0,
       step: `Autonomiczny Start 4x/dobę: "${candidate.title.slice(0, 60)}..."`,
+      source: 'scheduler',
+      title: candidate.title,
+      articleTitle: candidate.title,
+      articleUrl: candidate.link,
+      articleCategory: candidate.category || 'Wiadomości',
+      scenes: summarizeScenesForHistory(scriptData.scenes),
+      shortMetadata: {
+        sceneCount: scriptData.scenes.length,
+        schedulerSlot: slotTrigger,
+        viralityScore,
+        selectionSource: selection.selectionSource,
+        aiDecisions,
+        offerMatch: scriptData.offerMatch
+      },
+      exportStatus: 'not_started',
       logs: [`[${new Date().toLocaleTimeString()}] Uruchomiono autonomiczny cykl 4x/dobę dla newsa Bankier.pl (${candidate.title}) [Virality: ${viralityScore.totalScore}/100, Źródło: ${selection.selectionSource}]`],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -5825,6 +6049,7 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
 
     jobsStore.set(jobId, newJob);
     saveJobsToDisk();
+    queueShortJobSnapshot(newJob as ShortJobSnapshot, true);
 
     // 5. Zapisz wpis w historii schedulera z prognozą dochodu i algorytmem Virality Score przed renderem
     const projectedEarnings = calculateProjectedVideoEarnings(candidate.title, candidate.category);
@@ -6232,6 +6457,7 @@ app.use('/api', router);
 async function startServer() {
   loadJobsFromDisk();
   loadSchedulerStateFromDisk();
+  void hydrateJobsFromSupabase();
   ensureMontserratFont().catch(console.error);
   void refreshOfferCatalogSnapshot();
   const offerCatalogRefreshTimer = setInterval(() => {

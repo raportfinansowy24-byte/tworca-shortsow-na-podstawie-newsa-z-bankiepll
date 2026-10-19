@@ -390,6 +390,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
         videoUrl: targetUrl,
         fileName: filename,
         folderId,
+        jobId: itemId?.startsWith('job_') ? itemId : undefined,
         onProgress: (pct) => setDriveUploadProgress(pct)
       });
 
