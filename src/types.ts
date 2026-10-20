@@ -66,6 +66,7 @@ export interface SystemHealth {
     path: string;
   };
   activeJobsCount: number;
+  retainedJobsCount: number;
   timestamp: string;
 }
 

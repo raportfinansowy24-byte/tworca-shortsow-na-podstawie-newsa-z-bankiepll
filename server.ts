@@ -2107,8 +2107,10 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
         commonAtempo = Math.max(commonAtempo, duration / targetSpeechDuration);
       }
 
-      if (commonAtempo > 1.15) {
-        throw new Error(`Najdłuższa kwestia nie mieści się w scenie przy równym tempie (wymagane ${commonAtempo.toFixed(2)}x). Skróć tekst; nie przyspieszam osobno pojedynczych scen.`);
+      // Keep every scene at the same speed; allow up to 1.30x uniformly, but
+      // reject larger corrections because they can make the whole narration unnatural.
+      if (commonAtempo > 1.30) {
+        throw new Error(`Najdłuższa kwestia nie mieści się w scenie przy wspólnym limicie 1.30x (wymagane ${commonAtempo.toFixed(2)}x). Skróć tekst; nie przyspieszam osobno pojedynczych scen.`);
       }
       if (commonAtempo > 1.005) {
         for (const asset of preparedSceneTts) {
@@ -2577,6 +2579,9 @@ router.get('/health', async (req, res) => {
   }
 
   const fontReady = fs.existsSync(MONTSERRAT_FONT_PATH);
+  const activeJobsCount = Array.from(jobsStore.values()).filter(
+    (job) => job.status === 'queued' || job.status === 'processing'
+  ).length;
 
   res.json({
     status: 'online',
@@ -2587,7 +2592,8 @@ router.get('/health', async (req, res) => {
       ready: fontReady,
       path: MONTSERRAT_FONT_PATH
     },
-    activeJobsCount: jobsStore.size,
+    activeJobsCount,
+    retainedJobsCount: jobsStore.size,
     timestamp: new Date().toISOString()
   });
 });
