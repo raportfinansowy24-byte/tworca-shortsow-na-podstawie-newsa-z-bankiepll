@@ -21,6 +21,35 @@ export interface TelegramSentMessage {
   message_id: number;
 }
 
+export async function requestTelegramRevisionComment(input: {
+  botToken: string;
+  chatId: string;
+  jobId: string;
+  title: string;
+  replyToMessageId?: number;
+}): Promise<TelegramSentMessage> {
+  const title = escapeHtml(input.title.slice(0, 180));
+  return telegramApi<TelegramSentMessage>(input.botToken, 'sendMessage', {
+    chat_id: input.chatId,
+    text: `Podaj w odpowiedzi, co mam poprawić w shortcie „${title}”. Twój komentarz stanie się instrukcją dla Auto-Pilota.`,
+    parse_mode: 'HTML',
+    ...(typeof input.replyToMessageId === 'number' ? { reply_to_message_id: input.replyToMessageId } : {}),
+    reply_markup: {
+      force_reply: true,
+      input_field_placeholder: 'Napisz, co poprawić…',
+      selective: true
+    }
+  });
+}
+
+export async function sendTelegramNotice(botToken: string, chatId: string, text: string): Promise<void> {
+  await telegramApi<{ message_id: number }>(botToken, 'sendMessage', {
+    chat_id: chatId,
+    text: text.slice(0, 3500),
+    disable_web_page_preview: true
+  });
+}
+
 const MAX_TELEGRAM_VIDEO_BYTES = 45 * 1024 * 1024;
 
 function escapeHtml(value: string): string {
@@ -122,10 +151,18 @@ export async function updateTelegramApprovalMessage(
   chatId: string,
   messageId: number,
   title: string,
-  decision: 'approved' | 'rejected'
+  decision: 'approved' | 'rejected' | 'awaiting_feedback' | 'rework_created'
 ): Promise<void> {
-  const label = decision === 'approved' ? 'ZATWIERDZONO' : 'ODRZUCONO';
-  const caption = `🎬 <b>Short — ${label}</b>\n${escapeHtml(title.slice(0, 240))}\n\nFilm nie został opublikowany.`;
+  const label = decision === 'approved' ? 'ZATWIERDZONO'
+    : decision === 'rejected' ? 'ODRZUCONO'
+      : decision === 'awaiting_feedback' ? 'OCZEKUJE NA KOMENTARZ'
+        : 'POPRAWKA W TOKU';
+  const note = decision === 'awaiting_feedback'
+    ? 'Odpowiedz na wiadomość bota komentarzem z wymaganymi zmianami.'
+    : decision === 'rework_created'
+      ? 'Auto-Pilot przygotowuje poprawioną wersję.'
+      : 'Publikacja nie jest częścią tego etapu integracji.';
+  const caption = `🎬 <b>Short — ${label}</b>\n${escapeHtml(title.slice(0, 240))}\n\n${note}`;
   await telegramApi<{ message_id: number }>(botToken, 'editMessageCaption', {
     chat_id: chatId,
     message_id: messageId,
@@ -150,7 +187,7 @@ export async function registerTelegramWebhook(
   await telegramApi<{ url: string }>(botToken, 'setWebhook', {
     url: `${base}/api/telegram/webhook`,
     secret_token: webhookSecret,
-    allowed_updates: ['callback_query']
+    allowed_updates: ['callback_query', 'message']
   });
 }
 
@@ -160,4 +197,16 @@ export function isValidTelegramWebhookSecret(received: string | undefined, expec
   const right = Buffer.from(expected);
   if (left.length !== right.length) return false;
   return timingSafeEqual(left, right);
+}
+
+export function isTelegramApproverAuthorized(
+  configuredChatId: string,
+  receivedChatId: string,
+  senderId: string,
+  configuredApproverUserId?: string
+): boolean {
+  if (!configuredChatId || receivedChatId !== configuredChatId || !senderId) return false;
+  if (configuredApproverUserId) return senderId === configuredApproverUserId;
+  // In a private Telegram chat, the chat ID is the user's ID. In groups, require an explicit approver ID.
+  return !configuredChatId.startsWith('-') && senderId === configuredChatId;
 }

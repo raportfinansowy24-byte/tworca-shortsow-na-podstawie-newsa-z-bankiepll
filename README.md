@@ -90,7 +90,7 @@ Jeśli w payloadzie przekazano profil `eleven_*`, a klucz API nie jest skonfigur
 
 Aplikacja posiada pełną integrację z **Google Workspace APIs (Drive & Sheets v4)**:
 - **Logowanie klienta**: Bezpieczny przepływ OAuth 2.0 bez ujawniania sekretów po stronie klienta z tokenem w pamięci operacyjnej.
-- **Bezpośredni eksport wyrenderowanych wideo**: Zapis plików MP4 prosto do dedykowanego folderu `RaportFinansowy24 Videos` na Dysku Google użytkownika.
+- **Automatyczny eksport shortów**: Auto-Pilot po połączeniu konta Google zawsze zapisuje gotowy MP4 do folderu `shorts-bot`; przełącznik wyłączający autoeksport został usunięty. Dla zadań utworzonych przez webhook/Telegram automatyczny eksport z przeglądarki wymaga otwartego panelu Auto-Pilota i aktywnego logowania Google.
 - **Przeglądarka plików Dysku**: Wyszukiwanie, podgląd rozmiaru i pobieranie wideo z Dysku do scen w kreatorze.
 - **Kopia scenariuszy**: Zapisywanie wygenerowanych przez AI skryptów i transkrypcji w formacie Markdown bezpośrednio na Dysku Google.
 
@@ -105,13 +105,19 @@ Aplikacja posiada pełną integrację z **Google Workspace APIs (Drive & Sheets 
   3. 💰 **Logi Renderów & Analityka ROI** — job ID, czas trwania, URL wyrenderowanego MP4, kliknięcia afiliacyjne.
 - **Bezpieczeństwo operacji niszczących (Destructive Confirmation Dialog)**: Obowiązkowe okno modalne z prośbą o jednoznaczne zatwierdzenie usunięcia arkusza lub wyczyszczenia zakresu komórek.
 
+### Akceptacja i poprawki przez Telegram
+
+Każdy nowy render shorta po zakończeniu FFmpeg jest wysyłany jako MP4 do skonfigurowanego czatu Telegram z przyciskami **Akceptuję** i **Odrzucam**. Odrzucenie otwiera odpowiedź wymuszającą komentarz (do 1800 znaków); Auto-Pilot generuje nową, powiązaną wersję, stosuje komentarz jako instrukcję redakcyjną, zachowuje źródłowy artykuł i ponownie wysyła render do akceptacji. Dopuszczonych jest maksymalnie 5 rund poprawek. Pliki z poprawionych wersji są automatycznie eksportowane do Drive, jeśli panel aplikacji jest otwarty i połączony z kontem.
+
+`TELEGRAM_CHAT_ID` wybiera konkretny czat docelowy. W prywatnym czacie kod dodatkowo sprawdza, czy nadawcą jest użytkownik o tym samym ID, więc drugi rachunek Telegrama nie może zatwierdzać w imieniu pierwszego. Dla grup wymagane jest ustawienie `TELEGRAM_APPROVER_USER_ID`, aby ograniczyć decyzje do konkretnego konta. Bot musi być uruchomiony przez użytkownika w wybranym czacie. `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_WEBHOOK_SECRET` i `APP_URL` należy ustawić jako sekrety/konfigurację środowiska serwera; webhook rejestruje się automatycznie przy starcie. Akceptacja zapisuje stan `approved`, ale publikacja na platformach społecznościowych nie jest w tym etapie skonfigurowana.
+
 ---
 
 ## 🗄️ Historia zadań w Supabase
 
 Serwer może synchronizować historię renderów i metadane shortów do Supabase Postgres. Tabela `short_jobs` przechowuje źródło, status renderowania, postęp, tytuł i artykuł, podsumowania scen, parametry TTS, linki MP4/miniatury oraz najnowszy status eksportu. Tabela `short_job_exports` zapisuje osobno każdą próbę eksportu do Google Drive wraz ze statusem, nazwą pliku i linkiem.
 
-Przed uruchomieniem integracji zastosuj migrację `supabase/migrations/20261018070800_create_short_history.sql` w SQL Editorze Supabase lub przez Supabase CLI. Ustaw `SUPABASE_URL` i `SUPABASE_KEY` w **sekretach środowiska serwera**; `SUPABASE_KEY` musi być kluczem secret/service_role i nigdy nie może trafić do kodu przeglądarki ani repozytorium. Po starcie aplikacja scala historię z Supabase z lokalnym `exports/jobs_history.json` i wykonuje idempotentny backfill istniejących wpisów. Gdy Supabase jest niedostępne, renderowanie nadal korzysta z lokalnej historii.
+Zastosuj migracje w kolejności: `supabase/migrations/20261018070800_create_short_history.sql`, a następnie `supabase/migrations/20261019130000_telegram_revisions_and_drive_dedup.sql` (SQL Editor Supabase lub Supabase CLI). Druga migracja dodaje komentarze i relacje wersji; nie usuwa ani nie przepisuje historycznych prób eksportu. Ochrona przed duplikatami Drive używa rezerwacji zadania po stronie serwera oraz stabilnego `appProperties.bankierShortJobId` przy pliku na Drive. Ustaw `SUPABASE_URL` i `SUPABASE_KEY` w **sekretach środowiska serwera**; `SUPABASE_KEY` musi być kluczem secret/service_role i nigdy nie może trafić do kodu przeglądarki ani repozytorium. Po starcie aplikacja scala historię z Supabase z lokalnym `exports/jobs_history.json` i wykonuje idempotentny backfill istniejących wpisów. Gdy Supabase jest niedostępne, renderowanie i transfer plików do Drive nadal działają, ale ich historia pozostaje lokalna.
 
 ---
 
@@ -259,20 +265,25 @@ Skopiuj plik `.env.example` do `.env`. Na Fly.io sekrety ustawiaj przez `fly sec
 | `BANKIER_SHORTS_API_TOKEN` | Tak dla automatyzacji | Losowy, poufny token Bearer dla skryptów i integracji serwerowych |
 | `SUPABASE_URL` | Nie | HTTPS URL projektu Supabase; wymagany do zapisu historii zadań w Postgresie |
 | `SUPABASE_KEY` | Nie | Klucz secret/service_role używany wyłącznie po stronie serwera; wymagany razem z `SUPABASE_URL` |
+| `TELEGRAM_BOT_TOKEN` | Tak dla akceptacji | Token bota Telegram z BotFather; wyłącznie w sekretach serwera |
+| `TELEGRAM_CHAT_ID` | Tak dla akceptacji | ID prywatnego czatu (lub grupy) z wybranym botem; wskazuje, gdzie trafiają wideo i prośby o poprawki |
+| `TELEGRAM_WEBHOOK_SECRET` | Tak dla przycisków i komentarzy | Losowy sekret nagłówka webhooka Telegram; minimum praktycznie 32 losowe znaki, wyłącznie po stronie serwera |
+| `TELEGRAM_APPROVER_USER_ID` | Wymagane dla grup | ID konta Telegram, które może podejmować decyzje w grupie; w prywatnym czacie nadawca jest porównywany z `TELEGRAM_CHAT_ID` |
+| `TELEGRAM_REGISTER_WEBHOOK_ON_START` | Nie | Domyślnie `true`; ustawić `false`, aby wyłączyć automatyczną rejestrację webhooka |
 | `GEMINI_API_KEY` | Dla generowania AI | Klucz do modeli Gemini używanych przez scenopisarstwo i analizę |
 | `ELEVENLABS_API_KEY` | Tak dla TTS | Klucz ElevenLabs. Bez niego render TTS kończy się czytelnym błędem; nie ma fallbacku do Google/Edge. |
 | `ELEVENLABS_VOICE_ID` | Nie | Domyślnie `onwK4e9ZLuTAKqWW03F9` (Daniel, premade); można wybrać inny głos z katalogu konta w interfejsie. |
 | `ELEVENLABS_MODEL_ID` | Nie | Domyślnie `eleven_multilingual_v2`. |
 | `PEXELS_API_KEY` | Wymagana dla Auto-Pilota | Klucz Pexels API; Auto-Pilot dobiera cztery różne, pionowe klipy wideo. Jeśli nie znajdzie kompletu, pokaże komunikat o problemie i przerwie render — nie podstawi przypadkowych klipów. Ręcznie podane adresy scen nadal można renderować bez klucza. |
-| `TELEGRAM_BOT_TOKEN` | Opcjonalna | Token bota Telegrama. Przechowuj wyłącznie w sekretach środowiska wdrożenia. |
-| `TELEGRAM_CHAT_ID` | Wymagana dla Telegram approval | Docelowy czat, do którego trafia prośba o akceptację. |
-| `TELEGRAM_WEBHOOK_SECRET` | Wymagana dla Telegram approval | Losowy sekret webhooka przekazywany przez Telegram w nagłówku `X-Telegram-Bot-Api-Secret-Token`. |
-| `TELEGRAM_REGISTER_WEBHOOK_ON_START` | Nie (domyślnie `false`) | Ustaw `true`, aby aplikacja zarejestrowała Telegram webhook przy starcie. Używaj wyłącznie dla bota przeznaczonego dla tej aplikacji — rejestracja zmienia webhook bota. |
-| `TELEGRAM_APPROVER_USER_ID` | Opcjonalna | Ogranicza przyciski akceptacji do jednego konta Telegram; zalecane dla grup. |
+| `TELEGRAM_BOT_TOKEN` | Wymagana dla akceptacji | Token bota Telegrama. Przechowuj wyłącznie w sekretach środowiska wdrożenia. |
+| `TELEGRAM_CHAT_ID` | Wymagana dla akceptacji | ID jednego prywatnego czatu lub grupy, do którego trafiają shorty i poprawki. |
+| `TELEGRAM_WEBHOOK_SECRET` | Wymagana dla przycisków i komentarzy | Losowy sekret webhooka przekazywany przez Telegram w nagłówku `X-Telegram-Bot-Api-Secret-Token`. |
+| `TELEGRAM_REGISTER_WEBHOOK_ON_START` | Nie (domyślnie `true`) | Ustaw `false`, aby wyłączyć automatyczną rejestrację webhooka. Rejestracja zmienia webhook danego bota; używaj wyłącznie dla bota dedykowanego tej aplikacji. |
+| `TELEGRAM_APPROVER_USER_ID` | Wymagane dla grup | Ogranicza decyzje w grupie do wskazanego konta Telegram; w prywatnym czacie ID nadawcy musi być zgodne z `TELEGRAM_CHAT_ID`. |
 
 ### Akceptacja shorta przez Telegram
 
-Ustaw `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` i `TELEGRAM_WEBHOOK_SECRET` w sekretach wdrożenia oraz publiczny adres HTTPS w `APP_URL`. Dla bota dedykowanego tej aplikacji ustaw `TELEGRAM_REGISTER_WEBHOOK_ON_START=true`; aplikacja zarejestruje wtedy webhook i obsłuży przyciski. Uruchom skrypt z `--telegram-approval` (albo wyślij `telegramApproval: true` do `/api/auto-pilot-shorts`), aby po zakończeniu renderu wysłać do wskazanego czatu **załączony plik MP4** z przyciskami **Akceptuję** i **Odrzucam**. Limit załącznika wynosi 45 MB. Decyzja jest zapisywana przy zadaniu, a podpis wiadomości aktualizowany; samo zaakceptowanie nie publikuje filmu. Bez konfiguracji Telegrama render może się zakończyć, ale status zadania pokaże błąd wysyłki prośby.
+Ustaw `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_WEBHOOK_SECRET` i publiczny adres HTTPS w `APP_URL`. Gdy wszystkie są obecne, aplikacja automatycznie rejestruje webhook dla przycisków i odpowiedzi z komentarzem. Każdy render w Auto-Pilocie, harmonogramie lub endpointach renderujących shorty automatycznie wysyła do wskazanego czatu **załączony plik MP4** z przyciskami **Akceptuję** i **Odrzucam** (limit 45 MB). Akceptacja zapisuje stan, ale nie publikuje filmu. Bez konfiguracji Telegrama render może się zakończyć, natomiast wysyłka zgłosi błąd w historii zadania.
 
 ---
 

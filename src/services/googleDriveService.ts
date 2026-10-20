@@ -341,6 +341,7 @@ export const uploadFileToDrive = async (options: {
   content: Blob | string;
   folderId?: string;
   description?: string;
+  appProperties?: Record<string, string>;
 }): Promise<DriveFileItem> => {
   const token = await getAccessToken();
   if (!token) throw new Error('Brak autoryzacji Google Drive.');
@@ -353,6 +354,9 @@ export const uploadFileToDrive = async (options: {
 
   if (options.folderId) {
     metadata.parents = [options.folderId];
+  }
+  if (options.appProperties && Object.keys(options.appProperties).length > 0) {
+    metadata.appProperties = options.appProperties;
   }
 
   const boundary = '-------314159265358979323846';
@@ -415,15 +419,23 @@ export const exportVideoUrlToDrive = async (options: {
   } = {}) => {
     if (!jobId || !attemptId) return;
     try {
+      const firebaseIdToken = await auth.currentUser?.getIdToken();
       const statusResponse = await fetch(`/api/jobs/${encodeURIComponent(jobId)}/exports`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {})
+        },
         body: JSON.stringify({ attemptId, startedAt, status, ...details })
       });
       if (!statusResponse.ok) {
-        console.warn(`[Supabase] Nie zapisano statusu eksportu shorta (HTTP ${statusResponse.status}).`);
+        const responseBody = await statusResponse.json().catch(() => null);
+        const message = responseBody?.error || `Nie zapisano statusu eksportu (HTTP ${statusResponse.status}).`;
+        if (status === 'uploading') throw new Error(message);
+        console.warn(`[Supabase] ${message}`);
       }
     } catch (error) {
+      if (status === 'uploading') throw error;
       console.warn('[Supabase] Nie udało się zgłosić statusu eksportu; przesyłanie do Drive będzie kontynuowane.', error);
     }
   };
@@ -431,6 +443,36 @@ export const exportVideoUrlToDrive = async (options: {
   options.onProgress?.(10);
   await reportStatus('uploading');
   try {
+    if (jobId) {
+      const token = await getAccessToken();
+      if (!token) throw new Error('Brak autoryzacji Google Drive. Zaloguj się ponownie.');
+      const query = [
+        `appProperties has { key='bankierShortJobId' and value='${jobId.replace(/'/g, "\\'")}' }`,
+        'trashed = false'
+      ].join(' and ');
+      const searchUrl = new URL('https://www.googleapis.com/drive/v3/files');
+      searchUrl.searchParams.set('q', query);
+      searchUrl.searchParams.set('pageSize', '10');
+      searchUrl.searchParams.set('orderBy', 'createdTime');
+      searchUrl.searchParams.set('fields', 'files(id,name,mimeType,size,webViewLink,webContentLink,thumbnailLink,parents)');
+      const searchResponse = await fetch(searchUrl.toString(), { headers: { Authorization: `Bearer ${token}` } });
+      if (!searchResponse.ok) {
+        const searchError = await searchResponse.json().catch(() => ({}));
+        throw new Error(searchError.error?.message || `Nie udało się sprawdzić wcześniejszego eksportu Drive (${searchResponse.status}).`);
+      }
+      const searchData = await searchResponse.json() as { files?: DriveFileItem[] };
+      const existing = searchData.files?.[0];
+      if (existing) {
+        await reportStatus('completed', {
+          driveFileId: existing.id,
+          driveWebViewLink: existing.webViewLink,
+          driveFileName: existing.name
+        });
+        options.onProgress?.(100);
+        return existing;
+      }
+    }
+
     // 1. Download video blob from local/server endpoint
     const response = await fetch(options.videoUrl);
     if (!response.ok) {
@@ -447,7 +489,8 @@ export const exportVideoUrlToDrive = async (options: {
       mimeType: 'video/mp4',
       content: blob,
       folderId: options.folderId,
-      description: options.description || 'Gotowy film Short 9:16 wyrenderowany przez FFmpeg & AI Auto-Pilot'
+      description: options.description || 'Gotowy film Short 9:16 wyrenderowany przez FFmpeg & AI Auto-Pilot',
+      appProperties: jobId ? { bankierShortJobId: jobId } : undefined
     });
 
     options.onProgress?.(100);

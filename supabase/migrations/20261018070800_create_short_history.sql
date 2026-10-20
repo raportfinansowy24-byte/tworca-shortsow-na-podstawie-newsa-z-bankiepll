@@ -28,6 +28,11 @@ create table if not exists public.short_jobs (
   export_error text,
   telegram_approval_status text,
   telegram_message_id bigint,
+  telegram_comment_prompt_message_id bigint,
+  telegram_feedback text,
+  parent_job_id text,
+  revision_number integer not null default 0,
+  revision_job_id text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -38,6 +43,10 @@ create index if not exists short_jobs_status_updated_at_idx
   on public.short_jobs (status, updated_at desc);
 create index if not exists short_jobs_export_status_updated_at_idx
   on public.short_jobs (export_status, updated_at desc);
+
+create index if not exists short_jobs_parent_revision_idx
+  on public.short_jobs (parent_job_id, revision_number desc)
+  where parent_job_id is not null;
 
 create table if not exists public.short_job_exports (
   id uuid primary key,

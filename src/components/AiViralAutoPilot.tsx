@@ -250,6 +250,10 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [jobStatus, setJobStatus] = useState<JobStatusResponse | null>(null);
   const progressSectionRef = useRef<HTMLDivElement | null>(null);
+  const driveExportsInFlightRef = useRef<Set<string>>(new Set());
+  const driveExportsCompletedRef = useRef<Set<string>>(new Set());
+  const driveAutoWatchStartedAtRef = useRef<number>(Date.now());
+  const driveAuthWarningShownRef = useRef<boolean>(false);
 
   const [copiedPayload, setCopiedPayload] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
@@ -305,7 +309,6 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
   const [driveUser, setDriveUser] = useState<User | null>(null);
   const [driveFolderId, setDriveFolderId] = useState<string | null>(null);
   const [isDriveConnecting, setIsDriveConnecting] = useState<boolean>(false);
-  const [autoUploadToDrive, setAutoUploadToDrive] = useState<boolean>(true);
   const [isUploadingToDrive, setIsUploadingToDrive] = useState<boolean>(false);
   const [driveUploadProgress, setDriveUploadProgress] = useState<number>(0);
   const [driveUploadedUrl, setDriveUploadedUrl] = useState<string | null>(null);
@@ -366,6 +369,9 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
     const targetUrl = urlToUpload || jobStatus?.outputUrl;
     if (!targetUrl) return;
 
+    const exportKey = itemId || targetUrl;
+    if (driveExportsInFlightRef.current.has(exportKey) || driveExportsCompletedRef.current.has(exportKey)) return;
+    driveExportsInFlightRef.current.add(exportKey);
     setIsUploadingToDrive(true);
     setDriveUploadProgress(15);
     try {
@@ -394,6 +400,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
         onProgress: (pct) => setDriveUploadProgress(pct)
       });
 
+      driveExportsCompletedRef.current.add(exportKey);
       if (result.webViewLink) {
         setDriveUploadedUrl(result.webViewLink);
         setUploadedUrlsMap((prev) => ({
@@ -411,6 +418,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
       console.error('Błąd zapisu do shorts-bot:', err);
       onToast?.('error', 'Błąd zapisu do shorts-bot', err.message || 'Wystąpił problem.');
     } finally {
+      driveExportsInFlightRef.current.delete(exportKey);
       setIsUploadingToDrive(false);
       setDriveUploadProgress(0);
     }
@@ -560,11 +568,17 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
         onToast?.('success', 'Wideo zmontowane!', 'Film Auto-Pilot został pomyślnie zrenderowany.');
         stopTracking();
         // Utworzone shorty trafiają bezpośrednio do folderu shorts-bot - Dysk Google
-        if (autoUploadToDrive && parsedJob.outputUrl) {
+        if (parsedJob.outputUrl) {
           getAccessToken()
             .then((token) => {
               if (token) {
+                driveAuthWarningShownRef.current = false;
                 handleUploadToDriveFolder(parsedJob.outputUrl, (parsedJob as any).title || generatedScript?.title || topic, parsedJob.id);
+              } else {
+                if (!driveAuthWarningShownRef.current) {
+                  driveAuthWarningShownRef.current = true;
+                  onToast?.('warning', 'Połącz Dysk Google', 'Automatyczny eksport jest zawsze włączony, ale wymaga aktywnego logowania do Google. Połącz konto, aby zapisać short w folderze shorts-bot.');
+                }
               }
             })
             .catch(() => {});
@@ -605,6 +619,54 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
       } catch {}
     }, 1200);
   };
+
+  // Telegram-created revisions have new job IDs and may finish after the original SSE tracker stops.
+  // While the signed-in app is open, discover those new completed jobs and auto-export once.
+  useEffect(() => {
+    if (!driveUser) return;
+    let active = true;
+    let scanInProgress = false;
+    const scanForCompletedShorts = async () => {
+      if (!active || scanInProgress) return;
+      scanInProgress = true;
+      try {
+        const response = await fetch('/api/jobs');
+        if (!response.ok) return;
+        const jobs = await response.json();
+        if (!Array.isArray(jobs)) return;
+        const candidates = jobs.filter((job: JobStatusResponse) =>
+          job.status === 'completed' &&
+          Boolean(job.outputUrl) &&
+          !job.driveFileId &&
+          job.exportStatus !== 'completed' &&
+          (Date.parse(job.createdAt) || 0) >= driveAutoWatchStartedAtRef.current
+        );
+        for (const job of candidates) {
+          if (!active) break;
+          const token = await getAccessToken();
+          if (!token) {
+            if (!driveAuthWarningShownRef.current) {
+              driveAuthWarningShownRef.current = true;
+              onToast?.('warning', 'Połącz Dysk Google', 'Automatyczny eksport jest włączony, ale wymaga aktywnego logowania do Google.');
+            }
+            break;
+          }
+          driveAuthWarningShownRef.current = false;
+          await handleUploadToDriveFolder(job.outputUrl, job.title || job.articleTitle || 'Short', job.id);
+        }
+      } catch (error) {
+        console.warn('[Auto-Pilot] Nie udało się sprawdzić shortów oczekujących na eksport do Drive:', (error as Error).message);
+      } finally {
+        scanInProgress = false;
+      }
+    };
+    void scanForCompletedShorts();
+    const timer = setInterval(() => void scanForCompletedShorts(), 12_000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [driveUser?.uid]);
 
   const handleCancelActiveJob = async () => {
     const targetId = activeJobId || jobStatus?.id;
@@ -1358,15 +1420,9 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
           <div className="flex items-center gap-2.5 flex-wrap shrink-0 self-start md:self-center">
             {driveUser ? (
               <>
-                <label className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-950/80 border border-slate-800 text-xs text-slate-300 cursor-pointer select-none hover:border-slate-700 transition">
-                  <input
-                    type="checkbox"
-                    checked={autoUploadToDrive}
-                    onChange={(e) => setAutoUploadToDrive(e.target.checked)}
-                    className="w-4 h-4 rounded text-blue-600 bg-slate-900 border-slate-700 focus:ring-blue-500"
-                  />
-                  <span>Auto-eksport do shorts-bot</span>
-                </label>
+                <span className="px-3 py-2 rounded-xl bg-emerald-950/60 border border-emerald-800 text-xs text-emerald-300 font-semibold">
+                  Auto-eksport do shorts-bot: zawsze włączony
+                </span>
 
                 <a
                   href={getAppFolderUrl(driveFolderId || undefined)}

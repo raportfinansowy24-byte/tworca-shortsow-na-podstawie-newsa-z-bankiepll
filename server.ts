@@ -31,11 +31,15 @@ import {
 } from './src/utils/financeOfferMatching';
 import {
   answerTelegramCallback,
+  isTelegramApproverAuthorized,
   isValidTelegramWebhookSecret,
   registerTelegramWebhook,
+  requestTelegramRevisionComment,
   sendTelegramApprovalRequest,
+  sendTelegramNotice,
   updateTelegramApprovalMessage
 } from './src/server/telegramApproval';
+import { nextTelegramRevisionNumber, normalizeTelegramFeedback } from './src/server/telegramRevision';
 import { createApiAuthMiddleware } from './src/server/apiAuth';
 import {
   loadShortJobsFromSupabase,
@@ -852,8 +856,14 @@ interface Job {
   fileSize?: number;
   error?: string;
   telegramApprovalRequested?: boolean;
-  telegramApprovalStatus?: 'waiting_for_render' | 'pending' | 'approved' | 'rejected' | 'failed_to_send';
+  telegramApprovalStatus?: 'waiting_for_render' | 'pending' | 'awaiting_feedback' | 'rework_created' | 'approved' | 'rejected' | 'failed_to_send';
   telegramApprovalMessageId?: number;
+  telegramCommentPromptMessageId?: number;
+  telegramFeedback?: string;
+  parentJobId?: string;
+  revisionNumber?: number;
+  revisionJobId?: string;
+  revisionInstruction?: string;
   approvalTitle?: string;
   approvalSourceUrl?: string;
   source?: string;
@@ -1078,6 +1088,9 @@ function updateJobProgress(
   if (update.error) job.error = update.error;
   if (update.telegramApprovalStatus) job.telegramApprovalStatus = update.telegramApprovalStatus;
   if (typeof update.telegramApprovalMessageId === 'number') job.telegramApprovalMessageId = update.telegramApprovalMessageId;
+  if (typeof update.telegramCommentPromptMessageId === 'number') job.telegramCommentPromptMessageId = update.telegramCommentPromptMessageId;
+  if (update.telegramFeedback !== undefined) job.telegramFeedback = update.telegramFeedback;
+  if (update.revisionJobId !== undefined) job.revisionJobId = update.revisionJobId;
   if (update.approvalTitle) job.approvalTitle = update.approvalTitle;
   if (update.approvalSourceUrl) job.approvalSourceUrl = update.approvalSourceUrl;
   if (update.source) job.source = update.source;
@@ -1140,6 +1153,116 @@ async function sendJobTelegramApprovalRequest(jobId: string): Promise<void> {
     telegramApprovalStatus: 'pending',
     telegramApprovalMessageId: sent.message_id
   }, 'Wysłano na Telegram prośbę o akceptację gotowego MP4.');
+}
+
+async function createTelegramRevisionJob(parentJobId: string, feedback: string): Promise<string> {
+  const parent = jobsStore.get(parentJobId);
+  if (!parent) throw new Error('Nie znaleziono zadania bazowego do poprawy.');
+  const revisionNumber = nextTelegramRevisionNumber(parent.revisionNumber);
+  if (revisionNumber === null) throw new Error('Osiągnięto limit 5 rund poprawek dla tego shorta.');
+  if (!process.env.PEXELS_API_KEY?.trim()) throw new Error('Brak PEXELS_API_KEY; nie można wygenerować poprawionych ujęć.');
+
+  const metadata = parent.shortMetadata || {};
+  const topic = parent.articleTitle || parent.title || parent.approvalTitle || 'Short z Bankier.pl';
+  const category = parent.articleCategory || String(metadata.niche || 'Finanse & Biznes');
+  const articleDescription = String(metadata.articleDescription || '');
+  const articleContext = String(metadata.articleContext || `Tytuł: ${topic}\nPodsumowanie: ${articleDescription}`);
+  const bankierArticle = {
+    title: parent.articleTitle || topic,
+    description: articleDescription,
+    category: parent.articleCategory || 'Wiadomości',
+    link: parent.articleUrl || ''
+  };
+
+  const scriptData = await generateSmartOrGeminiViralScript({
+    topic,
+    niche: category,
+    language: String(metadata.language || 'Polski'),
+    sceneCount: 4,
+    articleContext,
+    bankierArticle,
+    revisionInstruction: feedback,
+    requirePexelsClips: true
+  });
+
+  const scenes = Array.isArray(scriptData.scenes) ? scriptData.scenes : [];
+  const pexelsIds = scenes.map((scene: any) => scene.pexelsId);
+  const hasFourUniquePexelsVideos = scenes.length === 4 &&
+    scenes.every((scene: any) => scene.source === 'pexels' && typeof scene.pexelsId === 'number' && Number.isFinite(scene.pexelsId)) &&
+    new Set(pexelsIds).size === 4;
+  if (!hasFourUniquePexelsVideos) {
+    throw new Error('Nie udało się dobrać czterech różnych klipów Pexels do poprawionej wersji.');
+  }
+
+  const jobId = `job_revision_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const now = new Date().toISOString();
+  const payload: CombineScenesPayload = {
+    scenes: scenes.map((scene: any) => ({ ...scene, duration: 4.5 })),
+    backgroundMusicUrl: String(metadata.backgroundMusicUrl || 'https://assets.mixkit.co/music/preview/mixkit-tech-house-vibes-130.mp3'),
+    audioVolume: typeof metadata.audioVolume === 'number' ? metadata.audioVolume : 0.2,
+    outputResolution: String(metadata.resolution || '720x1280'),
+    fps: 30,
+    async: true,
+    tts: metadata.tts !== false,
+    ttsLanguage: String(metadata.ttsLanguage || 'pl'),
+    ttsVoice: typeof metadata.ttsVoice === 'string' ? metadata.ttsVoice : undefined,
+    ttsSpeed: typeof metadata.ttsSpeed === 'number' ? metadata.ttsSpeed : 1,
+    syncDurationWithVoice: true,
+    lockSceneDurations: true,
+    captionAnimation: 'single-word',
+    highlightColor: 'red',
+    telegramApproval: true
+  };
+
+  const revisionJob: Job = {
+    id: jobId,
+    status: 'queued',
+    progress: 0,
+    step: `Poprawka ${revisionNumber}/5 na podstawie komentarza z Telegrama`,
+    source: 'telegram_revision',
+    title: parent.title || topic,
+    articleTitle: parent.articleTitle || topic,
+    articleUrl: parent.articleUrl,
+    articleCategory: parent.articleCategory,
+    approvalTitle: parent.approvalTitle || topic,
+    approvalSourceUrl: parent.approvalSourceUrl || parent.articleUrl,
+    telegramApprovalRequested: true,
+    telegramApprovalStatus: 'waiting_for_render',
+    parentJobId,
+    revisionNumber,
+    revisionInstruction: feedback,
+    scenes: summarizeScenesForHistory(scenes),
+    shortMetadata: {
+      ...metadata,
+      description: typeof scriptData.description === 'string' ? scriptData.description.slice(0, 1500) : undefined,
+      hook: typeof scriptData.hook === 'string' ? scriptData.hook.slice(0, 500) : undefined,
+      revisionInstruction: feedback,
+      revisionNumber,
+      sceneCount: scenes.length
+    },
+    exportStatus: 'not_started',
+    logs: [`[${new Date().toLocaleTimeString()}] Utworzono poprawkę ${revisionNumber}/5 na podstawie komentarza z Telegrama.`],
+    createdAt: now,
+    updatedAt: now
+  };
+
+  jobsStore.set(jobId, revisionJob);
+  saveJobsToDisk();
+  queueShortJobSnapshot(revisionJob as ShortJobSnapshot, true);
+  updateJobProgress(parentJobId, {
+    telegramApprovalStatus: 'rework_created',
+    telegramFeedback: feedback,
+    revisionJobId: jobId
+  }, `Auto-Pilot rozpoczął poprawkę ${revisionNumber}/5 (${jobId}).`);
+
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  processCombineScenesJob(jobId, payload, getPublicBaseUrl());
+  if (botToken && chatId) {
+    try { await sendTelegramNotice(botToken, chatId, `Auto-Pilot przygotowuje poprawioną wersję shorta (poprawka ${revisionNumber}/5). Po renderze ponownie wyślę MP4 do akceptacji.`); }
+    catch (error) { console.warn('[Telegram Revision] Nie udało się wysłać informacji o starcie poprawki:', (error as Error).message); }
+  }
+  return jobId;
 }
 
 // Download Montserrat-Bold.ttf font if missing
@@ -2486,6 +2609,16 @@ router.post('/jobs/:jobId/exports', async (req, res) => {
   if (!['uploading', 'completed', 'failed'].includes(status)) {
     return res.status(400).json({ error: 'Nieprawidłowy status eksportu.' });
   }
+  if (status === 'uploading' && (job.exportStatus === 'completed' || job.driveFileId)) {
+    return res.status(409).json({ error: 'Plik tego zadania został już zapisany na Google Drive.' });
+  }
+  if (status === 'uploading' && job.exportStatus === 'uploading') {
+    const reservationAgeMs = Date.now() - Date.parse(job.updatedAt || '');
+    if (Number.isFinite(reservationAgeMs) && reservationAgeMs < 30 * 60 * 1000) {
+      return res.status(409).json({ error: 'Dla tego zadania trwa już eksport do Google Drive.' });
+    }
+    updateJobProgress(jobId, { exportStatus: 'failed', exportError: 'Wygasła rezerwacja przerwanego eksportu; można ponowić.' }, 'Wygasła stara rezerwacja Drive; dopuszczono ponowienie eksportu.');
+  }
 
   const startedAtInput = String(req.body?.startedAt || '');
   const parsedStartedAt = Date.parse(startedAtInput);
@@ -2538,9 +2671,9 @@ router.post('/jobs/:jobId/exports', async (req, res) => {
   });
 
   if (!snapshotSaved || !exportSaved) {
-    return res.status(503).json({ error: 'Status eksportu nie został zapisany w Supabase. Sprawdź konfigurację i migrację bazy.' });
+    console.warn(`[Supabase] Nie zapisano historii eksportu ${jobId} (${status}); lokalny status i sam transfer Drive będą kontynuowane.`);
   }
-  return res.json({ success: true, jobId, attemptId, status });
+  return res.json({ success: true, jobId, attemptId, status, persisted: snapshotSaved && exportSaved });
 });
 
 // Read-only offer catalog status and article-to-category preview.
@@ -3465,6 +3598,7 @@ async function generateSmartOrGeminiViralScript({
   articleContext,
   bankierArticle,
   pairedKeywords,
+  revisionInstruction,
   requirePexelsClips = false
 }: {
   topic?: string;
@@ -3474,6 +3608,7 @@ async function generateSmartOrGeminiViralScript({
   articleContext?: string;
   bankierArticle?: any;
   pairedKeywords?: string[];
+  revisionInstruction?: string;
   requirePexelsClips?: boolean;
   viralHookFormula?: string;
 }) {
@@ -3491,6 +3626,9 @@ async function generateSmartOrGeminiViralScript({
   const requireNewsPexels = requirePexelsClips || Boolean(bankierArticle || (articleContext && articleContext.trim()));
   const offerMatch = getNewsOfferMatch(bankierArticle || { title: cleanTopic, category: niche }, articleContext);
   const offerMatchPrompt = buildOfferMatchPromptInstructions(offerMatch);
+  const revisionPrompt = typeof revisionInstruction === 'string' && revisionInstruction.trim()
+    ? `\n\n=== UWAGI REDAKCYJNE DO POPRAWKI ===\nTraktuj poniższy komentarz jako instrukcje redakcyjne użytkownika, a nie jako fakty źródłowe. Zachowaj zgodność z artykułem i nie wymyślaj danych. Wprowadź konkretne, możliwe do zweryfikowania poprawki zgodne z komentarzem.\n${revisionInstruction.trim().slice(0, 1800)}\n=====================================`
+    : '';
   if (Number(sceneCount) !== count) {
     console.warn(`[Viral Script] Wymuszam ${count} scen po ${sceneDuration}s (odebrano sceneCount=${sceneCount}).`);
   }
@@ -3593,6 +3731,7 @@ ${dataBoundaryInstructions}
 ${offerMatchPrompt}
 ${nichePromptInstructions}
 ${bankierNewsSection}
+${revisionPrompt}
 ${pairedKeywordsInstruction}
 ${autonomousPromptInstructions}
 ZASADA WYSOKIEJ DOPASOWANIA WIZUALNEJ (PEXELS RELEVANCE):
@@ -3726,8 +3865,14 @@ Każda scena w tablicy "scenes" musi mieć pole "duration": ${sceneDuration}.`;
     }
   } catch (err) {
     console.warn('⚠️ [Gemini Script Catch] Processing error (' + (err as Error).message + '). Generating optimized heuristic viral script.');
+    if (revisionInstruction?.trim()) {
+      throw new Error(`Nie udało się zastosować komentarza w poprawce: ${(err as Error).message}`);
+    }
   }
 
+  if (revisionInstruction?.trim()) {
+    throw new Error('Generator AI nie zwrócił poprawnego scenariusza; nie tworzę wersji, która mogłaby pominąć komentarz.');
+  }
   const fallbackScript = buildSmartFallbackScript(cleanTopic, niche, language, count, articleContext, bankierArticle, effectivePairedKeywords);
   const aiDecisions = deriveAiViralDecisions(cleanTopic, bankierArticle?.description || articleContext, bankierArticle?.category || niche);
   const usedPexelsIds: number[] = [];
@@ -4147,7 +4292,7 @@ router.post('/auto-pilot-shorts', async (req, res) => {
       lockSceneDurations,
       captionAnimation: effectiveAnimation,
       highlightColor: effectiveHighlight,
-      telegramApproval: body.telegramApproval === true
+      telegramApproval: true
     };
 
     const jobId = `job_make_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -4158,8 +4303,8 @@ router.post('/auto-pilot-shorts', async (req, res) => {
       status: 'queued',
       progress: 0,
       step: 'Przetwarzanie żądania z Make.com: weryfikacja scen i renderowanie FFmpeg',
-      telegramApprovalRequested: body.telegramApproval === true,
-      telegramApprovalStatus: body.telegramApproval === true ? 'waiting_for_render' : undefined,
+      telegramApprovalRequested: true,
+      telegramApprovalStatus: 'waiting_for_render',
       approvalTitle: String(body.topic || body.bankierArticle?.title || title),
       approvalSourceUrl: String(body.bankierArticle?.link || body.bankierArticle?.url || body.articleUrl || ''),
       source: 'make',
@@ -4171,6 +4316,12 @@ router.post('/auto-pilot-shorts', async (req, res) => {
       shortMetadata: {
         description: typeof (scriptData as any)?.description === 'string' ? (scriptData as any).description.slice(0, 1500) : undefined,
         hook: typeof (scriptData as any)?.hook === 'string' ? (scriptData as any).hook.slice(0, 500) : undefined,
+        articleDescription: String(body.bankierArticle?.description || body.bankierArticle?.summary || '').slice(0, 6000),
+        articleContext: String(body.articleContext || '').slice(0, 6000),
+        niche: String(niche || 'Finanse & Biznes').slice(0, 300),
+        language: String(language || 'Polski').slice(0, 80),
+        backgroundMusicUrl: String(body.backgroundMusicUrl || (scriptData as any)?.backgroundMusicUrl || 'https://assets.mixkit.co/music/preview/mixkit-tech-house-vibes-130.mp3'),
+        audioVolume: typeof body.audioVolume === 'number' ? body.audioVolume : (typeof (scriptData as any)?.audioVolume === 'number' ? (scriptData as any).audioVolume : 0.2),
         sceneCount: scenesToRender.length,
         resolution: outputResolution,
         fps: 30,
@@ -4179,6 +4330,7 @@ router.post('/auto-pilot-shorts', async (req, res) => {
         ttsVoice: effectiveVoice,
         ttsSpeed: effectiveSpeed
       },
+      revisionNumber: 0,
       exportStatus: 'not_started',
       logs: [`[${new Date().toLocaleTimeString()}] Odebrano zadanie z Make.com (${scenesToRender.length} scen)`],
       createdAt: new Date().toISOString(),
@@ -4300,7 +4452,8 @@ router.post('/combine-scenes', async (req, res) => {
     syncDurationWithVoice: body.syncDurationWithVoice !== false,
     lockSceneDurations,
     captionAnimation: body.captionAnimation || body.animation || 'word-by-word',
-    highlightColor: body.highlightColor || 'yellow'
+    highlightColor: body.highlightColor || 'yellow',
+    telegramApproval: true
   };
 
   const jobId = `job_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
@@ -4312,12 +4465,22 @@ router.post('/combine-scenes', async (req, res) => {
     progress: 0,
     step: 'Zadanie odebrane i zakolejkowane',
     source: 'combine_scenes',
+    telegramApprovalRequested: true,
+    telegramApprovalStatus: 'waiting_for_render',
+    approvalTitle: String(body.title || body.topic || body.articleTitle || 'Short do akceptacji'),
+    approvalSourceUrl: String(body.articleUrl || body.bankierArticle?.link || ''),
     title: String(body.title || body.topic || ''),
     articleTitle: String(body.articleTitle || body.bankierArticle?.title || ''),
     articleUrl: String(body.articleUrl || body.bankierArticle?.link || ''),
     articleCategory: String(body.articleCategory || body.bankierArticle?.category || ''),
     scenes: summarizeScenesForHistory(normalizedScenes),
     shortMetadata: {
+      articleDescription: String(body.bankierArticle?.description || body.articleContext || '').slice(0, 6000),
+      articleContext: String(body.articleContext || '').slice(0, 6000),
+      niche: String(body.niche || 'Finanse & Biznes').slice(0, 300),
+      language: String(body.ttsLanguage || body.language || 'Polski').slice(0, 80),
+      backgroundMusicUrl: String(payload.backgroundMusicUrl || ''),
+      audioVolume: payload.audioVolume,
       sceneCount: normalizedScenes.length,
       resolution: payload.outputResolution,
       fps: payload.fps,
@@ -4326,6 +4489,7 @@ router.post('/combine-scenes', async (req, res) => {
       ttsVoice: payload.ttsVoice,
       ttsSpeed: payload.ttsSpeed
     },
+    revisionNumber: 0,
     exportStatus: 'not_started',
     logs: [`[${new Date().toLocaleTimeString()}] Utworzono nowe zadanie renderowania ${jobId}`],
     createdAt: new Date().toISOString(),
@@ -6019,7 +6183,8 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
       syncDurationWithVoice: true,
       lockSceneDurations: true,
       captionAnimation: 'single-word',
-      highlightColor: 'red'
+      highlightColor: 'red',
+      telegramApproval: true
     };
 
     const newJob: Job = {
@@ -6028,12 +6193,27 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
       progress: 0,
       step: `Autonomiczny Start 4x/dobę: "${candidate.title.slice(0, 60)}..."`,
       source: 'scheduler',
+      telegramApprovalRequested: true,
+      telegramApprovalStatus: 'waiting_for_render',
+      approvalTitle: candidate.title,
+      approvalSourceUrl: candidate.link,
       title: candidate.title,
       articleTitle: candidate.title,
       articleUrl: candidate.link,
       articleCategory: candidate.category || 'Wiadomości',
       scenes: summarizeScenesForHistory(scriptData.scenes),
       shortMetadata: {
+        articleDescription: String(candidate.description || '').slice(0, 6000),
+        articleContext: articleContext.slice(0, 6000),
+        niche: String(schedulerState.niche || 'Finanse & Biznes').slice(0, 300),
+        language: 'Polski',
+        tts: true,
+        ttsLanguage: 'pl',
+        ttsVoice: schedulerState.voice || process.env.ELEVENLABS_VOICE_ID || DEFAULT_ELEVENLABS_VOICE_ID,
+        ttsSpeed: 1.0,
+        resolution: schedulerState.resolution || '720x1280',
+        backgroundMusicUrl: String(payload.backgroundMusicUrl || ''),
+        audioVolume: payload.audioVolume,
         sceneCount: scriptData.scenes.length,
         schedulerSlot: slotTrigger,
         viralityScore,
@@ -6041,6 +6221,7 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
         aiDecisions,
         offerMatch: scriptData.offerMatch
       },
+      revisionNumber: 0,
       exportStatus: 'not_started',
       logs: [`[${new Date().toLocaleTimeString()}] Uruchomiono autonomiczny cykl 4x/dobę dla newsa Bankier.pl (${candidate.title}) [Virality: ${viralityScore.totalScore}/100, Źródło: ${selection.selectionSource}]`],
       createdAt: new Date().toISOString(),
@@ -6404,42 +6585,99 @@ router.post('/telegram/webhook', async (req, res) => {
   }
 
   const callback = req.body?.callback_query;
-  if (!callback?.id || typeof callback.data !== 'string') return res.json({ ok: true });
-  const match = /^shortapproval:(approve|reject):(job_[A-Za-z0-9_-]+)$/.exec(callback.data);
-  if (!match) {
-    await answerTelegramCallback(botToken, callback.id, 'Nieznana akcja.');
-    return res.json({ ok: true });
-  }
-
-  const callbackChatId = String(callback.message?.chat?.id ?? '');
-  const senderId = String(callback.from?.id ?? '');
-  if (callbackChatId !== String(configuredChatId) || (process.env.TELEGRAM_APPROVER_USER_ID && senderId !== process.env.TELEGRAM_APPROVER_USER_ID)) {
-    await answerTelegramCallback(botToken, callback.id, 'Ta akcja nie jest autoryzowana.');
-    return res.json({ ok: true });
-  }
-
-  const jobId = match[2];
-  const job = jobsStore.get(jobId);
-  if (!job || job.status !== 'completed' || job.telegramApprovalStatus !== 'pending') {
-    await answerTelegramCallback(botToken, callback.id, 'Ta prośba nie jest już aktywna.');
-    return res.json({ ok: true });
-  }
-
-  const decision = match[1] === 'approve' ? 'approved' : 'rejected';
-  updateJobProgress(jobId, { telegramApprovalStatus: decision }, decision === 'approved'
-    ? 'Użytkownik zaakceptował materiał w Telegramie. Film nie został opublikowany.'
-    : 'Użytkownik odrzucił materiał w Telegramie. Film nie został opublikowany.');
-  await answerTelegramCallback(botToken, callback.id, decision === 'approved' ? 'Short zaakceptowany. Nie został opublikowany.' : 'Short odrzucony. Nie został opublikowany.');
-
-  const messageId = Number(callback.message?.message_id);
-  if (Number.isFinite(messageId) && job.outputUrl) {
-    try {
-      await updateTelegramApprovalMessage(botToken, configuredChatId, messageId, job.approvalTitle || 'Short z Bankier.pl', decision);
-    } catch (error) {
-      console.warn(`[Telegram Approval] Nie udało się zaktualizować wiadomości dla ${jobId}:`, (error as Error).message);
+  if (callback?.id && typeof callback.data === 'string') {
+    const match = /^shortapproval:(approve|reject):(job_[A-Za-z0-9_-]+)$/.exec(callback.data);
+    if (!match) {
+      await answerTelegramCallback(botToken, callback.id, 'Nieznana akcja.');
+      return res.json({ ok: true });
     }
+
+    const callbackChatId = String(callback.message?.chat?.id ?? '');
+    const senderId = String(callback.from?.id ?? '');
+    if (!isTelegramApproverAuthorized(String(configuredChatId), callbackChatId, senderId, process.env.TELEGRAM_APPROVER_USER_ID)) {
+      await answerTelegramCallback(botToken, callback.id, 'Ta akcja nie jest autoryzowana.');
+      return res.json({ ok: true });
+    }
+
+    const jobId = match[2];
+    const job = jobsStore.get(jobId);
+    if (!job || job.status !== 'completed' || job.telegramApprovalStatus !== 'pending') {
+      await answerTelegramCallback(botToken, callback.id, 'Ta prośba nie jest już aktywna.');
+      return res.json({ ok: true });
+    }
+
+    const messageId = Number(callback.message?.message_id);
+    if (match[1] === 'approve') {
+      updateJobProgress(jobId, { telegramApprovalStatus: 'approved' }, 'Użytkownik zaakceptował materiał w Telegramie. Publikacja wymaga osobnej integracji platformowej.');
+      await answerTelegramCallback(botToken, callback.id, 'Short zaakceptowany. Publikacja nie jest jeszcze skonfigurowana.');
+      if (Number.isFinite(messageId)) {
+        try { await updateTelegramApprovalMessage(botToken, configuredChatId, messageId, job.approvalTitle || 'Short z Bankier.pl', 'approved'); }
+        catch (error) { console.warn(`[Telegram Approval] Nie udało się zaktualizować wiadomości dla ${jobId}:`, (error as Error).message); }
+      }
+      return res.json({ ok: true, decision: 'approved' });
+    }
+
+    await answerTelegramCallback(botToken, callback.id, 'Odrzucono. Napisz komentarz w odpowiedzi na nową wiadomość bota.');
+    try {
+      const prompt = await requestTelegramRevisionComment({
+        botToken,
+        chatId: configuredChatId,
+        jobId,
+        title: job.approvalTitle || 'Short z Bankier.pl',
+        replyToMessageId: Number.isFinite(messageId) ? messageId : undefined
+      });
+      updateJobProgress(jobId, {
+        telegramApprovalStatus: 'awaiting_feedback',
+        telegramCommentPromptMessageId: prompt.message_id
+      }, 'Wysłano pole odpowiedzi na Telegramie; oczekiwanie na komentarz do poprawki.');
+      if (Number.isFinite(messageId)) {
+        try { await updateTelegramApprovalMessage(botToken, configuredChatId, messageId, job.approvalTitle || 'Short z Bankier.pl', 'awaiting_feedback'); }
+        catch (error) { console.warn(`[Telegram Approval] Nie udało się zaktualizować wiadomości dla ${jobId}:`, (error as Error).message); }
+      }
+    } catch (error) {
+      updateJobProgress(jobId, { telegramApprovalStatus: 'pending' }, `Nie udało się poprosić o komentarz do poprawki; można ponowić odrzucenie: ${(error as Error).message}`);
+      console.warn(`[Telegram Approval] Nie udało się poprosić o komentarz dla ${jobId}:`, (error as Error).message);
+    }
+    return res.json({ ok: true, decision: 'awaiting_feedback' });
   }
-  return res.json({ ok: true, decision });
+
+  const message = req.body?.message;
+  if (message && typeof message.text === 'string' && message.reply_to_message?.message_id) {
+    const messageChatId = String(message.chat?.id ?? '');
+    const senderId = String(message.from?.id ?? '');
+    if (!isTelegramApproverAuthorized(String(configuredChatId), messageChatId, senderId, process.env.TELEGRAM_APPROVER_USER_ID)) {
+      return res.json({ ok: true });
+    }
+
+    const replyToId = Number(message.reply_to_message.message_id);
+    const parent = Array.from(jobsStore.values()).find((candidate) =>
+      candidate.telegramApprovalStatus === 'awaiting_feedback' &&
+      candidate.telegramCommentPromptMessageId === replyToId
+    );
+    if (!parent) return res.json({ ok: true });
+
+    const feedback = normalizeTelegramFeedback(message.text);
+    if (!feedback) {
+      await sendTelegramNotice(botToken, configuredChatId, `Komentarz musi zawierać tekst i mieć maksymalnie 1800 znaków. Odpowiedz ponownie na wiadomość z prośbą o poprawkę.`);
+      return res.json({ ok: true });
+    }
+
+    updateJobProgress(parent.id, {
+      telegramApprovalStatus: 'rework_created',
+      telegramFeedback: feedback
+    }, 'Otrzymano komentarz użytkownika do poprawki; rozpoczynam nową wersję.');
+    void createTelegramRevisionJob(parent.id, feedback).catch(async (error) => {
+      const reason = (error as Error).message || 'Nieznany błąd tworzenia poprawki.';
+      updateJobProgress(parent.id, { telegramApprovalStatus: 'awaiting_feedback', revisionJobId: '' }, `Nie udało się przygotować poprawki: ${reason}`);
+      try { await sendTelegramNotice(botToken, configuredChatId, `Nie udało się przygotować poprawki: ${reason}\nOdpowiedz ponownie na wiadomość z prośbą o komentarz, aby spróbować jeszcze raz.`); }
+      catch (noticeError) { console.warn('[Telegram Revision] Nie udało się wysłać informacji o błędzie:', (noticeError as Error).message); }
+    });
+    try { await sendTelegramNotice(botToken, configuredChatId, 'Komentarz przyjęty. Auto-Pilot rozpoczyna przygotowanie poprawionej wersji.'); }
+    catch (error) { console.warn('[Telegram Revision] Nie udało się potwierdzić odbioru komentarza:', (error as Error).message); }
+    return res.json({ ok: true, decision: 'revision_started' });
+  }
+
+  return res.json({ ok: true });
 });
 
 // Private API: browser sessions use Firebase ID tokens; unattended jobs use a separate bearer token.
@@ -6484,14 +6722,14 @@ async function startServer() {
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
     const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
     const appUrl = process.env.APP_URL;
-    if (process.env.TELEGRAM_REGISTER_WEBHOOK_ON_START === 'true' && botToken && webhookSecret && appUrl) {
+    if (process.env.TELEGRAM_REGISTER_WEBHOOK_ON_START !== 'false' && botToken && webhookSecret && appUrl) {
       void registerTelegramWebhook(botToken, appUrl, webhookSecret).then(() => {
         console.log('✓ Telegram approval webhook registered.');
       }).catch((error) => {
         console.warn('[Telegram Approval] Webhook registration failed:', (error as Error).message);
       });
     } else if (process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID) {
-      console.log('[Telegram Approval] Approval sending is configured; automatic webhook registration is disabled. Set TELEGRAM_REGISTER_WEBHOOK_ON_START=true to enable Telegram buttons.');
+      console.log('[Telegram Approval] Skonfigurowano wysyłkę; ustaw TELEGRAM_WEBHOOK_SECRET i APP_URL, aby aktywować przyciski i komentarze.');
     }
   });
 }

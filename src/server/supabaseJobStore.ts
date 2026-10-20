@@ -2,7 +2,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 export type RenderJobStatus = 'queued' | 'processing' | 'completed' | 'failed' | 'cancelled';
 export type DriveExportStatus = 'uploading' | 'completed' | 'failed';
-export type TelegramApprovalStatus = 'waiting_for_render' | 'pending' | 'approved' | 'rejected' | 'failed_to_send';
+export type TelegramApprovalStatus = 'waiting_for_render' | 'pending' | 'awaiting_feedback' | 'rework_created' | 'approved' | 'rejected' | 'failed_to_send';
 
 export interface ShortJobSnapshot {
   id: string;
@@ -30,6 +30,11 @@ export interface ShortJobSnapshot {
   exportError?: string;
   telegramApprovalStatus?: TelegramApprovalStatus;
   telegramApprovalMessageId?: number;
+  telegramCommentPromptMessageId?: number;
+  telegramFeedback?: string;
+  parentJobId?: string;
+  revisionNumber?: number;
+  revisionJobId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -141,6 +146,11 @@ export function toSupabaseJobRow(job: ShortJobSnapshot): Record<string, unknown>
     export_error: job.exportError || null,
     telegram_approval_status: job.telegramApprovalStatus || null,
     telegram_message_id: typeof job.telegramApprovalMessageId === 'number' ? job.telegramApprovalMessageId : null,
+    telegram_comment_prompt_message_id: typeof job.telegramCommentPromptMessageId === 'number' ? job.telegramCommentPromptMessageId : null,
+    telegram_feedback: job.telegramFeedback || null,
+    parent_job_id: job.parentJobId || null,
+    revision_number: typeof job.revisionNumber === 'number' ? job.revisionNumber : 0,
+    revision_job_id: job.revisionJobId || null,
     created_at: job.createdAt,
     updated_at: job.updatedAt
   };
@@ -171,10 +181,15 @@ export function rowToShortJobSnapshot(row: Record<string, any>): ShortJobSnapsho
     driveUrl: row.drive_web_view_link || undefined,
     driveFileName: row.drive_file_name || undefined,
     exportError: row.export_error || undefined,
-    telegramApprovalStatus: ['waiting_for_render', 'pending', 'approved', 'rejected', 'failed_to_send'].includes(row.telegram_approval_status)
+    telegramApprovalStatus: ['waiting_for_render', 'pending', 'awaiting_feedback', 'rework_created', 'approved', 'rejected', 'failed_to_send'].includes(row.telegram_approval_status)
       ? row.telegram_approval_status as TelegramApprovalStatus
       : undefined,
     telegramApprovalMessageId: typeof row.telegram_message_id === 'number' ? row.telegram_message_id : undefined,
+    telegramCommentPromptMessageId: typeof row.telegram_comment_prompt_message_id === 'number' ? row.telegram_comment_prompt_message_id : undefined,
+    telegramFeedback: row.telegram_feedback || undefined,
+    parentJobId: row.parent_job_id || undefined,
+    revisionNumber: typeof row.revision_number === 'number' ? row.revision_number : undefined,
+    revisionJobId: row.revision_job_id || undefined,
     createdAt: row.created_at || new Date().toISOString(),
     updatedAt: row.updated_at || row.created_at || new Date().toISOString()
   };

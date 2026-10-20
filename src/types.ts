@@ -98,6 +98,12 @@ export interface JobStatusResponse {
   driveUrl?: string;
   driveFileName?: string;
   exportError?: string;
+  telegramApprovalRequested?: boolean;
+  telegramApprovalStatus?: 'waiting_for_render' | 'pending' | 'awaiting_feedback' | 'rework_created' | 'approved' | 'rejected' | 'failed_to_send';
+  telegramFeedback?: string;
+  parentJobId?: string;
+  revisionNumber?: number;
+  revisionJobId?: string;
   createdAt: string;
   updatedAt: string;
 }

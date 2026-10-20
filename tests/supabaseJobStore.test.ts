@@ -22,6 +22,13 @@ const snapshot: ShortJobSnapshot = {
   driveFileId: 'drive-file-1',
   driveUrl: 'https://drive.google.com/file/d/drive-file-1/view',
   driveFileName: 'short.mp4',
+  telegramApprovalStatus: 'rework_created',
+  telegramApprovalMessageId: 881,
+  telegramCommentPromptMessageId: 882,
+  telegramFeedback: 'Popraw hook i kontrast napisów',
+  parentJobId: 'job_auto_12345_ab12c',
+  revisionNumber: 2,
+  revisionJobId: 'job_revision_54321_xy98z',
   createdAt: '2026-10-18T05:00:00.000Z',
   updatedAt: '2026-10-18T05:01:00.000Z'
 };
@@ -37,6 +44,13 @@ assert.equal(row.duration_seconds, 18);
 assert.equal(row.file_size_bytes, 1024);
 assert.equal(row.export_status, 'completed');
 assert.equal(row.drive_web_view_link, snapshot.driveUrl);
+assert.equal(row.telegram_approval_status, snapshot.telegramApprovalStatus);
+assert.equal(row.telegram_message_id, snapshot.telegramApprovalMessageId);
+assert.equal(row.telegram_comment_prompt_message_id, snapshot.telegramCommentPromptMessageId);
+assert.equal(row.telegram_feedback, snapshot.telegramFeedback);
+assert.equal(row.parent_job_id, snapshot.parentJobId);
+assert.equal(row.revision_number, snapshot.revisionNumber);
+assert.equal(row.revision_job_id, snapshot.revisionJobId);
 assert.equal(row.created_at, snapshot.createdAt);
 
 const roundTrip = rowToShortJobSnapshot(row);
@@ -49,6 +63,13 @@ assert.deepEqual(roundTrip.shortMetadata, snapshot.shortMetadata);
 assert.equal(roundTrip.exportStatus, 'completed');
 assert.equal(roundTrip.driveFileId, snapshot.driveFileId);
 assert.equal(roundTrip.driveUrl, snapshot.driveUrl);
+assert.equal(roundTrip.telegramApprovalStatus, snapshot.telegramApprovalStatus);
+assert.equal(roundTrip.telegramApprovalMessageId, snapshot.telegramApprovalMessageId);
+assert.equal(roundTrip.telegramCommentPromptMessageId, snapshot.telegramCommentPromptMessageId);
+assert.equal(roundTrip.telegramFeedback, snapshot.telegramFeedback);
+assert.equal(roundTrip.parentJobId, snapshot.parentJobId);
+assert.equal(roundTrip.revisionNumber, snapshot.revisionNumber);
+assert.equal(roundTrip.revisionJobId, snapshot.revisionJobId);
 assert.equal(roundTrip.duration, snapshot.duration);
 assert.equal(roundTrip.fileSize, snapshot.fileSize);
 
