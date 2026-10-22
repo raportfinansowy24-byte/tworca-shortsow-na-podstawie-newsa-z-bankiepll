@@ -17,7 +17,8 @@ export const AppAuthGate: React.FC<React.PropsWithChildren> = ({ children }) => 
     const originalFetch = window.fetch.bind(window);
     window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-      if (!url.startsWith('/api/') && !url.includes('/api/') || url.includes('/api/auth/login')) {
+      const isAppApiRequest = url.startsWith('/api/') || url.startsWith(`${window.location.origin}/api/`);
+      if (!isAppApiRequest || url.includes('/api/auth/login')) {
         return originalFetch(input, init);
       }
       const session = sessionStorage.getItem(SESSION_KEY);
