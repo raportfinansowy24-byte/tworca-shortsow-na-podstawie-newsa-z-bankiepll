@@ -2,6 +2,29 @@ import React, { useEffect, useState } from 'react';
 import { LoaderCircle, ShieldCheck, LogOut } from 'lucide-react';
 
 const SESSION_KEY = 'shorts_app_session';
+/**
+ * Install before React mounts so API requests from child effects cannot race the
+ * auth wrapper. Only same-origin /api requests are changed; Google OAuth and Drive
+ * requests to googleapis.com are deliberately passed through unchanged.
+ */
+if (typeof window !== 'undefined' && !(window as any).__shortsAppAuthFetchInstalled) {
+  const originalFetch = window.fetch.bind(window);
+  (window as any).__shortsAppAuthFetchInstalled = true;
+  window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    const isAppApiRequest = url.startsWith('/api/') || url.startsWith(`${window.location.origin}/api/`);
+    if (!isAppApiRequest || url.includes('/api/auth/login')) {
+      return originalFetch(input, init);
+    }
+    let session: string | null = null;
+    try { session = sessionStorage.getItem(SESSION_KEY); } catch { /* storage unavailable */ }
+    if (!session) return originalFetch(input, init);
+    const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
+    headers.set('Authorization', `Bearer ${session}`);
+    return originalFetch(input, { ...init, headers });
+  }) as typeof window.fetch;
+}
+
 
 export const AppAuthGate: React.FC<React.PropsWithChildren> = ({ children }) => {
   const [password, setPassword] = useState('');
@@ -10,25 +33,13 @@ export const AppAuthGate: React.FC<React.PropsWithChildren> = ({ children }) => 
   const [error, setError] = useState('');
 
   useEffect(() => {
-    const token = sessionStorage.getItem(SESSION_KEY);
-    setAuthenticated(Boolean(token));
-    // Attach the app session to same-origin API calls. This deliberately overrides
-    // legacy Firebase ID tokens on backend calls without touching Google Drive OAuth requests.
-    const originalFetch = window.fetch.bind(window);
-    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-      const isAppApiRequest = url.startsWith('/api/') || url.startsWith(`${window.location.origin}/api/`);
-      if (!isAppApiRequest || url.includes('/api/auth/login')) {
-        return originalFetch(input, init);
-      }
-      const session = sessionStorage.getItem(SESSION_KEY);
-      if (!session) return originalFetch(input, init);
-      const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
-      // Use the app session for our API even if a caller still supplies a Firebase token.
-      headers.set('Authorization', `Bearer ${session}`);
-      return originalFetch(input, { ...init, headers });
-    }) as typeof window.fetch;
-    return () => { window.fetch = originalFetch; };
+    // The global API fetch wrapper is installed synchronously at module load below,
+    // before React mounts App and any of its effects can issue API requests.
+    try {
+      setAuthenticated(Boolean(sessionStorage.getItem(SESSION_KEY)));
+    } catch {
+      setAuthenticated(false);
+    }
   }, []);
 
   const handleSignIn = async (event: React.FormEvent) => {
