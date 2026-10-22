@@ -41,7 +41,7 @@ import {
 } from './src/server/telegramApproval';
 import { classifyTelegramChatMessage } from './src/server/telegramChatCommands';
 import { nextTelegramRevisionNumber, normalizeTelegramFeedback } from './src/server/telegramRevision';
-import { createApiAuthMiddleware } from './src/server/apiAuth';
+import { constantTimeTokenMatch, createApiAuthMiddleware, createAppSessionToken } from './src/server/apiAuth';
 import {
   loadShortJobsFromSupabase,
   persistShortJobSnapshot,
@@ -6739,12 +6739,29 @@ router.post('/telegram/webhook', async (req, res) => {
   return res.json({ ok: true });
 });
 
-// Private API: browser sessions use Firebase ID tokens; unattended jobs use a separate bearer token.
+// Password login issues a short-lived signed app session; Firebase is not used for app access.
+app.post('/api/auth/login', (req, res) => {
+  const configuredPassword = process.env.APP_LOGIN_PASSWORD || '';
+  const sessionSecret = process.env.APP_AUTH_SECRET || '';
+  const suppliedPassword = typeof req.body?.password === 'string' ? req.body.password : '';
+  if (!configuredPassword || sessionSecret.length < 32) {
+    return res.status(503).json({ error: 'Logowanie nie jest skonfigurowane. Ustaw APP_LOGIN_PASSWORD i APP_AUTH_SECRET w sekretach serwera.' });
+  }
+  if (!suppliedPassword || !constantTimeTokenMatch(suppliedPassword, configuredPassword)) {
+    return res.status(401).json({ error: 'Nieprawidłowe hasło.' });
+  }
+  try {
+    return res.json({ token: createAppSessionToken(sessionSecret), expiresIn: 43200 });
+  } catch {
+    return res.status(503).json({ error: 'Nie udało się utworzyć sesji. Sprawdź APP_AUTH_SECRET.' });
+  }
+});
+
+// Browser sessions use signed app tokens; unattended jobs keep their separate bearer token.
 app.use('/api', createApiAuthMiddleware({
-  projectId: process.env.FIREBASE_PROJECT_ID || '',
-  allowedEmails: (process.env.AUTOPILOT_ALLOWED_EMAILS || '').split(','),
+  sessionSecret: process.env.APP_AUTH_SECRET || '',
   machineToken: process.env.BANKIER_SHORTS_API_TOKEN || '',
-  publicPaths: ['/health', '/telegram/webhook']
+  publicPaths: ['/health', '/telegram/webhook', '/auth/login']
 }));
 
 // Mount API router
