@@ -2029,7 +2029,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
       throw new Error('Payload must contain at least one valid scene in "scenes" array.');
     }
 
-    // Blokada pipeline'u na stałe: ZAWSZE dokładnie 4 sceny po 4.5s = łączny czas 18.0s
+    // Keep four source beats but automatically add a scene when narration is too long.
     let scenes = [...rawScenes];
     if (scenes.length > 4) {
       scenes = scenes.slice(0, 4);
@@ -2044,6 +2044,39 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
         });
       }
     }
+
+    const getSceneSpeech = (scene: any): string => String(
+      scene.voiceover_text || scene.subtitles || scene.caption || scene.text ||
+      scene.tekst_głosowy || scene.voiceover || ''
+    ).trim();
+    const splitSpeechNaturally = (speech: string): [string, string] => {
+      const words = speech.split(/\\s+/).filter(Boolean);
+      const midpoint = Math.ceil(words.length / 2);
+      let splitAt = midpoint;
+      for (let distance = 0; distance <= 2; distance++) {
+        const candidate = [midpoint - distance, midpoint + distance].find(n =>
+          n >= 2 && n < words.length && /[.!?,;:]$/.test(words[n - 1])
+        );
+        if (candidate !== undefined) { splitAt = candidate; break; }
+      }
+      return [words.slice(0, splitAt).join(' '), words.slice(splitAt).join(' ')];
+    };
+    const expandedScenes: typeof scenes = [];
+    for (const scene of scenes) {
+      const speech = getSceneSpeech(scene);
+      if (speech.split(/\\s+/).filter(Boolean).length > 7) {
+        const [firstPart, secondPart] = splitSpeechNaturally(speech);
+        if (firstPart && secondPart) {
+          expandedScenes.push(
+            { ...scene, voiceover_text: firstPart, subtitles: firstPart, duration: 4.5 },
+            { ...scene, voiceover_text: secondPart, subtitles: secondPart, duration: 4.5 }
+          );
+          continue;
+        }
+      }
+      expandedScenes.push(scene);
+    }
+    scenes = expandedScenes;
 
     updateJobProgress(
       jobId,
@@ -2108,12 +2141,9 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
         commonAtempo = Math.max(commonAtempo, duration / targetSpeechDuration);
       }
 
-      // Keep every scene at the same speed; allow up to 1.30x uniformly, but
-      // reject larger corrections because they can make the whole narration unnatural.
-      // Keep all scenes at one shared tempo. A 1.40x ceiling avoids rejecting near-fit narration
-      // (e.g. 1.39x) while still preventing extreme, unnatural acceleration.
+      // Use one shared tempo across scenes; never force extreme acceleration.
       if (commonAtempo > 1.40) {
-        throw new Error(`Najdłuższa kwestia nie mieści się w scenie przy wspólnym limicie 1.40x (wymagane ${commonAtempo.toFixed(2)}x). Skróć tekst; nie przyspieszam osobno pojedynczych scen.`);
+        throw new Error(`Nawet po automatycznym podziale kwestia wymaga tempa ${commonAtempo.toFixed(2)}x. Skróć najdłuższą kwestię lektora.`);
       }
       if (commonAtempo > 1.005) {
         for (const asset of preparedSceneTts) {
