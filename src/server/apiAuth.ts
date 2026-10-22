@@ -1,7 +1,8 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { RequestHandler } from 'express';
 
-const SESSION_TTL_SECONDS = 60 * 60 * 12;
+// Keep the private panel signed in for 30 days unless the user explicitly logs out.
+const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
 
 export function constantTimeTokenMatch(candidate: string, expected: string): boolean {
   if (!candidate || !expected) return false;
