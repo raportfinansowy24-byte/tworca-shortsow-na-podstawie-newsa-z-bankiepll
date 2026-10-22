@@ -2110,8 +2110,10 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
 
       // Keep every scene at the same speed; allow up to 1.30x uniformly, but
       // reject larger corrections because they can make the whole narration unnatural.
-      if (commonAtempo > 1.30) {
-        throw new Error(`Najdłuższa kwestia nie mieści się w scenie przy wspólnym limicie 1.30x (wymagane ${commonAtempo.toFixed(2)}x). Skróć tekst; nie przyspieszam osobno pojedynczych scen.`);
+      // Keep all scenes at one shared tempo. A 1.40x ceiling avoids rejecting near-fit narration
+      // (e.g. 1.39x) while still preventing extreme, unnatural acceleration.
+      if (commonAtempo > 1.40) {
+        throw new Error(`Najdłuższa kwestia nie mieści się w scenie przy wspólnym limicie 1.40x (wymagane ${commonAtempo.toFixed(2)}x). Skróć tekst; nie przyspieszam osobno pojedynczych scen.`);
       }
       if (commonAtempo > 1.005) {
         for (const asset of preparedSceneTts) {
