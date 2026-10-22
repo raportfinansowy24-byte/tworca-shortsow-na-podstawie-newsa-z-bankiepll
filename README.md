@@ -190,8 +190,8 @@ Generuje scenariusz, dopasowuje klipy stockowe i renderuje wideo na podstawie te
 ## 🔒 Zasady Bezpieczeństwa i Zgodności
 
 - **Sekrety**: Żadne klucze API (`GEMINI_API_KEY`, `ELEVENLABS_API_KEY`, itp.) nie są kompilowane do bundle'a przeglądarki klienta — wszystkie zapytania zewnętrzne są przetwarzane po stronie serwera Node.js.
-- **Dostęp do API**: wszystkie trasy `/api/*` wymagają tokenu Firebase ID z konta `raportfinansowy24@gmail.com` albo osobnego `BANKIER_SHORTS_API_TOKEN`. Wyjątki to wyłącznie `GET /api/health` oraz webhook Telegrama, który sprawdza własny sekret nagłówka.
-- **Logowanie przeglądarkowe**: bramka Google/Firebase prosi tylko o potwierdzenie tożsamości; nie żąda zakresów Google Drive. Token Firebase jest dołączany tylko do żądań API tej samej aplikacji.
+- **Dostęp do API**: trasy `/api/*` wymagają krótkotrwałego, podpisanego tokenu sesji aplikacji albo osobnego `BANKIER_SHORTS_API_TOKEN` dla automatyzacji. Wyjątki to `GET /api/health`, logowanie `POST /api/auth/login` oraz webhook Telegrama, który sprawdza własny sekret.
+- **Logowanie do panelu**: własne hasło sprawdzane po stronie serwera przez `APP_LOGIN_PASSWORD`; sesja jest podpisywana przez `APP_AUTH_SECRET` (minimum 32 znaki, ważność 12 godzin). To logowanie nie korzysta z Firebase. Firebase SDK pozostaje tylko w oddzielnym przepływie OAuth używanym do Google Drive.
 - **Automatyzacja**: skrypt `bankier_article_to_mp4.py` wysyła `Authorization: Bearer …`. Token ustawiaj w menedżerze sekretów środowiska procesu i Fly.io; nigdy nie zapisuj go w repozytorium, promptach harmonogramu ani historii terminala.
 - **Rzetelność finansowa**: Aplikacja nie generuje sztucznych ani niepotwierdzonych wskaźników RRSO/oprocentowania. Dane dynamiczne są pobierane z aktualnych artykułów i oficjalnych źródeł, a treści przykładowe są wyraźnie oznaczone.
 
@@ -260,8 +260,9 @@ Skopiuj plik `.env.example` do `.env`. Na Fly.io sekrety ustawiaj przez `fly sec
 | Zmienna | Wymagana | Opis |
 |---|---|---|
 | `PORT` | Nie (domyślnie 3000) | Port nasłuchiwania serwera Express |
-| `FIREBASE_PROJECT_ID` | Tak | Firebase project ID używany do weryfikacji tokenów ID po stronie serwera |
-| `AUTOPILOT_ALLOWED_EMAILS` | Tak | Dozwolone adresy e-mail rozdzielone przecinkami; w tym wdrożeniu `raportfinansowy24@gmail.com` |
+| `APP_LOGIN_PASSWORD` | Tak | Hasło do prywatnego panelu; ustaw jako sekret wdrożenia |
+| `APP_AUTH_SECRET` | Tak | Losowy sekret o długości co najmniej 32 znaków do podpisywania sesji |
+
 | `BANKIER_SHORTS_API_TOKEN` | Tak dla automatyzacji | Losowy, poufny token Bearer dla skryptów i integracji serwerowych |
 | `SUPABASE_URL` | Nie | HTTPS URL projektu Supabase; wymagany do zapisu historii zadań w Postgresie |
 | `SUPABASE_KEY` | Nie | Klucz secret/service_role używany wyłącznie po stronie serwera; wymagany razem z `SUPABASE_URL` |
