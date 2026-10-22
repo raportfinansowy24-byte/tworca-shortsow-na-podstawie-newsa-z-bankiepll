@@ -2223,7 +2223,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
       const animMode = capStyle.animation || defaultCaptionAnim;
       const highlightCol = capStyle.highlightColor || defaultHighlightCol;
       const position = capStyle.position || 'center';
-      const fontSize = capStyle.fontSize || (targetWidth > 1000 ? 78 : 68);
+      const fontSize = capStyle.fontSize || 44;
       const outlineWidth = capStyle.outlineWidth ?? Math.round(fontSize * 0.12);
 
       let assSubtitleFilter = '';
@@ -2251,7 +2251,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
 
       // Render & Normalize Scene with FFmpeg
       const normalizedScenePath = path.join(jobTempDir, `norm_scene_${sceneNum}.mp4`);
-      const scaleFilter = `scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=decrease,pad=${targetWidth}:${targetHeight}:(ow-ih)/2:(oh-ih)/2:black,setsar=1,fps=${targetFps}`;
+      const scaleFilter = `scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=decrease,pad=${targetWidth}:${targetHeight}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps=${targetFps}`;
       const videoFilterWithAss = `${scaleFilter}${assSubtitleFilter}`;
 
       let ffmpegArgs: string[] = [];
@@ -3011,8 +3011,8 @@ function buildSmartFallbackScript(
           highlightColor: 'red' as const,
           fontColor: 'white',
           outlineColor: 'black',
-          fontSize: 68,
-          outlineWidth: 8,
+          fontSize: 44,
+          outlineWidth: 4,
           boxColor: 'black@0.6'
         }
       },
@@ -3030,8 +3030,8 @@ function buildSmartFallbackScript(
           highlightColor: 'red' as const,
           fontColor: 'white',
           outlineColor: 'black',
-          fontSize: 68,
-          outlineWidth: 8,
+          fontSize: 44,
+          outlineWidth: 4,
           boxColor: 'black@0.6'
         }
       }
@@ -3080,8 +3080,8 @@ function buildSmartFallbackScript(
         highlightColor: 'red' as const,
         fontColor: 'white',
         outlineColor: 'black',
-        fontSize: 68,
-        outlineWidth: 8,
+        fontSize: 44,
+        outlineWidth: 4,
         boxColor: 'black@0.6'
       }
     };
@@ -3144,8 +3144,8 @@ function buildSmartFallbackScript(
         highlightColor: 'red' as const,
         fontColor: idx === 0 ? 'red' : 'white',
         outlineColor: 'black',
-        fontSize: 68,
-        outlineWidth: 8,
+        fontSize: 44,
+        outlineWidth: 4,
         boxColor: 'black@0.6'
       }
     };
@@ -3874,8 +3874,8 @@ Każda scena w tablicy "scenes" musi mieć pole "duration": ${sceneDuration}.`;
               highlightColor: 'red',
               fontColor: 'white',
               outlineColor: 'black',
-              fontSize: 68,
-              outlineWidth: 8,
+              fontSize: 44,
+              outlineWidth: 4,
               boxColor: 'black@0.6'
             }
           });
@@ -4064,8 +4064,8 @@ Wymagania JSON:
               highlightColor: 'red' as const,
               fontColor: 'white',
               outlineColor: 'black',
-              fontSize: 68,
-              outlineWidth: 8,
+              fontSize: 44,
+              outlineWidth: 4,
               boxColor: 'black@0.6'
             }
           });
@@ -4129,8 +4129,8 @@ Wymagania JSON:
       highlightColor: 'red' as const,
       fontColor: idx === 0 ? 'red' : 'white',
       outlineColor: 'black',
-      fontSize: 68,
-      outlineWidth: 8,
+      fontSize: 44,
+      outlineWidth: 4,
       boxColor: 'black@0.6'
     }
   }));
