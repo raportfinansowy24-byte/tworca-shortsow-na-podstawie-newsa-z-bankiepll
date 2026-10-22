@@ -17,7 +17,7 @@ if (typeof window !== 'undefined' && !(window as any).__shortsAppAuthFetchInstal
       return originalFetch(input, init);
     }
     let session: string | null = null;
-    try { session = sessionStorage.getItem(SESSION_KEY); } catch { /* storage unavailable */ }
+    try { session = localStorage.getItem(SESSION_KEY); } catch { /* storage unavailable */ }
     if (!session) return originalFetch(input, init);
     const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
     headers.set('Authorization', `Bearer ${session}`);
@@ -36,7 +36,7 @@ export const AppAuthGate: React.FC<React.PropsWithChildren> = ({ children }) => 
     // The global API fetch wrapper is installed synchronously at module load below,
     // before React mounts App and any of its effects can issue API requests.
     try {
-      setAuthenticated(Boolean(sessionStorage.getItem(SESSION_KEY)));
+      setAuthenticated(Boolean(localStorage.getItem(SESSION_KEY)));
     } catch {
       setAuthenticated(false);
     }
@@ -54,7 +54,7 @@ export const AppAuthGate: React.FC<React.PropsWithChildren> = ({ children }) => 
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.token) throw new Error(data.error || 'Logowanie nie powiodło się.');
-      sessionStorage.setItem(SESSION_KEY, data.token);
+      localStorage.setItem(SESSION_KEY, data.token);
       setPassword('');
       setAuthenticated(true);
     } catch (cause) {
@@ -68,7 +68,7 @@ export const AppAuthGate: React.FC<React.PropsWithChildren> = ({ children }) => 
     return (
       <>
         <div className="fixed right-4 top-4 z-50">
-          <button type="button" onClick={() => { sessionStorage.removeItem(SESSION_KEY); setAuthenticated(false); }} className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-200 hover:bg-slate-800">
+          <button type="button" onClick={() => { localStorage.removeItem(SESSION_KEY); setAuthenticated(false); }} className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-200 hover:bg-slate-800">
             <LogOut className="h-4 w-4" /> Wyloguj
           </button>
         </div>
