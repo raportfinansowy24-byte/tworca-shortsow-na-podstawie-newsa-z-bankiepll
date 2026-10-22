@@ -1,24 +1,40 @@
-import { timingSafeEqual } from 'node:crypto';
-import { getApps, initializeApp } from 'firebase-admin/app';
-import { getAuth, type DecodedIdToken } from 'firebase-admin/auth';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { RequestHandler } from 'express';
 
-const ADMIN_APP_NAME = 'bankier-shorts-api-auth';
-let cachedProjectId: string | null = null;
-
-export interface ApiAuthOptions {
-  projectId: string;
-  allowedEmails: string[];
-  machineToken?: string;
-  publicPaths?: string[];
-  verifyFirebaseToken?: (token: string) => Promise<Pick<DecodedIdToken, 'email' | 'email_verified' | 'uid'>>;
-}
+const SESSION_TTL_SECONDS = 60 * 60 * 12;
 
 export function constantTimeTokenMatch(candidate: string, expected: string): boolean {
   if (!candidate || !expected) return false;
-  const candidateBytes = Buffer.from(candidate, 'utf8');
-  const expectedBytes = Buffer.from(expected, 'utf8');
-  return candidateBytes.length === expectedBytes.length && timingSafeEqual(candidateBytes, expectedBytes);
+  const a = Buffer.from(candidate, 'utf8');
+  const b = Buffer.from(expected, 'utf8');
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+function signature(payload: string, secret: string): string {
+  return createHmac('sha256', secret).update(payload).digest('base64url');
+}
+
+export function createAppSessionToken(secret: string, now = Date.now()): string {
+  if (!secret || secret.length < 32) throw new Error('APP_AUTH_SECRET must contain at least 32 characters.');
+  const payload = Buffer.from(JSON.stringify({
+    sub: 'raportfinansowy24',
+    exp: Math.floor(now / 1000) + SESSION_TTL_SECONDS
+  })).toString('base64url');
+  return payload + '.' + signature(payload, secret);
+}
+
+export function verifyAppSessionToken(token: string, secret: string, now = Date.now()): boolean {
+  if (!token || !secret || secret.length < 32) return false;
+  const parts = token.split('.');
+  if (parts.length !== 2) return false;
+  const expected = signature(parts[0], secret);
+  if (!constantTimeTokenMatch(parts[1], expected)) return false;
+  try {
+    const claims = JSON.parse(Buffer.from(parts[0], 'base64url').toString('utf8'));
+    return claims.sub === 'raportfinansowy24' && Number.isFinite(claims.exp) && claims.exp > Math.floor(now / 1000);
+  } catch {
+    return false;
+  }
 }
 
 function getBearerToken(value: string | undefined): string | null {
@@ -26,47 +42,21 @@ function getBearerToken(value: string | undefined): string | null {
   return match?.[1]?.trim() || null;
 }
 
-function verifyFirebaseIdToken(projectId: string, token: string) {
-  let app = getApps().find((candidate) => candidate.name === ADMIN_APP_NAME);
-  if (!app) {
-    app = initializeApp({ projectId }, ADMIN_APP_NAME);
-    cachedProjectId = projectId;
-  } else if (cachedProjectId && cachedProjectId !== projectId) {
-    throw new Error('Firebase project ID changed after auth initialization.');
-  }
-  return getAuth(app).verifyIdToken(token);
+export interface ApiAuthOptions {
+  sessionSecret?: string;
+  machineToken?: string;
+  publicPaths?: string[];
 }
 
 export function createApiAuthMiddleware(options: ApiAuthOptions): RequestHandler {
-  const allowedEmails = new Set(options.allowedEmails.map((email) => email.trim().toLowerCase()).filter(Boolean));
-  const publicPaths = new Set(options.publicPaths || ['/health', '/telegram/webhook']);
+  const publicPaths = new Set(options.publicPaths || ['/health', '/telegram/webhook', '/auth/login']);
 
-  return async (req, res, next) => {
+  return (req, res, next) => {
     if (publicPaths.has(req.path)) return next();
-
     const bearer = getBearerToken(req.get('authorization'));
-    if (bearer && options.machineToken && constantTimeTokenMatch(bearer, options.machineToken)) {
-      return next();
-    }
-
-    if (!bearer) {
-      return res.status(401).json({ error: 'Wymagane logowanie kontem Google lub token automatyzacji.' });
-    }
-    if (!options.projectId || allowedEmails.size === 0) {
-      return res.status(503).json({ error: 'Uwierzytelnianie Firebase nie jest skonfigurowane na serwerze.' });
-    }
-
-    try {
-      const claims = await (options.verifyFirebaseToken
-        ? options.verifyFirebaseToken(bearer)
-        : verifyFirebaseIdToken(options.projectId, bearer));
-      const email = (claims.email || '').trim().toLowerCase();
-      if (claims.email_verified !== true || !email || !allowedEmails.has(email)) {
-        return res.status(403).json({ error: 'To konto Google nie ma uprawnień do tej aplikacji.' });
-      }
-      return next();
-    } catch {
-      return res.status(401).json({ error: 'Token logowania jest nieprawidłowy lub wygasł.' });
-    }
+    if (bearer && options.machineToken && constantTimeTokenMatch(bearer, options.machineToken)) return next();
+    if (bearer && options.sessionSecret && verifyAppSessionToken(bearer, options.sessionSecret)) return next();
+    if (!bearer) return res.status(401).json({ error: 'Zaloguj się, aby korzystać z aplikacji.' });
+    return res.status(401).json({ error: 'Sesja jest nieprawidłowa lub wygasła. Zaloguj się ponownie.' });
   };
 }
