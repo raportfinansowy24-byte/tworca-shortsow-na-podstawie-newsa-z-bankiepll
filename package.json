@@ -15,7 +15,8 @@
     "test:offer-matching": "tsx test-finance-offer-matching.ts",
     "test:auth": "tsx tests/apiAuth.test.ts",
     "test:supabase-history": "tsx tests/supabaseJobStore.test.ts",
-    "test:telegram-review": "tsx tests/telegramReview.test.ts"
+    "test:telegram-review": "tsx tests/telegramReview.test.ts",
+    "test:telegram-chat": "tsx tests/telegramChatCommands.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

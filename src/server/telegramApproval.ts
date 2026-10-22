@@ -42,11 +42,17 @@ export async function requestTelegramRevisionComment(input: {
   });
 }
 
-export async function sendTelegramNotice(botToken: string, chatId: string, text: string): Promise<void> {
+export async function sendTelegramNotice(
+  botToken: string,
+  chatId: string,
+  text: string,
+  replyMarkup?: Record<string, unknown>
+): Promise<void> {
   await telegramApi<{ message_id: number }>(botToken, 'sendMessage', {
     chat_id: chatId,
     text: text.slice(0, 3500),
-    disable_web_page_preview: true
+    disable_web_page_preview: true,
+    ...(replyMarkup ? { reply_markup: replyMarkup } : {})
   });
 }
 

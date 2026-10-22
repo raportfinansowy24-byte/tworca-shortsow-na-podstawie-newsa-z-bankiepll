@@ -39,6 +39,7 @@ import {
   sendTelegramNotice,
   updateTelegramApprovalMessage
 } from './src/server/telegramApproval';
+import { classifyTelegramChatMessage } from './src/server/telegramChatCommands';
 import { nextTelegramRevisionNumber, normalizeTelegramFeedback } from './src/server/telegramRevision';
 import { createApiAuthMiddleware } from './src/server/apiAuth';
 import {
@@ -6645,6 +6646,58 @@ router.post('/telegram/webhook', async (req, res) => {
       console.warn(`[Telegram Approval] Nie udało się poprosić o komentarz dla ${jobId}:`, (error as Error).message);
     }
     return res.json({ ok: true, decision: 'awaiting_feedback' });
+  }
+
+  const privateMessage = req.body?.message;
+  if (
+    privateMessage?.chat?.type === 'private' &&
+    !privateMessage.from?.is_bot &&
+    typeof privateMessage.text === 'string' &&
+    !privateMessage.reply_to_message?.message_id
+  ) {
+    const privateChatId = String(privateMessage.chat.id ?? '');
+    if (!privateChatId) return res.json({ ok: true });
+
+    const parsed = classifyTelegramChatMessage(privateMessage.text);
+    const appUrl = (process.env.APP_URL || '').trim().replace(/\/+$/, '');
+    const newVideoButton = { text: '🎬 Nowe Wideo (Mów/Pisz)', ...(appUrl ? { web_app: { url: appUrl } } : {}) };
+    const settingsButton = { text: '⚙️ Moje Ustawienia', ...(appUrl ? { web_app: { url: appUrl } } : {}) };
+    const menuMarkup = appUrl ? { inline_keyboard: [[newVideoButton], [settingsButton]] } : undefined;
+    const actionMarkup = appUrl
+      ? { inline_keyboard: [[parsed.action === 'settings' ? settingsButton : newVideoButton]] }
+      : undefined;
+
+    let replyText: string;
+    switch (parsed.action) {
+      case 'start':
+        replyText = 'Cześć! To istniejący Shorts Creator Agent. Wiadomości w tym prywatnym czacie są teraz obsługiwane. Wybierz akcję poniżej albo wpisz /pomoc.';
+        break;
+      case 'help':
+        replyText = 'Mogę pokazać panel tworzenia shortów i ustawień. Użyj /generuj, /ustawienia lub /presety. Zwykła wiadomość nie uruchamia renderu bez Twojego działania w panelu.';
+        break;
+      case 'settings':
+        replyText = 'Otwórz panel aplikacji przyciskiem „Moje Ustawienia” poniżej. Nie zmieniam ustawień bez Twojego wyboru w panelu.';
+        break;
+      case 'presets':
+        replyText = 'Presety i parametry materiałów znajdziesz w panelu aplikacji. Otwórz go przyciskiem poniżej.';
+        break;
+      case 'new_video':
+        replyText = parsed.text
+          ? 'Rozpoznaję polecenie /generuj, ale sam tekst w czacie nie uruchamia renderu. Otwórz panel i rozpocznij tworzenie shorta tam.'
+          : 'Otwórz panel przyciskiem „Nowe Wideo (Mów/Pisz)” poniżej, aby rozpocząć tworzenie shorta.';
+        break;
+      default:
+        replyText = 'Wiadomość dotarła do bota. Wybierz „Nowe Wideo (Mów/Pisz)” albo „Moje Ustawienia” poniżej; pomoc: /pomoc.';
+    }
+
+    try {
+      await sendTelegramNotice(botToken, privateChatId, replyText, parsed.action === 'settings' || parsed.action === 'new_video' ? actionMarkup : menuMarkup);
+      console.info(`[Telegram Chat] Private ${parsed.action} message received; reply sent in the same chat.`);
+    } catch (error) {
+      console.warn(`[Telegram Chat] Nie udało się odpowiedzieć w prywatnym czacie (${parsed.action}):`, (error as Error).message);
+      return res.status(502).json({ ok: false, error: 'Nie udało się wysłać odpowiedzi Telegrama.' });
+    }
+    return res.json({ ok: true, action: parsed.action });
   }
 
   const message = req.body?.message;
