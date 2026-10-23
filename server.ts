@@ -324,7 +324,7 @@ function translateAndEnrichViralKeyword(
   const trimmedRaw = (rawQuery || '').trim();
   const hasKnownContextCategory = Boolean(context?.trim()) && classifyFinanceVisualCategory(context || '') !== 'general-finance';
   const newsVisualContext = hasKnownContextCategory ? (context || '') : [context || '', trimmedRaw].filter(Boolean).join(' ');
-  const requiredSceneCount = Math.min(4, Math.max(totalScenes, sceneIndex + 1));
+  const requiredSceneCount = Math.min(8, Math.max(totalScenes, sceneIndex + 1));
   const plannedScene = getFinanceSceneVisualPlan(newsVisualContext, requiredSceneCount)?.[sceneIndex];
   if (plannedScene && !isVisualQueryAlignedWithNews(newsVisualContext, trimmedRaw)) {
     return plannedScene.primaryKeyword;
@@ -2108,15 +2108,14 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
 
     // Synthesize every scene with identical voice/model/settings, then apply one common tempo correction.
     if (ttsEnabled) {
-      const overLimitScene = sceneSpeechTexts.findIndex((text) => text.split(/\s+/).filter(Boolean).length > 10);
+      const overLimitScene = sceneSpeechTexts.findIndex((text, index) => text.split(/\s+/).filter(Boolean).length > ([2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5][index] <= 2 ? 6 : 7));
       if (overLimitScene >= 0) {
         throw new Error(`Tekst lektora w scenie ${overLimitScene + 1} przekracza limit 10 słów. Skróć skrypt przed syntezą.`);
       }
       if (sceneSpeechTexts.some((text) => !text)) {
-        throw new Error('Każda z 4 scen musi zawierać tekst lektora, aby zachować ciągłość głosu.');
+        throw new Error('Każda z 8 scen musi zawierać tekst lektora, aby zachować ciągłość głosu.');
       }
-      updateJobProgress(jobId, { step: 'Generowanie jednego głosu ElevenLabs dla 4 scen', progress: 12 }, `Jeden lektor ElevenLabs, model i tempo dla całego Shorta (${ttsSpeed.toFixed(2)}x).`);
-      const targetSpeechDuration = 4.5 - 0.12;
+      updateJobProgress(jobId, { step: 'Generowanie jednego głosu ElevenLabs dla 8 scen', progress: 12 }, `Jeden lektor ElevenLabs, model i tempo dla całego Shorta (${ttsSpeed.toFixed(2)}x).`);
       let commonAtempo = 1;
       for (let index = 0; index < scenes.length; index++) {
         if (abortController.signal.aborted) throw new Error('Zadanie zostało anulowane przez użytkownika.');
@@ -2138,6 +2137,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
           throw new Error(`ElevenLabs nie wygenerował poprawnego lektora dla sceny ${index + 1}.`);
         }
         preparedSceneTts[index] = { path: ttsPath, duration, wordTimings };
+        const targetSpeechDuration = Math.max(0.8, (Number(scenes[index]?.duration) || [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5][index] || 2.25) - 0.12);
         commonAtempo = Math.max(commonAtempo, duration / targetSpeechDuration);
       }
 
@@ -2162,7 +2162,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
           });
           asset.duration = fittedDuration || asset.duration / commonAtempo;
         }
-        console.log(`✓ Wszystkie 4 sceny otrzymały ten sam mnożnik tempa ${commonAtempo.toFixed(3)}x.`);
+        console.log(`✓ Wszystkie 8 scen otrzymały ten sam mnożnik tempa ${commonAtempo.toFixed(3)}x.`);
       }
     }
 
@@ -2203,9 +2203,9 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
       // Extract speech text for TTS and captions
       const speechText = sceneSpeechTexts[index];
 
-      // Zablokowana długość sceny na stałe: dokładnie 4.5s (4 sceny = 18.0s)
-      let sceneDuration = 4.5;
-      let captionDuration = 4.5;
+      // Używaj czasu przypisanego do sceny; osiem scen składa się na dokładnie 18 sekund.
+      let sceneDuration = Number(scene.duration) || [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5][index] || 2.25;
+      let captionDuration = sceneDuration;
       const ttsAsset = preparedSceneTts[index];
       const sceneWordTimings = ttsAsset?.wordTimings || [];
 
@@ -3107,10 +3107,10 @@ function buildSmartFallbackScript(
     const words = value.trim().split(/\s+/).filter(Boolean);
     return words.length <= maxWords ? words.join(' ') : `${words.slice(0, maxWords).join(' ')}…`;
   };
-  const compactTitle = compactWords(titleToUse, 6);
+  const compactTitle = compactWords(titleToUse, 3);
   const compactFact = compactWords(
     firstSourceSentence || (isPl ? 'Dostępny materiał nie zawiera szczegółowych danych.' : 'The supplied material has no detailed facts.'),
-    7
+    4
   );
   const narrativeLines = isPl
     ? [`Co naprawdę oznacza: ${compactTitle}?`, `Źródło podaje: ${compactFact}`, 'Najpierw oddzielmy fakt od interpretacji.', 'Znaczenie zależy od kontekstu tej informacji.', 'Nie dopisujmy danych, których news nie podaje.', 'Warto sprawdzić, co potwierdza źródło.', 'To jest najważniejszy wniosek z tej wiadomości.']
@@ -3625,10 +3625,10 @@ function deriveAiViralDecisions(
     voiceSpeed,
     highlightColor: 'red',
     captionAnimation: 'single-word',
-    sceneCount: 4,
+    sceneCount: 8,
     resolution: '720x1280',
     musicMood: 'Tech House Dynamic Beat (-70% ducking pod mowę)',
-    explanation: `AI dobiera niszę, hook i styl napisów. Render używa jednego wybranego profilu ElevenLabs i jednakowego tempa we wszystkich 4 scenach po 4,5 s.`
+    explanation: `AI dobiera niszę, hook i styl napisów. Render używa jednego wybranego profilu ElevenLabs i jednakowego tempa we wszystkich 8 scenach o łącznym czasie 18 s.`
   };
 }
 
@@ -3826,7 +3826,8 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
       const hasConciseSceneCopy = hasExpectedSceneCount && parsed.scenes.every((scene: any) => {
         const spokenText = String(scene?.voiceover_text || scene?.subtitles || '').trim();
         const wordCount = spokenText.split(/\s+/).filter(Boolean).length;
-        return wordCount > 0 && wordCount <= 10;
+        const maxWords = sceneDurations[idx] <= 2 ? 6 : 7;
+        return wordCount > 0 && wordCount <= maxWords;
       });
       if (hasExpectedSceneCount && hasConciseSceneCopy) {
         const usedPexelsIds: number[] = [];
@@ -4426,7 +4427,7 @@ router.post('/auto-pilot-shorts', async (req, res) => {
     const isPexelsError = /pexels/i.test(details);
     return res.status(isPexelsError ? 502 : 500).json({
       error: isPexelsError
-        ? 'Nie udało się pobrać czterech dopasowanych klipów Pexels. Short nie został wyrenderowany.'
+        ? 'Nie udało się pobrać ośmiu dopasowanych klipów Pexels. Short nie został wyrenderowany.'
         : 'Błąd serwera podczas przetwarzania żądania Make.com:',
       details,
       ...(isPexelsError ? { fallbackDisabled: true } : {})
@@ -4461,21 +4462,22 @@ router.post('/combine-scenes', async (req, res) => {
     normalizeSceneItem(sc, idx, scenesList!.length)
   );
 
-  // Zablokuj czas i sceny na stałe: Zawsze dokładnie 4 sceny po 4.5s (łącznie 18.0s)
-  if (normalizedScenes.length > 4) {
-    normalizedScenes = normalizedScenes.slice(0, 4);
-  } else if (normalizedScenes.length < 4) {
-    while (normalizedScenes.length < 4) {
+  // Zachowaj osiem scen o łącznym czasie 18 sekund.
+  const combineSceneDurations = [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5];
+  if (normalizedScenes.length > 8) {
+    normalizedScenes = normalizedScenes.slice(0, 8);
+  } else if (normalizedScenes.length < 8) {
+    while (normalizedScenes.length < 8) {
       const copyFrom = normalizedScenes[normalizedScenes.length - 1] || normalizedScenes[0];
       normalizedScenes.push({
         ...copyFrom,
         subtitles: `${copyFrom.subtitles || 'PODSUMOWANIE'}`,
         voiceover_text: `${copyFrom.voiceover_text || copyFrom.subtitles || 'Podsumowanie'}`,
-        duration: 4.5
+        duration: combineSceneDurations[normalizedScenes.length]
       });
     }
   }
-  normalizedScenes = normalizedScenes.map((scene) => ({ ...scene, duration: 4.5 }));
+  normalizedScenes = normalizedScenes.map((scene, idx) => ({ ...scene, duration: combineSceneDurations[idx] }));
   const lockSceneDurations = true;
 
   const payload: CombineScenesPayload = {
@@ -6493,10 +6495,10 @@ router.post('/autopilot/scheduler/config', (req, res) => {
   if (voice && typeof voice === 'string') schedulerState.voice = voice;
   if (category && typeof category === 'string') schedulerState.category = category;
   if (resolution && typeof resolution === 'string') schedulerState.resolution = resolution;
-  if (typeof sceneCount === 'number' && sceneCount !== 4) {
-    console.warn(`[Auto-Pilot] Wymuszam 4 sceny (odebrano sceneCount=${sceneCount}).`);
+  if (typeof sceneCount === 'number' && sceneCount !== 8) {
+    console.warn(`[Auto-Pilot] Wymuszam 8 scen (odebrano sceneCount=${sceneCount}).`);
   }
-  schedulerState.sceneCount = 4;
+  schedulerState.sceneCount = 8;
   if (typeof aiDirectorMode === 'boolean') schedulerState.aiDirectorMode = aiDirectorMode;
   saveSchedulerStateToDisk();
   res.json({ success: true, config: schedulerState });
