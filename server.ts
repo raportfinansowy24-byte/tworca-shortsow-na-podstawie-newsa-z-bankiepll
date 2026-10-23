@@ -3960,14 +3960,14 @@ async function translateSmartOrGeminiScript({
   const sceneDurations = [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5];
   const sceneDuration = 2.25;
   if (Number(sceneCount) !== count) {
-    console.warn(`[Translation] Wymuszam ${count} sceny po ${sceneDuration}s (odebrano sceneCount=${sceneCount}).`);
+    console.warn(`[Translation] Wymuszam 8 scen o łącznym czasie 18s (odebrano sceneCount=${sceneCount}).`);
   }
 
   try {
     const prompt = `Jesteś ekspertem automatycznego tłumaczenia i tworzenia krótkich scen wideo (Shorts / TikTok / Reels).
 Przetłumacz i podziel poniższy tekst / transkrypcję z nagrania wideo na język: "${targetLanguage}".
 Podziel go na ${count} scen z uderzającymi napisami oraz dobierz angielskie słowa kluczowe tła wideo Pexels dla każdej sceny.
-To adaptacja do krótkiego formatu, nie tłumaczenie dosłowne: zachowaj najważniejsze fakty, celuj w 7–9 wypowiadanych słów na scenę i nie przekraczaj 10 słów. CTA wlicza się do limitu. Każda scena ma trwać dokładnie ${sceneDuration} s.
+To adaptacja do krótkiego formatu, nie tłumaczenie dosłowne: zachowaj najważniejsze fakty. Sceny 1–4 mają maksymalnie 5 słów, sceny 5–8 maksymalnie 6 słów. Czasy kolejnych scen: 2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5 s; łącznie 18 s. CTA wlicza się do limitu.
 
 Tekst do przetłumaczenia:
 "${scriptText}"
@@ -4017,7 +4017,8 @@ Wymagania JSON:
       const hasConciseSceneCopy = hasExpectedSceneCount && parsed.scenes.every((scene: any) => {
         const spokenText = String(scene?.voiceover_text || scene?.subtitles || '').trim();
         const wordCount = spokenText.split(/\s+/).filter(Boolean).length;
-        return wordCount > 0 && wordCount <= 10;
+        const maxWords = sceneDurations[idx] <= 2 ? 5 : 6;
+        return wordCount > 0 && wordCount <= maxWords;
       });
       if (hasExpectedSceneCount && hasConciseSceneCopy) {
         const usedPexelsIds: number[] = [];
@@ -4039,7 +4040,7 @@ Wymagania JSON:
           scenesWithVideo.push({
             subtitles: textContent,
             voiceover_text: textContent,
-            duration: sceneDuration,
+            duration: sceneDurations[idx],
             searchKeyword: sc.searchKeyword || resolved.searchKeyword || 'stock exchange screen numbers flashing',
             videoUrl: resolved.videoUrl,
             thumbnailUrl: resolved.thumbnailUrl,
