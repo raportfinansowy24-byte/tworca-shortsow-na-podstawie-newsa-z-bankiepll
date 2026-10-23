@@ -12,6 +12,7 @@ Skill działa po wyborze artykułu przez istniejący przepływ. Nie pobiera pono
 - Pion 9:16, dokładnie 18 sekund, dokładnie 8 scen.
 - Czasy scen w sekundach: `[2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5]`.
 - Sekwencja: hook, kontekst, problem, wyjaśnienie, konkret, konsekwencja, wniosek, domknięcie z CTA.
+- Sceny 1–4 mają maksymalnie 5 wypowiadanych słów, sceny 5–8 maksymalnie 6.
 - Każda scena ma unikalny angielski prompt Pexels dopasowany do konkretnej wypowiedzi.
 - Scena 8 ma CTA związane z newsem i widoczną domenę `Raport-Finansowy24.pl`; opis zawiera `https://raport-finansowy24.pl`.
 
