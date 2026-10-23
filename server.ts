@@ -1188,10 +1188,10 @@ async function createTelegramRevisionJob(parentJobId: string, feedback: string):
 
   const scenes = Array.isArray(scriptData.scenes) ? scriptData.scenes : [];
   const pexelsIds = scenes.map((scene: any) => scene.pexelsId);
-  const hasFourUniquePexelsVideos = scenes.length === 8 &&
+  const hasEightUniquePexelsVideos = scenes.length === 8 &&
     scenes.every((scene: any) => scene.source === 'pexels' && typeof scene.pexelsId === 'number' && Number.isFinite(scene.pexelsId)) &&
     new Set(pexelsIds).size === 8;
-  if (!hasFourUniquePexelsVideos) {
+  if (!hasEightUniquePexelsVideos) {
     throw new Error('Nie udało się dobrać ośmiu różnych klipów Pexels do poprawionej wersji.');
   }
 
@@ -3742,7 +3742,7 @@ DOKŁADNIE 8 SCEN, ŁĄCZNIE 18 SEKUND:
 
 REŻYSERIA:
 - Każda scena ma osobny, unikalny, konkretny prompt Pexels po angielsku, bezpośrednio związany z wypowiedzią.
-- Pisz krótko, naturalnie i rytmicznie po polsku. Napisy muszą być czytelne na telefonie.
+- Pisz krótko, naturalnie i rytmicznie po polsku. Sceny 1–4 mają maksymalnie 5 wypowiadanych słów, sceny 5–8 maksymalnie 6. Napisy muszą być czytelne na telefonie.
 - Napisy i lektor w każdej scenie muszą być identyczne.
 - Opis publikacyjny zawiera https://raport-finansowy24.pl.
 - Nie uruchamiaj publikacji, harmonogramu ani webhooków; zwróć dane do istniejącego pipeline'u.
@@ -4253,10 +4253,10 @@ router.post('/auto-pilot-shorts', async (req, res) => {
       description = scriptData.description || description;
       scenesToRender = scriptData.scenes || [];
       const pexelsIds = scenesToRender.map((scene: any) => scene.pexelsId);
-      const hasFourUniquePexelsVideos = scenesToRender.length === 8 &&
+      const hasEightUniquePexelsVideos = scenesToRender.length === 8 &&
         scenesToRender.every((scene: any) => scene.source === 'pexels' && typeof scene.pexelsId === 'number' && Number.isFinite(scene.pexelsId)) &&
         new Set(pexelsIds).size === 8;
-      if (!hasFourUniquePexelsVideos) {
+      if (!hasEightUniquePexelsVideos) {
         return res.status(502).json({
           error: 'Nie udało się dobrać ośmiu różnych klipów wideo z Pexels. Short nie został wyrenderowany.',
           fallbackDisabled: true
