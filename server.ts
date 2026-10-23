@@ -3415,7 +3415,7 @@ TREŚĆ NEWSA:
 ${context}
 
 ZASADY DOPASOWANIA KADRÓW DLA SEGMENTÓW:
-- Każdy klip musi wynikać z konkretnego faktu lub działania opisanego w newsie, a nie tylko wyglądać „finansowo”. Zachowaj jedną kategorię tematyczną przez wszystkie cztery sceny.
+- Każdy klip musi wynikać z konkretnego faktu lub działania opisanego w newsie, a nie tylko wyglądać „finansowo”. Zachowaj jedną kategorię tematyczną przez wszystkie osiem scen.
 - Każde zapytanie ma ilustrować dokładnie wypowiadaną treść danej sceny; alternatywy muszą pozostać w tej samej kategorii i nie mogą zmieniać tematu artykułu.
 - Dla newsa o RPP, stopach lub ratach kredytów używaj ujęć kalkulatora raty, wykresu stóp, rozmowy o kredycie albo planowania raty. Nie używaj liczenia gotówki, banknotów, skarbca złota, kryptowalut ani ogólnego parkietu giełdowego, jeśli artykuł o nich nie mówi.
 - Dla innych kategorii dobieraj wyłącznie obiekty, osoby i działania widoczne w samym newsie; nie wstawiaj ogólnego miasta, skarbca, gotówki ani giełdy jako uniwersalnego tła.
