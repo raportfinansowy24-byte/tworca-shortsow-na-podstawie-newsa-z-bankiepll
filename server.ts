@@ -3809,7 +3809,7 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
     if (geminiResult && geminiResult.text) {
       const parsed = JSON.parse(geminiResult.text);
       const hasExpectedSceneCount = parsed && Array.isArray(parsed.scenes) && parsed.scenes.length === count;
-      const hasConciseSceneCopy = hasExpectedSceneCount && parsed.scenes.every((scene: any) => {
+      const hasConciseSceneCopy = hasExpectedSceneCount && parsed.scenes.every((scene: any, idx: number) => {
         const spokenText = String(scene?.voiceover_text || scene?.subtitles || '').trim();
         const wordCount = spokenText.split(/\s+/).filter(Boolean).length;
         const maxWords = sceneDurations[idx] <= 2 ? 5 : 6;
@@ -4014,7 +4014,7 @@ Wymagania JSON:
     if (geminiResult && geminiResult.text) {
       const parsed = JSON.parse(geminiResult.text);
       const hasExpectedSceneCount = parsed && Array.isArray(parsed.scenes) && parsed.scenes.length === count;
-      const hasConciseSceneCopy = hasExpectedSceneCount && parsed.scenes.every((scene: any) => {
+      const hasConciseSceneCopy = hasExpectedSceneCount && parsed.scenes.every((scene: any, idx: number) => {
         const spokenText = String(scene?.voiceover_text || scene?.subtitles || '').trim();
         const wordCount = spokenText.split(/\s+/).filter(Boolean).length;
         const maxWords = sceneDurations[idx] <= 2 ? 5 : 6;
