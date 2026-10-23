@@ -1179,7 +1179,7 @@ async function createTelegramRevisionJob(parentJobId: string, feedback: string):
     topic,
     niche: category,
     language: String(metadata.language || 'Polski'),
-    sceneCount: 4,
+    sceneCount: 8,
     articleContext,
     bankierArticle,
     revisionInstruction: feedback,
@@ -2029,21 +2029,23 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
       throw new Error('Payload must contain at least one valid scene in "scenes" array.');
     }
 
-    // Keep four source beats but automatically add a scene when narration is too long.
+    // Preserve the eight-scene contract for the 18-second finance short.
     let scenes = [...rawScenes];
-    if (scenes.length > 4) {
-      scenes = scenes.slice(0, 4);
-    } else if (scenes.length < 4) {
-      while (scenes.length < 4) {
+    const renderSceneDurations = [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5];
+    if (scenes.length > 8) {
+      scenes = scenes.slice(0, 8);
+    } else if (scenes.length < 8) {
+      while (scenes.length < 8) {
         const copyFrom = scenes[scenes.length - 1] || scenes[0];
         scenes.push({
           ...copyFrom,
           subtitles: `${copyFrom.subtitles || 'PODSUMOWANIE'}`,
           voiceover_text: `${copyFrom.voiceover_text || copyFrom.subtitles || 'Podsumowanie'}`,
-          duration: 4.5
+          duration: renderSceneDurations[scenes.length]
         });
       }
     }
+    scenes = scenes.map((scene, idx) => ({ ...scene, duration: renderSceneDurations[idx] }));
 
     const getSceneSpeech = (scene: any): string => String(
       scene.voiceover_text || scene.subtitles || scene.caption || scene.text ||
@@ -2061,22 +2063,6 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
       }
       return [words.slice(0, splitAt).join(' '), words.slice(splitAt).join(' ')];
     };
-    const expandedScenes: typeof scenes = [];
-    for (const scene of scenes) {
-      const speech = getSceneSpeech(scene);
-      if (speech.split(/\\s+/).filter(Boolean).length > 7) {
-        const [firstPart, secondPart] = splitSpeechNaturally(speech);
-        if (firstPart && secondPart) {
-          expandedScenes.push(
-            { ...scene, voiceover_text: firstPart, subtitles: firstPart, duration: 4.5 },
-            { ...scene, voiceover_text: secondPart, subtitles: secondPart, duration: 4.5 }
-          );
-          continue;
-        }
-      }
-      expandedScenes.push(scene);
-    }
-    scenes = expandedScenes;
 
     updateJobProgress(
       jobId,
@@ -3637,7 +3623,7 @@ async function generateSmartOrGeminiViralScript({
   topic = 'Rynki kapitałowe a dyscyplina inwestycyjna',
   niche = 'Finanse & Biznes',
   language = 'Polski',
-  sceneCount = 4,
+  sceneCount = 8,
   articleContext,
   bankierArticle,
   pairedKeywords,
@@ -4156,7 +4142,7 @@ router.post('/generate-viral-script', async (req, res) => {
     const {
       topic = 'Rynki kapitałowe i dyscyplina inwestycyjna',
       niche = 'Finanse & Biznes',
-      sceneCount = 4,
+      sceneCount = 8,
       language = 'Polski',
       articleContext,
       bankierArticle,
@@ -6079,7 +6065,7 @@ const DEFAULT_SCHEDULER_STATE: AutopilotSchedulerState = {
   dailySlots: ['06:00', '11:00', '16:00', '21:00'],
   category: 'wiadomosci',
   voice: 'pl-PL-MarekNeural',
-  sceneCount: 4,
+  sceneCount: 8,
   resolution: '720x1280',
   niche: 'Finanse & Biznes',
   aiDirectorMode: true,
@@ -6197,7 +6183,7 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
       topic: candidate.title,
       niche: schedulerState.niche || 'Finanse & Biznes',
       language: 'Polski',
-      sceneCount: 4,
+      sceneCount: 8,
       articleContext,
       bankierArticle: candidate
     });
@@ -6578,7 +6564,7 @@ router.all('/news/grounded-bankier', (req, res) => {
 // Endpoint: Analyze Scraped News Content & Suggest Paired Pexels Keywords per Scene Segment (/api/news/analyze-scene-keywords)
 router.post('/news/analyze-scene-keywords', async (req, res) => {
   try {
-    const { article, newsText, sceneCount = 4, niche = 'Finanse & Biznes' } = req.body || {};
+    const { article, newsText, sceneCount = 8, niche = 'Finanse & Biznes' } = req.body || {};
     const result = await analyzeNewsSceneKeywords({
       article,
       newsText,
