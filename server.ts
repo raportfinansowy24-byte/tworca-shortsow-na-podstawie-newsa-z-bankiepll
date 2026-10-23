@@ -1190,7 +1190,7 @@ async function createTelegramRevisionJob(parentJobId: string, feedback: string):
   const pexelsIds = scenes.map((scene: any) => scene.pexelsId);
   const hasFourUniquePexelsVideos = scenes.length === 8 &&
     scenes.every((scene: any) => scene.source === 'pexels' && typeof scene.pexelsId === 'number' && Number.isFinite(scene.pexelsId)) &&
-    new Set(pexelsIds).size === 4;
+    new Set(pexelsIds).size === 8;
   if (!hasFourUniquePexelsVideos) {
     throw new Error('Nie udało się dobrać ośmiu różnych klipów Pexels do poprawionej wersji.');
   }
@@ -3406,7 +3406,7 @@ function buildHeuristicSceneKeywords(
 async function analyzeNewsSceneKeywords({
   article,
   newsText,
-  sceneCount = 4,
+  sceneCount = 8,
   niche = 'Finanse & Biznes'
 }: {
   article?: any;
@@ -3766,7 +3766,7 @@ CZASY KOLEJNO: 2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5 sekundy. Suma dokładnie 18 sekund
 
   try {
     const prompt = `Jesteś elitarnym twórcą viralowych formatów wideo dla portalu raport-finansowy24.pl (w stylu CNBC, Bloomberg, Hormozi).
-Stwórz wysoce merytoryczny, porywający scenariusz na 18-sekundowy film złożony z DOKŁADNIE ${count} dynamicznych scen (po ${sceneDuration}s każda, łącznie dokładnie 18.0 sekund) w języku: ${language} na temat: "${cleanTopic}" (Kategoria: ${niche}).
+Stwórz wysoce merytoryczny, porywający scenariusz na 18-sekundowy film złożony z DOKŁADNIE 8 dynamicznych scen o czasach 2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5 sekundy w języku: ${language} na temat: "${cleanTopic}" (Kategoria: ${niche}).
 ${dataBoundaryInstructions}
 ${offerMatchPrompt}
 ${nichePromptInstructions}
@@ -3776,9 +3776,9 @@ ${pairedKeywordsInstruction}
 ${autonomousPromptInstructions}
 ZASADA WYSOKIEJ DOPASOWANIA WIZUALNEJ (PEXELS RELEVANCE):
 Dla każdej z ${count} scen musisz podać unikalne, bardzo konkretne angielskie zapytanie "searchKeyword" ściśle powiązane z dokładną treścią i słowami wypowiadanymi w tej scenie (np. jeśli mowa o inflacji i cenach w sklepach: "grocery store shopping cart inflation", jeśli o stopy procentowe NBP: "central bank press conference microphone", jeśli o giełdzie: "stock market trading floor traders red charts", jeśli o kryptowalutach: "cryptocurrency trading chart screen"). Unikaj ogólników!
-- Wszystkie cztery ujęcia muszą pozostać w temacie konkretnego artykułu; samo „finansowe” podobieństwo nie wystarcza. Nie dodawaj skarbca złota, liczenia banknotów, kryptowalut, wieżowców ani parkietu giełdowego, jeśli news nie dotyczy bezpośrednio tych rzeczy.
-- Dla newsa o RPP, stopach lub kredytach preferuj kolejno ratę/kalkulator kredytowy, wykres stóp lub konferencję banku centralnego, rozmowę o warunkach kredytu oraz planowanie budżetu raty. Nie pokazuj gotówki jako zamiennika informacji o stopach.
-Każda scena w tablicy "scenes" musi mieć pole "duration": ${sceneDuration}.`;
+- Wszystkie osiem ujęć musi pozostać w temacie konkretnego artykułu; samo „finansowe” podobieństwo nie wystarcza. Nie dodawaj skarbca złota, liczenia banknotów, kryptowalut, wieżowców ani parkietu giełdowego, jeśli news nie dotyczy bezpośrednio tych rzeczy.
+- Dla newsa o RPP, stopach lub kredytach dobieraj sceny do konkretnego fragmentu newsa: kalkulator raty, decyzja banku centralnego, warunki kredytu lub planowanie budżetu — tylko jeśli odpowiadają artykułowi. Nie pokazuj gotówki jako zamiennika informacji o stopach.
+Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5].`;
 
     const geminiResult = await callGeminiWithCascade({
       contents: prompt,
@@ -4266,7 +4266,7 @@ router.post('/auto-pilot-shorts', async (req, res) => {
       const pexelsIds = scenesToRender.map((scene: any) => scene.pexelsId);
       const hasFourUniquePexelsVideos = scenesToRender.length === 8 &&
         scenesToRender.every((scene: any) => scene.source === 'pexels' && typeof scene.pexelsId === 'number' && Number.isFinite(scene.pexelsId)) &&
-        new Set(pexelsIds).size === 4;
+        new Set(pexelsIds).size === 8;
       if (!hasFourUniquePexelsVideos) {
         return res.status(502).json({
           error: 'Nie udało się dobrać ośmiu różnych klipów wideo z Pexels. Short nie został wyrenderowany.',
