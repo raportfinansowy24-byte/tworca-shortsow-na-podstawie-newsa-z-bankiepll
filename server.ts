@@ -2094,7 +2094,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
 
     // Synthesize every scene with identical voice/model/settings, then apply one common tempo correction.
     if (ttsEnabled) {
-      const overLimitScene = sceneSpeechTexts.findIndex((text, index) => text.split(/\s+/).filter(Boolean).length > ([2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5][index] <= 2 ? 6 : 7));
+      const overLimitScene = sceneSpeechTexts.findIndex((text, index) => text.split(/\s+/).filter(Boolean).length > ([2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5][index] <= 2 ? 5 : 6));
       if (overLimitScene >= 0) {
         throw new Error(`Tekst lektora w scenie ${overLimitScene + 1} przekracza limit 10 słów. Skróć skrypt przed syntezą.`);
       }
@@ -3095,12 +3095,12 @@ function buildSmartFallbackScript(
   };
   const compactTitle = compactWords(titleToUse, 3);
   const compactFact = compactWords(
-    firstSourceSentence || (isPl ? 'Dostępny materiał nie zawiera szczegółowych danych.' : 'The supplied material has no detailed facts.'),
-    4
+    firstSourceSentence || (isPl ? 'Brak szczegółowych danych w materiale.' : 'No detailed facts in the supplied material.'),
+    3
   );
   const narrativeLines = isPl
-    ? [`Co naprawdę oznacza: ${compactTitle}?`, `Źródło podaje: ${compactFact}`, 'Najpierw oddzielmy fakt od interpretacji.', 'Znaczenie zależy od kontekstu tej informacji.', 'Nie dopisujmy danych, których news nie podaje.', 'Warto sprawdzić, co potwierdza źródło.', 'To jest najważniejszy wniosek z tej wiadomości.']
-    : [`What does this mean: ${compactTitle}?`, `The source says: ${compactFact}`, 'Separate the fact from interpretation.', 'The meaning depends on the wider context.', 'Do not add data the source does not provide.', 'Check what the source actually confirms.', 'That is the key takeaway from this news.'];
+    ? [`Co oznacza: ${compactTitle}?`, `Źródło wskazuje: ${compactFact}`, 'Oddzielmy fakt od interpretacji.', 'Znaczenie zależy od kontekstu.', 'Sprawdź szczegół podany w źródle.', 'Nie dopisujmy skutków bez dowodów.', 'Wniosek: sprawdź pełny kontekst.']
+    : [`What does this mean: ${compactTitle}?`, `The source states: ${compactFact}`, 'Separate facts from interpretation.', 'Meaning depends on the wider context.', 'Check the detail stated in the source.', 'Do not infer effects without evidence.', 'The takeaway: check the full context.'];
   const ctaLine = isPl
     ? 'Sprawdź pełną analizę na Raport-Finansowy24.pl.'
     : 'Read the full analysis at Raport-Finansowy24.pl.';
@@ -3812,7 +3812,7 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
       const hasConciseSceneCopy = hasExpectedSceneCount && parsed.scenes.every((scene: any) => {
         const spokenText = String(scene?.voiceover_text || scene?.subtitles || '').trim();
         const wordCount = spokenText.split(/\s+/).filter(Boolean).length;
-        const maxWords = sceneDurations[idx] <= 2 ? 6 : 7;
+        const maxWords = sceneDurations[idx] <= 2 ? 5 : 6;
         return wordCount > 0 && wordCount <= maxWords;
       });
       if (hasExpectedSceneCount && hasConciseSceneCopy) {
@@ -3950,14 +3950,15 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
 async function translateSmartOrGeminiScript({
   scriptText,
   targetLanguage = 'Polski',
-  sceneCount = 4
+  sceneCount = 8
 }: {
   scriptText: string;
   targetLanguage?: string;
   sceneCount?: number;
   }) {
-  const count = 4;
-  const sceneDuration = Number((18.0 / count).toFixed(1));
+  const count = 8;
+  const sceneDurations = [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5];
+  const sceneDuration = 2.25;
   if (Number(sceneCount) !== count) {
     console.warn(`[Translation] Wymuszam ${count} sceny po ${sceneDuration}s (odebrano sceneCount=${sceneCount}).`);
   }
@@ -4170,7 +4171,7 @@ router.post('/generate-viral-script', async (req, res) => {
 // Endpoint: Video Script Translation & Localized Short Generator (/api/translate-video-script)
 router.post('/translate-video-script', async (req, res) => {
   try {
-    const { scriptText, targetLanguage = 'Polski', sceneCount = 4 } = req.body;
+    const { scriptText, targetLanguage = 'Polski', sceneCount = 8 } = req.body;
 
     if (!scriptText || typeof scriptText !== 'string') {
       return res.status(400).json({ error: 'Brak tekstu skryptu do przetłumaczenia.' });
