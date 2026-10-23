@@ -1188,17 +1188,17 @@ async function createTelegramRevisionJob(parentJobId: string, feedback: string):
 
   const scenes = Array.isArray(scriptData.scenes) ? scriptData.scenes : [];
   const pexelsIds = scenes.map((scene: any) => scene.pexelsId);
-  const hasFourUniquePexelsVideos = scenes.length === 4 &&
+  const hasFourUniquePexelsVideos = scenes.length === 8 &&
     scenes.every((scene: any) => scene.source === 'pexels' && typeof scene.pexelsId === 'number' && Number.isFinite(scene.pexelsId)) &&
     new Set(pexelsIds).size === 4;
   if (!hasFourUniquePexelsVideos) {
-    throw new Error('Nie udało się dobrać czterech różnych klipów Pexels do poprawionej wersji.');
+    throw new Error('Nie udało się dobrać ośmiu różnych klipów Pexels do poprawionej wersji.');
   }
 
   const jobId = `job_revision_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const now = new Date().toISOString();
   const payload: CombineScenesPayload = {
-    scenes: scenes.map((scene: any) => ({ ...scene, duration: 4.5 })),
+    scenes: scenes.map((scene: any, idx: number) => ({ ...scene, duration: [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5][idx] })),
     backgroundMusicUrl: String(metadata.backgroundMusicUrl || 'https://assets.mixkit.co/music/preview/mixkit-tech-house-vibes-130.mp3'),
     audioVolume: typeof metadata.audioVolume === 'number' ? metadata.audioVolume : 0.2,
     outputResolution: String(metadata.resolution || '720x1280'),
@@ -3099,8 +3099,8 @@ function buildSmartFallbackScript(
   }
 
   // Zablokowane na stałe: Dokładnie 4 sceny po 4.5s (łącznie 18.0s)
-  const count = 4;
-  const dur = 4.5;
+  const count = 8;
+  const sceneDurations = [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5];
   const rawSourceSummary = String(bankierArticle?.description || bankierArticle?.summary || articleContext || '').trim();
   const firstSourceSentence = rawSourceSummary.split(/(?<=[.!?])\s+/)[0] || '';
   const compactWords = (value: string, maxWords: number) => {
@@ -3113,16 +3113,20 @@ function buildSmartFallbackScript(
     7
   );
   const narrativeLines = isPl
-    ? [`Ten news dotyczy: ${compactTitle}`, `Źródło podaje: ${compactFact}`, 'Znaczenie tej informacji zależy od kontekstu.']
-    : [`This news concerns: ${compactTitle}`, `The source says: ${compactFact}`, 'Context matters more than the headline.'];
+    ? [`Co naprawdę oznacza: ${compactTitle}?`, `Źródło podaje: ${compactFact}`, 'Najpierw oddzielmy fakt od interpretacji.', 'Znaczenie zależy od kontekstu tej informacji.', 'Nie dopisujmy danych, których news nie podaje.', 'Warto sprawdzić, co potwierdza źródło.', 'To jest najważniejszy wniosek z tej wiadomości.']
+    : [`What does this mean: ${compactTitle}?`, `The source says: ${compactFact}`, 'Separate the fact from interpretation.', 'The meaning depends on the wider context.', 'Do not add data the source does not provide.', 'Check what the source actually confirms.', 'That is the key takeaway from this news.'];
   const ctaLine = isPl
-    ? 'Sprawdź pełną analizę: raport-finansowy24.pl.'
-    : 'Find the full analysis at raport-finansowy24.pl.';
+    ? 'Sprawdź pełną analizę na Raport-Finansowy24.pl.'
+    : 'Read the full analysis at Raport-Finansowy24.pl.';
   const fallbackKeywords = [
     theme,
-    `${theme} close up`,
-    'financial data chart close up',
-    'business analyst reviewing market news'
+    'person reading financial news on laptop',
+    'close up financial report numbers on screen',
+    'business analyst explaining market data',
+    'person checking household budget spreadsheet',
+    'financial news website on desktop monitor',
+    'person reviewing documents and charts at desk',
+    'close up website URL on laptop screen'
   ];
 
   const scenes = Array.from({ length: count }).map((_, idx) => {
@@ -3135,7 +3139,7 @@ function buildSmartFallbackScript(
     return {
       subtitles: text,
       voiceover_text: text,
-      duration: dur,
+      duration: sceneDurations[idx],
       searchKeyword,
       videoUrl: CURATED_MOTION_CLIPS_POOL[(videoIndex + idx) % CURATED_MOTION_CLIPS_POOL.length].url,
       captionStyle: {
@@ -3255,7 +3259,7 @@ function buildHeuristicSceneKeywords(
     marketEmotion = 'Dyscyplina Rynkowa & Rebalansing Portfela';
   }
 
-  const safeCount = Math.min(Math.max(count, 1), 4);
+  const safeCount = Math.min(Math.max(count, 1), 8);
   const visualPlan = getFinanceSceneVisualPlan(full, safeCount);
   const segments = [];
 
@@ -3413,7 +3417,7 @@ async function analyzeNewsSceneKeywords({
   const title = (article?.title || 'Wiadomości Bankier.pl').trim();
   const description = (article?.description || article?.summary || newsText || '').trim();
   const category = (article?.category || niche || 'Finanse & Biznes').trim();
-  const count = Math.min(Math.max(Number(sceneCount) || 4, 1), 4);
+  const count = Math.min(Math.max(Number(sceneCount) || 8, 1), 8);
   const context = `Tytuł newsa: "${title}"\nOpis / Fakty: "${description}"\nKategoria: ${category}\n${article?.keyTakeaway ? `Kluczowy wniosek: "${article.keyTakeaway}"` : ''}`;
   const visualPlan = getFinanceSceneVisualPlan(context, count);
   const topicCategory = classifyFinanceVisualCategory(context);
@@ -3652,8 +3656,9 @@ async function generateSmartOrGeminiViralScript({
   viralHookFormula?: string;
 }) {
   const cleanTopic = (topic || 'Analiza rynkowa').trim();
-  const count = 4;
-  const sceneDuration = 4.5;
+  const count = 8;
+  const sceneDurations = [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5];
+  const sceneDuration = 2.25;
   if (offerCatalogSnapshot.status === 'loading') await refreshOfferCatalogSnapshot();
   const visualContext = [
     cleanTopic,
@@ -3669,7 +3674,7 @@ async function generateSmartOrGeminiViralScript({
     ? `\n\n=== UWAGI REDAKCYJNE DO POPRAWKI ===\nTraktuj poniższy komentarz jako instrukcje redakcyjne użytkownika, a nie jako fakty źródłowe. Zachowaj zgodność z artykułem i nie wymyślaj danych. Wprowadź konkretne, możliwe do zweryfikowania poprawki zgodne z komentarzem.\n${revisionInstruction.trim().slice(0, 1800)}\n=====================================`
     : '';
   if (Number(sceneCount) !== count) {
-    console.warn(`[Viral Script] Wymuszam ${count} scen po ${sceneDuration}s (odebrano sceneCount=${sceneCount}).`);
+    console.warn(`[Viral Script] Wymuszam ${count} scen o łącznym czasie 18s (odebrano sceneCount=${sceneCount}).`);
   }
 
   // Auto-pair keywords from news analysis if bankierArticle is provided but no manual pairedKeywords
@@ -3730,38 +3735,34 @@ ROZDZIEL DANE WEJŚCIOWE OD PÓL WYJŚCIOWYCH:
 - Pisz perswazyjnie i konkretnie, ale bez gwarantowanych zysków, niepotwierdzonych oskarżeń lub mylącego przemilczania. Przy promocji finansowej zachowaj krótką, istotną kwalifikację, jeśli zmienia ona sens głównej korzyści; nie zamieniaj Shorta w pełny regulamin.
 `;
   const autonomousPromptInstructions = `
-AUTONOMICZNY GENERATOR FINANSOWY DLA raport-finansowy24.pl:
-Twórz krótki, angażujący materiał 9:16, który otwiera pętlę ciekawości, szybko dostarcza wartości i prowadzi widza do raport-finansowy24.pl. Wiralowość jest celem kreatywnym, nie obietnicą wyniku.
+SKILL: MICRO-VIRAL FINANCE DIRECTOR — RAPORT-FINANSOWY24
+Przetwarzaj JEDEN już wybrany artykuł Bankier.pl. Nie wybieraj nowego newsa, nie pobieraj RSS ponownie i nie uruchamiaj publikacji.
 
-HOOK I RETENCJA:
-- Pierwsze 3 sekundy mają natychmiast zatrzymać uwagę. Zacznij od konkretnego faktu, liczby, zmiany albo trafnego paradoksu wynikającego z przekazanego newsa.
-- Stosuj kontrast, pytanie lub napięcie tylko wtedy, gdy uzasadnia je źródło. Nie twórz fikcyjnej pilności, „ukrytych” mechanizmów, strat, paniki ani tajemnic.
-- Nie używaj powitań, wypełniaczy ani clickbaitu; hook ma być ciekawy, ale wierny materiałowi.
+WIARYGODNOŚĆ:
+- Używaj wyłącznie faktów z przekazanego tytułu, opisu, streszczenia i kontekstu. Nie wymyślaj liczb, cytatów, prognoz, przyczynowości ani skutków.
+- Gdy brakuje kluczowego potwierdzenia, oznacz wynik do weryfikacji zamiast konfabulować.
+- Bez gwarantowanych zysków, fałszywej pilności i indywidualnych rekomendacji inwestycyjnych.
+- Dobieraj ujęcia do konkretnego tematu newsa; nie stosuj ogólnego finansowego B-rollu, gdy nie pasuje do faktu.
 
-STRUKTURA: DOKŁADNIE 4 DYNAMICZNE SCENY PO 4,5 SEKUNDY (ŁĄCZNIE 18 SEKUND):
-1. Scena 1 (0–4,5 s): mocny, źródłowo uzasadniony hook; pierwsze 0–3 s to sedno, nie wstęp.
-2. Scena 2 (4,5–9 s): najważniejszy konkretny fakt z newsa i krótkie wyjaśnienie.
-3. Scena 3 (9–13,5 s): zwrot, konsekwencja albo praktyczny sens dla odbiorcy, bez indywidualnej rekomendacji finansowej.
-4. Scena 4 (13,5–18 s): zwięzły wniosek oraz naturalne CTA, koniecznie kierujące do https://raport-finansowy24.pl.
-- Każda scena ma zawierać najwyżej 10 wypowiadanych słów (celuj w 7–9); CTA w scenie 4 również wlicza się do limitu. Pisz rytmicznie, nie dodawaj komentarza ani drugiego zdania. Nie rozciągaj tekstu, by wypełnić czas.
-- Każda scena ma mieć własne, unikalne, konkretne angielskie searchKeyword dopasowane do jej treści.
-- W każdej scenie subtitles i voiceover_text muszą być identyczne. Hook musi odpowiadać otwierającemu zdaniu sceny 1.
-- Fakty liczbowe podawaj tylko wtedy, gdy występują w przekazanym materiale. Nie sugeruj gwarantowanego zysku. Przy ofercie zachowaj krótką, istotną kwalifikację, jeśli bez niej główna korzyść byłaby myląca; nie odczytuj całego regulaminu.
+DOKŁADNIE 8 SCEN, ŁĄCZNIE 18 SEKUND:
+1. 0–2.0 s — HOOK: konkretny fakt lub zmiana ze źródła.
+2. 2.0–4.0 s — KONTEKST: czego dotyczy news.
+3. 4.0–6.0 s — PROBLEM: co jest stawką, bez dopisywania skutków.
+4. 6.0–8.0 s — WYJAŚNIENIE: co źródło faktycznie mówi.
+5. 8.0–10.5 s — KONKRET: najważniejszy potwierdzony szczegół.
+6. 10.5–13.0 s — KONSEKWENCJA: ostrożna interpretacja, odróżniona od faktu.
+7. 13.0–15.5 s — WNIOSEK: praktyczna rzecz do sprawdzenia lub zrozumienia.
+8. 15.5–18.0 s — DOMKNIĘCIE + CTA dopasowane do newsa; na ekranie ma być Raport-Finansowy24.pl.
 
-WYMAGANY PŁASKI FORMAT JSON:
-{
-  "title": "Neutralna, krótka nazwa robocza tematu Shorta",
-  "description": "Zwięzły opis, trafne hashtagi i CTA: https://raport-finansowy24.pl",
-  "hook": "Dokładne pierwsze zdanie sceny 1",
-  "scenes": [
-    { "subtitles": "Tekst sceny 1", "voiceover_text": "Tekst sceny 1", "duration": 4.5, "searchKeyword": "distinct relevant English Pexels query 1" },
-    { "subtitles": "Tekst sceny 2", "voiceover_text": "Tekst sceny 2", "duration": 4.5, "searchKeyword": "distinct relevant English Pexels query 2" },
-    { "subtitles": "Tekst sceny 3", "voiceover_text": "Tekst sceny 3", "duration": 4.5, "searchKeyword": "distinct relevant English Pexels query 3" },
-    { "subtitles": "Tekst sceny 4 z CTA do raport-finansowy24.pl", "voiceover_text": "Tekst sceny 4 z CTA do raport-finansowy24.pl", "duration": 4.5, "searchKeyword": "distinct relevant English Pexels query 4" }
-  ],
-  "backgroundMusicUrl": "https://assets.mixkit.co/music/preview/mixkit-tech-house-vibes-130.mp3",
-  "audioVolume": 0.25
-}`;
+REŻYSERIA:
+- Każda scena ma osobny, unikalny, konkretny prompt Pexels po angielsku, bezpośrednio związany z wypowiedzią.
+- Pisz krótko, naturalnie i rytmicznie po polsku. Napisy muszą być czytelne na telefonie.
+- Napisy i lektor w każdej scenie muszą być identyczne.
+- Opis publikacyjny zawiera https://raport-finansowy24.pl.
+- Nie uruchamiaj publikacji, harmonogramu ani webhooków; zwróć dane do istniejącego pipeline'u.
+
+CZASY KOLEJNO: 2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5 sekundy. Suma dokładnie 18 sekund.
+`;
 
   try {
     const prompt = `Jesteś elitarnym twórcą viralowych formatów wideo dla portalu raport-finansowy24.pl (w stylu CNBC, Bloomberg, Hormozi).
@@ -3860,7 +3861,7 @@ Każda scena w tablicy "scenes" musi mieć pole "duration": ${sceneDuration}.`;
             ...sc,
             subtitles: textContent,
             voiceover_text: textContent,
-            duration: sceneDuration,
+            duration: sceneDurations[idx],
             videoUrl: resolved.videoUrl,
             thumbnailUrl: resolved.thumbnailUrl,
             source: resolved.source,
@@ -4252,7 +4253,7 @@ router.post('/auto-pilot-shorts', async (req, res) => {
         topic: topicToUse,
         niche,
         language,
-        sceneCount: body.sceneCount || 4,
+        sceneCount: 8,
         articleContext: body.articleContext,
         bankierArticle: body.bankierArticle,
         pairedKeywords: body.pairedKeywords,
@@ -4263,32 +4264,33 @@ router.post('/auto-pilot-shorts', async (req, res) => {
       description = scriptData.description || description;
       scenesToRender = scriptData.scenes || [];
       const pexelsIds = scenesToRender.map((scene: any) => scene.pexelsId);
-      const hasFourUniquePexelsVideos = scenesToRender.length === 4 &&
+      const hasFourUniquePexelsVideos = scenesToRender.length === 8 &&
         scenesToRender.every((scene: any) => scene.source === 'pexels' && typeof scene.pexelsId === 'number' && Number.isFinite(scene.pexelsId)) &&
         new Set(pexelsIds).size === 4;
       if (!hasFourUniquePexelsVideos) {
         return res.status(502).json({
-          error: 'Nie udało się dobrać czterech różnych klipów wideo z Pexels. Short nie został wyrenderowany.',
+          error: 'Nie udało się dobrać ośmiu różnych klipów wideo z Pexels. Short nie został wyrenderowany.',
           fallbackDisabled: true
         });
       }
     }
 
-    // Zablokuj czas i sceny na stałe: Zawsze dokładnie 4 sceny po 4.5s (łącznie 18.0s)
-    if (scenesToRender.length > 4) {
-      scenesToRender = scenesToRender.slice(0, 4);
-    } else if (scenesToRender.length < 4) {
-      while (scenesToRender.length < 4) {
+    // Zablokuj format: dokładnie 8 scen, łącznie 18 sekund.
+    const requiredSceneDurations = [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5];
+    if (scenesToRender.length > 8) {
+      scenesToRender = scenesToRender.slice(0, 8);
+    } else if (scenesToRender.length < 8) {
+      while (scenesToRender.length < 8) {
         const copyFrom = scenesToRender[scenesToRender.length - 1] || scenesToRender[0];
         scenesToRender.push({
           ...copyFrom,
           subtitles: `${copyFrom.subtitles || 'PODSUMOWANIE'}`,
           voiceover_text: `${copyFrom.voiceover_text || copyFrom.subtitles || 'Podsumowanie'}`,
-          duration: 4.5
+          duration: requiredSceneDurations[scenesToRender.length]
         });
       }
     }
-    scenesToRender = scenesToRender.map((scene) => ({ ...scene, duration: 4.5 }));
+    scenesToRender = scenesToRender.map((scene, idx) => ({ ...scene, duration: requiredSceneDurations[idx] }));
     lockSceneDurations = true;
 
     const autoDecisions: AiViralDecisions = scriptData?.aiDecisions || deriveAiViralDecisions(
@@ -4304,7 +4306,7 @@ router.post('/auto-pilot-shorts', async (req, res) => {
     autoDecisions.voiceSpeed = effectiveSpeed;
     autoDecisions.explanation = body.tts === false
       ? 'Lektor TTS jest wyłączony dla tego renderu.'
-      : `Render używa jednego wybranego profilu ElevenLabs i tempa ${effectiveSpeed.toFixed(2)}x we wszystkich 4 scenach.`;
+      : `Render używa jednego wybranego profilu ElevenLabs i tempa ${effectiveSpeed.toFixed(2)}x we wszystkich 8 scenach.`;
     if (scriptData && typeof scriptData === 'object') scriptData.aiDecisions = autoDecisions;
 
     const effectiveHighlight = body.aiDirectorMode === false && body.highlightColor
