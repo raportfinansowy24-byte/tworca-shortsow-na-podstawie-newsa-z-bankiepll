@@ -40,6 +40,7 @@ import {
   updateTelegramApprovalMessage
 } from './src/server/telegramApproval';
 import { classifyTelegramChatMessage } from './src/server/telegramChatCommands';
+import { FINANCE_SHORT_SCENE_COUNT, getSceneCountError, hasUniquePexelsSceneIds, sceneDurationsForCount, sceneRequestMetadata } from './src/server/sceneContract';
 import { nextTelegramRevisionNumber, normalizeTelegramFeedback } from './src/server/telegramRevision';
 import { constantTimeTokenMatch, createApiAuthMiddleware, createAppSessionToken } from './src/server/apiAuth';
 import {
@@ -1199,6 +1200,9 @@ async function createTelegramRevisionJob(parentJobId: string, feedback: string):
   const now = new Date().toISOString();
   const payload: CombineScenesPayload = {
     scenes: scenes.map((scene: any, idx: number) => ({ ...scene, duration: [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5][idx] })),
+    expectedSceneCount: FINANCE_SHORT_SCENE_COUNT,
+    source: 'telegram-revision',
+    requestId: jobId,
     backgroundMusicUrl: String(metadata.backgroundMusicUrl || 'https://assets.mixkit.co/music/preview/mixkit-tech-house-vibes-130.mp3'),
     audioVolume: typeof metadata.audioVolume === 'number' ? metadata.audioVolume : 0.2,
     outputResolution: String(metadata.resolution || '720x1280'),
@@ -1555,6 +1559,9 @@ interface SceneInput {
 
 interface CombineScenesPayload {
   scenes: SceneInput[];
+  expectedSceneCount?: number;
+  source?: string;
+  requestId?: string;
   audioUrl?: string;
   backgroundMusicUrl?: string;
   audioVolume?: number;
@@ -2029,23 +2036,12 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
       throw new Error('Payload must contain at least one valid scene in "scenes" array.');
     }
 
-    // Preserve the eight-scene contract for the 18-second finance short.
-    let scenes = [...rawScenes];
-    const renderSceneDurations = [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5];
-    if (scenes.length > 8) {
-      scenes = scenes.slice(0, 8);
-    } else if (scenes.length < 8) {
-      while (scenes.length < 8) {
-        const copyFrom = scenes[scenes.length - 1] || scenes[0];
-        scenes.push({
-          ...copyFrom,
-          subtitles: `${copyFrom.subtitles || 'PODSUMOWANIE'}`,
-          voiceover_text: `${copyFrom.voiceover_text || copyFrom.subtitles || 'Podsumowanie'}`,
-          duration: renderSceneDurations[scenes.length]
-        });
-      }
-    }
-    scenes = scenes.map((scene, idx) => ({ ...scene, duration: renderSceneDurations[idx] }));
+    const expectedSceneCount = payload.expectedSceneCount ?? rawScenes.length;
+    const sceneCountError = getSceneCountError(expectedSceneCount, rawScenes.length);
+    console.info(`[Scene request] source=${payload.source || 'internal'} request_id=${payload.requestId || jobId} route=renderer expected=${expectedSceneCount} actual=${rawScenes.length}`);
+    if (sceneCountError) throw new Error(sceneCountError);
+    const renderSceneDurations = sceneDurationsForCount(expectedSceneCount);
+    const scenes = rawScenes.map((scene, idx) => ({ ...scene, duration: renderSceneDurations[idx] }));
 
     const getSceneSpeech = (scene: any): string => String(
       scene.voiceover_text || scene.subtitles || scene.caption || scene.text ||
@@ -2094,14 +2090,14 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
 
     // Synthesize every scene with identical voice/model/settings, then apply one common tempo correction.
     if (ttsEnabled) {
-      const overLimitScene = sceneSpeechTexts.findIndex((text, index) => text.split(/\s+/).filter(Boolean).length > ([2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5][index] <= 2 ? 5 : 6));
+      const overLimitScene = sceneSpeechTexts.findIndex((text, index) => text.split(/\s+/).filter(Boolean).length > Math.max(5, Math.floor(scenes[index].duration * 2.4)));
       if (overLimitScene >= 0) {
-        throw new Error(`Tekst lektora w scenie ${overLimitScene + 1} przekracza limit 10 słów. Skróć skrypt przed syntezą.`);
+        throw new Error(`Tekst lektora w scenie ${overLimitScene + 1} przekracza limit dla jej czasu. Skróć tekst przed syntezą.`);
       }
       if (sceneSpeechTexts.some((text) => !text)) {
-        throw new Error('Każda z 8 scen musi zawierać tekst lektora, aby zachować ciągłość głosu.');
+        throw new Error(`Każda z ${scenes.length} scen musi zawierać tekst lektora.`);
       }
-      updateJobProgress(jobId, { step: 'Generowanie jednego głosu ElevenLabs dla 8 scen', progress: 12 }, `Jeden lektor ElevenLabs, model i tempo dla całego Shorta (${ttsSpeed.toFixed(2)}x).`);
+      updateJobProgress(jobId, { step: `Generowanie jednego głosu ElevenLabs dla ${scenes.length} scen`, progress: 12 }, `Jeden lektor ElevenLabs, model i tempo dla całego Shorta (${ttsSpeed.toFixed(2)}x).`);
       let commonAtempo = 1;
       for (let index = 0; index < scenes.length; index++) {
         if (abortController.signal.aborted) throw new Error('Zadanie zostało anulowane przez użytkownika.');
@@ -4199,21 +4195,17 @@ router.post('/auto-pilot-shorts', async (req, res) => {
       return res.status(400).json({
         error: 'Nieprawidłowe żądanie HTTP. Oczekiwany poprawny obiekt JSON.',
         example: {
-          filename: 'moj_short.mp4',
-          transition: 'fade',
-          scenes: [
-            { text: 'PIERWSZY NIESAMOWITY FAKT', video_url: 'https://example.com/video1.mp4' },
-            { text: 'DRUGI FAKT O ŚWIECIE', video_url: 'https://example.com/video2.mp4' },
-            { text: 'SUBSKRYBUJ PO WIĘCEJ', video_url: 'https://example.com/video3.mp4' }
-          ]
+          topic: 'Wpływ inflacji na raty kredytów',
+          sceneCount: 8
         }
       });
     }
 
     const { filename, transition, topic, niche = 'Viral Shorts', language = 'Polski', outputResolution = '720x1280' } = body;
+    const { source: requestSource, requestId } = sceneRequestMetadata(body.clientSource, req.headers['x-request-id'], 'auto-pilot-api');
     const webhookUrl = body.webhookUrl || (req.query.webhookUrl as string) || (req.headers['x-webhook-url'] as string);
     let scenesToRender: SceneInput[] = [];
-    let title = filename || 'Make.com Short Video';
+    let title = filename || 'Finance Short Video';
     let description = `#shorts #viral #${niche.toLowerCase().replace(/\s+/g, '')}`;
     let scriptData: any = null;
 
@@ -4223,20 +4215,32 @@ router.post('/auto-pilot-shorts', async (req, res) => {
 
     if ((!rawScenesList || rawScenesList.length === 0) && !process.env.PEXELS_API_KEY?.trim()) {
       return res.status(503).json({
-        error: 'Auto-Pilot wymaga klucza PEXELS_API_KEY, aby pobrać cztery dynamiczne klipy Pexels.',
+        error: 'Auto-Pilot wymaga klucza PEXELS_API_KEY, aby dobrać osiem różnych klipów Pexels.',
         requiredConfig: 'PEXELS_API_KEY',
         fallbackDisabled: true
       });
     }
 
     if (rawScenesList && rawScenesList.length > 0) {
+      const requiresPexels = body.requirePexelsClips === true || rawScenesList.some((scene: any) => scene?.source === 'pexels');
+      if (requiresPexels && !hasUniquePexelsSceneIds(rawScenesList)) {
+        return res.status(400).json({
+          error: 'Short wymaga dokładnie ośmiu różnych klipów Pexels z unikalnymi pexelsId. Render przerwany.',
+          expectedSceneCount: FINANCE_SHORT_SCENE_COUNT,
+          fallbackDisabled: true
+        });
+      }
       scenesToRender = rawScenesList.map((sc: any, idx: number) =>
         normalizeSceneItem(sc, idx, rawScenesList.length)
       );
 
-      console.log(`✓ Przyjęto ${scenesToRender.length} scen z Make.com (łączny czas: ${scenesToRender.reduce((a, b) => a + (b.duration || 6), 0)}s)`);
+      const providedSceneCountError = getSceneCountError(FINANCE_SHORT_SCENE_COUNT, scenesToRender.length);
+      if (providedSceneCountError) {
+        return res.status(400).json({ error: providedSceneCountError, expectedSceneCount: FINANCE_SHORT_SCENE_COUNT, receivedSceneCount: scenesToRender.length });
+      }
+      console.info(`[Scene request] source=${requestSource} request_id=${requestId} route=/api/auto-pilot-shorts expected=${FINANCE_SHORT_SCENE_COUNT} actual=${scenesToRender.length}`);
     } else {
-      // 2. Jeśli Make przesłało temat (lub brak scen), wygeneruj scenariusz (odporny silnik AI + Smart Fallback)
+      // 2. Jeśli żądanie zawiera temat, wygeneruj scenariusz (odporny silnik AI + Smart Fallback)
       const topicToUse = topic || '5 Niesamowitych faktów o świecie';
       scriptData = await generateSmartOrGeminiViralScript({
         topic: topicToUse,
@@ -4264,21 +4268,11 @@ router.post('/auto-pilot-shorts', async (req, res) => {
       }
     }
 
-    // Zablokuj format: dokładnie 8 scen, łącznie 18 sekund.
-    const requiredSceneDurations = [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5];
-    if (scenesToRender.length > 8) {
-      scenesToRender = scenesToRender.slice(0, 8);
-    } else if (scenesToRender.length < 8) {
-      while (scenesToRender.length < 8) {
-        const copyFrom = scenesToRender[scenesToRender.length - 1] || scenesToRender[0];
-        scenesToRender.push({
-          ...copyFrom,
-          subtitles: `${copyFrom.subtitles || 'PODSUMOWANIE'}`,
-          voiceover_text: `${copyFrom.voiceover_text || copyFrom.subtitles || 'Podsumowanie'}`,
-          duration: requiredSceneDurations[scenesToRender.length]
-        });
-      }
+    const generatedSceneCountError = getSceneCountError(FINANCE_SHORT_SCENE_COUNT, scenesToRender.length);
+    if (generatedSceneCountError) {
+      return res.status(502).json({ error: generatedSceneCountError, expectedSceneCount: FINANCE_SHORT_SCENE_COUNT, receivedSceneCount: scenesToRender.length });
     }
+    const requiredSceneDurations = sceneDurationsForCount(FINANCE_SHORT_SCENE_COUNT);
     scenesToRender = scenesToRender.map((scene, idx) => ({ ...scene, duration: requiredSceneDurations[idx] }));
     lockSceneDurations = true;
 
@@ -4308,6 +4302,9 @@ router.post('/auto-pilot-shorts', async (req, res) => {
 
     const payload: CombineScenesPayload = {
       scenes: scenesToRender,
+      expectedSceneCount: FINANCE_SHORT_SCENE_COUNT,
+      source: requestSource,
+      requestId,
       backgroundMusicUrl: body.backgroundMusicUrl || 'https://assets.mixkit.co/music/preview/mixkit-tech-house-vibes-130.mp3',
       audioVolume: body.audioVolume ?? 0.2,
       outputResolution,
@@ -4325,19 +4322,19 @@ router.post('/auto-pilot-shorts', async (req, res) => {
       telegramApproval: true
     };
 
-    const jobId = `job_make_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const jobId = `job_autopilot_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const baseUrl = getPublicBaseUrl(req);
 
     const newJob: Job = {
       id: jobId,
       status: 'queued',
       progress: 0,
-      step: 'Przetwarzanie żądania z Make.com: weryfikacja scen i renderowanie FFmpeg',
+      step: `Przetwarzanie żądania (${requestSource}): weryfikacja scen i renderowanie FFmpeg`,
       telegramApprovalRequested: true,
       telegramApprovalStatus: 'waiting_for_render',
       approvalTitle: String(body.topic || body.bankierArticle?.title || title),
       approvalSourceUrl: String(body.bankierArticle?.link || body.bankierArticle?.url || body.articleUrl || ''),
-      source: 'make',
+      source: requestSource,
       title: String(body.topic || body.bankierArticle?.title || title),
       articleTitle: String(body.bankierArticle?.title || body.articleTitle || title || ''),
       articleUrl: String(body.bankierArticle?.link || body.bankierArticle?.url || body.articleUrl || ''),
@@ -4362,7 +4359,7 @@ router.post('/auto-pilot-shorts', async (req, res) => {
       },
       revisionNumber: 0,
       exportStatus: 'not_started',
-      logs: [`[${new Date().toLocaleTimeString()}] Odebrano zadanie z Make.com (${scenesToRender.length} scen)`],
+      logs: [`[${new Date().toLocaleTimeString()}] Odebrano żądanie ${requestSource}, request_id=${requestId} (${scenesToRender.length} scen)`],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -4376,14 +4373,14 @@ router.post('/auto-pilot-shorts', async (req, res) => {
       processCombineScenesJob(jobId, payload, baseUrl);
       return res.status(202).json({
         success: true,
-        message: 'Zadanie Make.com zostało zakolejkowane.',
+        message: `Zadanie (${requestSource}) zostało zakolejkowane.`,
         jobId,
         script: scriptData,
         statusUrl: `${baseUrl}/api/jobs/${jobId}`,
         streamUrl: `${baseUrl}/api/jobs/${jobId}/stream`
       });
     } else {
-      // Domyślnie dla Make.com: przetwarzaj synchronicznie i zwróć bezpośredni URL do gotowego pliku MP4!
+      // W trybie synchronicznym zwróć bezpośredni URL do gotowego pliku MP4.
       await processCombineScenesJob(jobId, payload, baseUrl);
       const completedJob = jobsStore.get(jobId);
 
@@ -4416,7 +4413,7 @@ router.post('/auto-pilot-shorts', async (req, res) => {
     return res.status(isPexelsError ? 502 : 500).json({
       error: isPexelsError
         ? 'Nie udało się pobrać ośmiu dopasowanych klipów Pexels. Short nie został wyrenderowany.'
-        : 'Błąd serwera podczas przetwarzania żądania Make.com:',
+        : 'Błąd serwera podczas przetwarzania żądania:',
       details,
       ...(isPexelsError ? { fallbackDisabled: true } : {})
     });
@@ -4426,12 +4423,14 @@ router.post('/auto-pilot-shorts', async (req, res) => {
 // Main Endpoint: Combine Scenes (/api/combine-scenes)
 router.post('/combine-scenes', async (req, res) => {
   const body = req.body || {};
+  const { source: requestSource, requestId } = sceneRequestMetadata(body.clientSource, req.headers['x-request-id'], 'api-client');
   let scenesList = extractScenesFromPayload(body);
 
   if (!scenesList || scenesList.length === 0) {
     return res.status(400).json({
       error: 'Invalid payload. "scenes" array is required with at least 1 scene object.',
       example: {
+        expectedSceneCount: 1,
         scenes: [
           {
             videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
@@ -4446,30 +4445,33 @@ router.post('/combine-scenes', async (req, res) => {
     });
   }
 
+  const expectedSceneCount = body.expectedSceneCount;
+  const requiresPexels = body.requirePexelsClips === true || scenesList.some((scene: any) => scene?.source === 'pexels');
+  if (requiresPexels && !hasUniquePexelsSceneIds(scenesList)) {
+    return res.status(400).json({
+      error: 'Short wymaga dokładnie ośmiu różnych klipów Pexels z unikalnymi pexelsId. Render przerwany.',
+      expectedSceneCount: FINANCE_SHORT_SCENE_COUNT,
+      receivedSceneCount: scenesList.length,
+      fallbackDisabled: true
+    });
+  }
+  const countError = getSceneCountError(expectedSceneCount, scenesList.length);
+  if (countError) {
+    return res.status(400).json({ error: countError, expectedSceneCount: Number.isInteger(expectedSceneCount) ? expectedSceneCount : null, receivedSceneCount: scenesList.length });
+  }
   let normalizedScenes = scenesList.map((sc: any, idx: number) =>
     normalizeSceneItem(sc, idx, scenesList!.length)
   );
-
-  // Zachowaj osiem scen o łącznym czasie 18 sekund.
-  const combineSceneDurations = [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5];
-  if (normalizedScenes.length > 8) {
-    normalizedScenes = normalizedScenes.slice(0, 8);
-  } else if (normalizedScenes.length < 8) {
-    while (normalizedScenes.length < 8) {
-      const copyFrom = normalizedScenes[normalizedScenes.length - 1] || normalizedScenes[0];
-      normalizedScenes.push({
-        ...copyFrom,
-        subtitles: `${copyFrom.subtitles || 'PODSUMOWANIE'}`,
-        voiceover_text: `${copyFrom.voiceover_text || copyFrom.subtitles || 'Podsumowanie'}`,
-        duration: combineSceneDurations[normalizedScenes.length]
-      });
-    }
-  }
+  const combineSceneDurations = sceneDurationsForCount(expectedSceneCount as number);
   normalizedScenes = normalizedScenes.map((scene, idx) => ({ ...scene, duration: combineSceneDurations[idx] }));
+  console.info(`[Scene request] source=${requestSource} request_id=${requestId} route=/api/combine-scenes expected=${expectedSceneCount} actual=${normalizedScenes.length}`);
   const lockSceneDurations = true;
 
   const payload: CombineScenesPayload = {
     scenes: normalizedScenes,
+    expectedSceneCount: expectedSceneCount as number,
+    source: requestSource,
+    requestId,
     backgroundMusicUrl: body.backgroundMusicUrl || '',
     audioVolume: body.audioVolume ?? (body.tts !== false ? 0.2 : 0.3),
     outputResolution: body.outputResolution || body.resolution || '720x1280',
@@ -4495,7 +4497,7 @@ router.post('/combine-scenes', async (req, res) => {
     status: 'queued',
     progress: 0,
     step: 'Zadanie odebrane i zakolejkowane',
-    source: 'combine_scenes',
+    source: requestSource,
     telegramApprovalRequested: true,
     telegramApprovalStatus: 'waiting_for_render',
     approvalTitle: String(body.title || body.topic || body.articleTitle || 'Short do akceptacji'),
@@ -4701,6 +4703,9 @@ const handleInboundWebhook = async (req: express.Request, res: express.Response)
 
       const payload: CombineScenesPayload = {
         scenes: scenesToRender,
+        expectedSceneCount: scenesToRender.length,
+        source: 'webhook',
+        requestId: String(req.headers['x-request-id'] || jobId),
         backgroundMusicUrl: body.backgroundMusicUrl || 'https://assets.mixkit.co/music/preview/mixkit-tech-house-vibes-130.mp3',
         audioVolume: body.audioVolume ?? (body.tts !== false ? 0.2 : 0.3),
         outputResolution: body.outputResolution || body.resolution || '720x1280',
@@ -6202,6 +6207,9 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
 
     const payload: CombineScenesPayload = {
       scenes: scriptData.scenes,
+      expectedSceneCount: FINANCE_SHORT_SCENE_COUNT,
+      source: 'scheduler',
+      requestId: jobId,
       backgroundMusicUrl: 'https://assets.mixkit.co/music/preview/mixkit-tech-house-vibes-130.mp3',
       audioVolume: 0.2,
       outputResolution: schedulerState.resolution || '720x1280',
