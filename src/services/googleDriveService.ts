@@ -45,10 +45,10 @@ provider.setCustomParameters({
 // Flag and promise lock to track sign-in status and prevent concurrent popup collisions
 let isSigningIn = false;
 let activeSignInPromise: Promise<{ user: User; accessToken: string } | null> | null = null;
-// Token cache persisted in sessionStorage (survives page reloads within the tab session)
+// Token cache persisted in localStorage across browser tabs and restarts; Google access tokens still expire.
 let cachedAccessToken: string | null = (() => {
   try {
-    return sessionStorage.getItem('gdrive_access_token');
+    return localStorage.getItem('gdrive_access_token');
   } catch {
     return null;
   }
@@ -87,7 +87,7 @@ export const initAuth = (
     if (user) {
       if (!cachedAccessToken) {
         try {
-          cachedAccessToken = sessionStorage.getItem('gdrive_access_token');
+          cachedAccessToken = localStorage.getItem('gdrive_access_token');
         } catch {
           // ignore
         }
@@ -102,7 +102,7 @@ export const initAuth = (
     } else {
       cachedAccessToken = null;
       try {
-        sessionStorage.removeItem('gdrive_access_token');
+        localStorage.removeItem('gdrive_access_token');
       } catch {}
       if (onAuthFailure) onAuthFailure();
     }
@@ -126,7 +126,7 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
 
       cachedAccessToken = credential.accessToken;
       try {
-        sessionStorage.setItem('gdrive_access_token', cachedAccessToken);
+        localStorage.setItem('gdrive_access_token', cachedAccessToken);
       } catch {}
       return { user: result.user, accessToken: cachedAccessToken };
     } catch (error: any) {
@@ -158,7 +158,7 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
 export const getAccessToken = async (): Promise<string | null> => {
   if (!cachedAccessToken) {
     try {
-      cachedAccessToken = sessionStorage.getItem('gdrive_access_token');
+      cachedAccessToken = localStorage.getItem('gdrive_access_token');
     } catch {}
   }
   return cachedAccessToken;
@@ -168,7 +168,7 @@ export const logoutGoogleDrive = async () => {
   await signOut(auth);
   cachedAccessToken = null;
   try {
-    sessionStorage.removeItem('gdrive_access_token');
+    localStorage.removeItem('gdrive_access_token');
   } catch {}
 };
 
