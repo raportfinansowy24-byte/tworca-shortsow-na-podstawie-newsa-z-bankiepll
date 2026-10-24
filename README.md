@@ -133,10 +133,14 @@ W folderze aplikacji znajduje się gotowy moduł HTTP Connector:
 ## 📡 Kontrakty API i Endpointy
 
 ### 1. `POST /api/combine-scenes`
+
+`expectedSceneCount` jest wymagane i musi być równe długości `scenes` (od 1 do 8). Niepełne listy kończą się błędem; serwer nie kopiuje scen. Ustaw `clientSource` (np. `make`, `panel` lub `translation`) do diagnozowania źródła w logach.
 Łączy przekazaną tablicę scen w jeden film MP4.
 
 ```json
 {
+  "clientSource": "readme-example",
+  "expectedSceneCount": 1,
   "scenes": [
     {
       "videoUrl": "https://assets.mixkit.co/videos/preview/mixkit-business-charts-in-a-computer-screen-40788-large.mp4",
@@ -275,7 +279,7 @@ Skopiuj plik `.env.example` do `.env`. Na Fly.io sekrety ustawiaj przez `fly sec
 | `ELEVENLABS_API_KEY` | Tak dla TTS | Klucz ElevenLabs. Bez niego render TTS kończy się czytelnym błędem; nie ma fallbacku do Google/Edge. |
 | `ELEVENLABS_VOICE_ID` | Nie | Domyślnie `onwK4e9ZLuTAKqWW03F9` (Daniel, premade); można wybrać inny głos z katalogu konta w interfejsie. |
 | `ELEVENLABS_MODEL_ID` | Nie | Domyślnie `eleven_multilingual_v2`. |
-| `PEXELS_API_KEY` | Wymagana dla Auto-Pilota | Klucz Pexels API; Auto-Pilot dobiera cztery różne, pionowe klipy wideo. Jeśli nie znajdzie kompletu, pokaże komunikat o problemie i przerwie render — nie podstawi przypadkowych klipów. Ręcznie podane adresy scen nadal można renderować bez klucza. |
+| `PEXELS_API_KEY` | Wymagana dla Auto-Pilota | Klucz Pexels API; Auto-Pilot dobiera osiem różnych, pionowych klipów wideo. Jeśli nie znajdzie kompletu, pokaże komunikat o problemie i przerwie render — nie podstawi przypadkowych klipów. Ręcznie podane adresy scen nadal można renderować bez klucza. |
 | `TELEGRAM_BOT_TOKEN` | Wymagana dla akceptacji | Token bota Telegrama. Przechowuj wyłącznie w sekretach środowiska wdrożenia. |
 | `TELEGRAM_CHAT_ID` | Wymagana dla akceptacji | ID jednego prywatnego czatu lub grupy, do którego trafiają shorty i poprawki. |
 | `TELEGRAM_WEBHOOK_SECRET` | Wymagana dla przycisków i komentarzy | Losowy sekret webhooka przekazywany przez Telegram w nagłówku `X-Telegram-Bot-Api-Secret-Token`. |

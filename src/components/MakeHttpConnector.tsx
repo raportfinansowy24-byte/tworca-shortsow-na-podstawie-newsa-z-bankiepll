@@ -463,6 +463,8 @@ export const MakeHttpConnector: React.FC = () => {
     }, 1000);
 
     const payload = {
+      clientSource: 'make-connector',
+      expectedSceneCount: scenes.length,
       scenes: scenes.map((s) => ({
         videoUrl: s.videoUrl,
         subtitles: s.subtitles,
@@ -624,6 +626,8 @@ export const MakeHttpConnector: React.FC = () => {
     if (makePayloadMode === 'make_variables') {
       return JSON.stringify(
         {
+          clientSource: 'make',
+          expectedSceneCount: scenes.length,
           scenes: scenes.map((s, i) => ({
             videoUrl: `{{1.scene_${i + 1}_videoUrl}}`,
             subtitles: `{{1.scene_${i + 1}_subtitles}}`,
@@ -660,6 +664,8 @@ export const MakeHttpConnector: React.FC = () => {
     if (makePayloadMode === 'make_array') {
       return JSON.stringify(
         {
+          clientSource: 'make',
+          expectedSceneCount: 8,
           scenes: '{{1.scenes}}',
           audioUrl: '{{1.audioUrl}}',
           audioVolume: 0.2,
@@ -684,6 +690,8 @@ export const MakeHttpConnector: React.FC = () => {
     // Default 'creator' mode (static values for immediate test)
     return JSON.stringify(
       {
+        clientSource: 'make',
+        expectedSceneCount: scenes.length,
         scenes: scenes.map((s) => ({
           videoUrl: s.videoUrl,
           subtitles: s.subtitles,

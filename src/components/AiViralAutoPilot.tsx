@@ -857,6 +857,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          clientSource: 'auto-pilot-news',
           topic: article.title,
           niche: `Finanse & Biznes (${article.category || 'Bankier.pl'})`,
           articleContext: `Tytuł artykułu z Bankier.pl: "${article.title}"\nPodsumowanie i fakty: ${article.description}`,
@@ -1008,6 +1009,8 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
         text: s.voiceover_text || s.subtitles,
         subtitles: s.subtitles,
         video_url: s.videoUrl,
+        source: s.source,
+        pexelsId: s.pexelsId,
         duration: s.duration || 4.5,
         searchKeyword: s.searchKeyword,
         captionStyle: s.captionStyle || {
@@ -1024,8 +1027,11 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          clientSource: 'auto-pilot-verified-scenes',
+          requirePexelsClips: true,
           topic: generatedScript?.title || topic,
           niche,
+          sceneCount: 8,
           scenes: payloadScenes,
           outputResolution: resolution,
           lockSceneDurations: true,
@@ -1184,6 +1190,8 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            clientSource: 'translation-mode',
+            expectedSceneCount: (transData.scenes || []).length,
             scenes: (transData.scenes || []).map((sc: any) => ({
               ...sc,
               captionStyle: {
@@ -1221,6 +1229,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            clientSource: 'auto-pilot-direct',
             topic,
             niche,
             articleContext: buildArticleContextString(selectedBankierArticle),
