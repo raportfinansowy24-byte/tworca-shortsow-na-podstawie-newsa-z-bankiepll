@@ -1809,8 +1809,16 @@ function generateWordByWordAss(
   const marginV = position === 'center' ? 0 : position === 'top' ? 160 : 220;
   // Powiększenie z zachowaniem idealnych proporcji (bazowy rozmiar 70 zamiast 56, obrys 8 zamiast 6)
   const baseSize = options.fontSize || 56;
-  const fontSize = baseSize >= 64 ? baseSize : Math.round(baseSize * 1.25);
-  const outlineWidth = options.outlineWidth ? Math.round(options.outlineWidth * 1.25) : Math.round(fontSize * 0.12);
+  const requestedFontSize = baseSize >= 64 ? baseSize : Math.round(baseSize * 1.25);
+  // Fit even long CTA/domain tokens (e.g. raport-finansowy24.pl) inside a 720px portrait frame.
+  // ASS renders one word at a time, so size to the widest token, not total sentence length.
+  const longestTokenLength = Math.max(...words.map((word) => [...word].length), 1);
+  const safeHorizontalWidth = 720 - 2 * 48; // 48px visual safe area on both sides
+  const maxFittingFontSize = Math.floor(safeHorizontalWidth / (0.64 * longestTokenLength));
+  const fontSize = Math.max(30, Math.min(requestedFontSize, maxFittingFontSize));
+  const outlineWidth = options.outlineWidth
+    ? Math.min(Math.round(options.outlineWidth * 1.25), Math.max(2, Math.round(fontSize * 0.08)))
+    : Math.max(2, Math.round(fontSize * 0.08));
 
   const normalizeWord = (word: string) => word.toLocaleLowerCase('pl-PL').replace(/[^\p{L}\p{N}]/gu, '');
   const hasMatchingTtsTimings = ttsWordTimings.length === words.length && ttsWordTimings.every((timing, index) =>
@@ -2872,21 +2880,16 @@ function ensureRaportFinansowyCta(text: string, topic?: string): string {
 function ensureConciseRaportFinansowyCta(text: string): string {
   const url = 'raport-finansowy24.pl';
   const source = (text || '').trim();
-  if (source.toLowerCase().includes(url)) {
-    const words = source.split(/\s+/).filter(Boolean);
-    if (words.length <= 10) return source;
-    const urlIndex = words.findIndex((word) => word.toLowerCase().includes(url));
-    const ctaTail = words.slice(Math.max(0, urlIndex - 3));
-    return [...words.slice(0, Math.max(0, 10 - ctaTail.length)), ...ctaTail].join(' ');
-  }
-
-  const withoutRaportUrl = source
+  // Keep the closing CTA deliberately short: the URL is a single long animated token
+  // and must remain readable on a phone without wrapping or clipping.
+  const clean = source
     .replace(/https?:\/\/(?:www\.)?raport-finansowy24\.pl\/?/gi, '')
     .replace(/(?:www\.)?raport-finansowy24\.pl/gi, '')
-    .trim()
-    .replace(/[.,!?;:]*$/, '');
-  const shortLead = withoutRaportUrl.split(/\s+/).filter(Boolean).slice(0, 6).join(' ');
-  return `${shortLead ? `${shortLead}. ` : ''}Pełna analiza: ${url}.`;
+    .replace(/raport-finansowy24\.pl/gi, '')
+    .replace(/[\s.,!?;:]+/g, ' ')
+    .trim();
+  const lead = clean.split(/\s+/).filter(Boolean).slice(0, 3).join(' ');
+  return `${lead ? `${lead}. ` : ''}Pełna analiza: ${url}.`;
 }
 
 // Built-in smart viral script engine fallback (activated when Gemini is unavailable or access is restricted)
