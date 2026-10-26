@@ -1,7 +1,5 @@
 # Existing Fly app is reused to avoid creating a duplicate application.
-# A single shared-cpu-8x (2 GB) Machine and 10 GB volume are expected to cost
-# about $17.06/month at 730 hours, plus egress and taxes (pricing checked 2026-10-16).
-
+# Keep the existing volume and always-on machine configuration.
 app = "tworca-shortsow-na-podstawie-newsa-z-bankiepll"
 primary_region = "fra"
 kill_signal = "SIGINT"
@@ -12,7 +10,7 @@ kill_timeout = "30s"
 
 [env]
   NODE_ENV = "production"
-  PORT = "3000"
+  PORT = "8080"
   APP_URL = "https://tworca-shortsow-na-podstawie-newsa-z-bankiepll.fly.dev"
   FIREBASE_PROJECT_ID = "gen-lang-client-0568813813"
   AUTOPILOT_ALLOWED_EMAILS = "raportfinansowy24@gmail.com"
@@ -23,7 +21,7 @@ kill_timeout = "30s"
   initial_size = "10gb"
 
 [http_service]
-  internal_port = 3000
+  internal_port = 8080
   force_https = true
   auto_stop_machines = "off"
   auto_start_machines = true
