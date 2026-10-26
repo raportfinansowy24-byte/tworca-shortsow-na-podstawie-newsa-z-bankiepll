@@ -26,7 +26,7 @@ COPY docker/entrypoint.sh /usr/local/bin/app-entrypoint
 RUN chmod 0755 /usr/local/bin/app-entrypoint
 
 ENV NODE_ENV=production \
-    PORT=3000
+    PORT=8080
 
-EXPOSE 3000
+EXPOSE 8080
 ENTRYPOINT ["/usr/local/bin/app-entrypoint"]
