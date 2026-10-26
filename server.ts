@@ -55,7 +55,7 @@ import {
 
 const execPromise = promisify(exec);
 
-const PORT = 3000;
+const PORT = Number.parseInt(process.env.PORT || '3000', 10);
 const app = express();
 
 const OFFER_CATALOG_REFRESH_INTERVAL_MS = Math.max(
