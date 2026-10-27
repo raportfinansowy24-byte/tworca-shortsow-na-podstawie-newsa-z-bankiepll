@@ -2584,7 +2584,7 @@ async function runSupervisorMonitorCheck(): Promise<void> {
     throw new Error('monitor_prerequisites_missing: configure TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID and BANKIER_SHORTS_API_TOKEN');
   }
 
-  const baseUrl = (process.env.APP_URL || `http://127.0.0.1:${PORT}`).trim().replace(/\\/+$/, '');
+  const baseUrl = (process.env.APP_URL || `http://127.0.0.1:${PORT}`).trim().replace(/\/+$/, '');
   try {
     const response = await fetch(new URL('/api/supervisor/status', baseUrl), {
       headers: { Authorization: `Bearer ${machineToken}`, Accept: 'application/json' },
@@ -2601,8 +2601,7 @@ async function runSupervisorMonitorCheck(): Promise<void> {
     const failed = Number(report.jobs?.failed || 0);
     const issues = [
       ...(report.status !== 'healthy' ? ['Nadzorca zgłasza stan wymagający uwagi.'] : []),
-      ...(failed > 0 ? [`Zadania zakończone błędem: ${failed}.`] : []),
-      ...(report.nextActions || []).slice(0, 5)
+      ...(failed > 0 ? [`Zadania zakończone błędem: ${failed}.`] : [])
     ];
     const uniqueIssues = [...new Set(issues)];
     if (uniqueIssues.length === 0) {
