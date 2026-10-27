@@ -2580,8 +2580,23 @@ async function runSupervisorMonitorCheck(): Promise<void> {
   const chatId = process.env.TELEGRAM_CHAT_ID?.trim() || '';
   const machineToken = process.env.BANKIER_SHORTS_API_TOKEN?.trim() || '';
   if (process.env.SUPERVISOR_MONITOR_ENABLED !== 'true') return;
-  if (!botToken || !chatId || !machineToken) {
-    throw new Error('monitor_prerequisites_missing: configure TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID and BANKIER_SHORTS_API_TOKEN');
+  // Without Telegram credentials no alert can be delivered; avoid an unhandled timer rejection.
+  if (!botToken || !chatId) {
+    console.warn('[Supervisor] Monitoring enabled, but Telegram credentials are missing.');
+    return;
+  }
+  if (!machineToken) {
+    const fingerprint = 'monitor_prerequisites_missing:BANKIER_SHORTS_API_TOKEN';
+    if (fingerprint !== lastSupervisorAlertFingerprint) {
+      lastSupervisorAlertFingerprint = fingerprint;
+      supervisorAlertWasActive = true;
+      try {
+        await sendTelegramNotice(botToken, chatId, '⚠️ Nadzorca nie może wykonać kontroli: brakuje BANKIER_SHORTS_API_TOKEN. Uzupełnij sekret w Fly.io. Nie wykonano żadnej naprawy ani publikacji.');
+      } catch (noticeError) {
+        console.warn('[Supervisor] Nie udało się wysłać alarmu o brakującym tokenie:', (noticeError as Error).message);
+      }
+    }
+    return;
   }
 
   const baseUrl = (process.env.APP_URL || `http://127.0.0.1:${PORT}`).trim().replace(/\/+$/, '');
