@@ -2566,6 +2566,84 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
 // REST API ROUTER
 const router = express.Router();
 
+// Supervisor monitor: opt-in, bounded, deduplicated alerts. It never publishes or mutates jobs.
+const SUPERVISOR_MONITOR_INTERVAL_MS = Math.max(
+  60_000,
+  Number(process.env.SUPERVISOR_MONITOR_INTERVAL_MS) || 5 * 60 * 1000
+);
+let supervisorMonitorStarted = false;
+let lastSupervisorAlertFingerprint = '';
+let supervisorAlertWasActive = false;
+
+async function runSupervisorMonitorCheck(): Promise<void> {
+  const botToken = process.env.TELEGRAM_BOT_TOKEN?.trim() || '';
+  const chatId = process.env.TELEGRAM_CHAT_ID?.trim() || '';
+  const machineToken = process.env.BANKIER_SHORTS_API_TOKEN?.trim() || '';
+  if (process.env.SUPERVISOR_MONITOR_ENABLED !== 'true' || !botToken || !chatId || !machineToken) return;
+
+  const baseUrl = (process.env.APP_URL || `http://127.0.0.1:${PORT}`).trim().replace(/\\/+$/, '');
+  try {
+    const response = await fetch(new URL('/api/supervisor/status', baseUrl), {
+      headers: { Authorization: `Bearer ${machineToken}`, Accept: 'application/json' },
+      signal: AbortSignal.timeout(10_000)
+    });
+    if (!response.ok) throw new Error(`supervisor_status_http_${response.status}`);
+    const report = await response.json() as {
+      status?: string;
+      checkedAt?: string;
+      nextActions?: string[];
+      jobs?: { failed?: number; active?: number };
+      services?: { raportFinansowy24?: { reachable?: boolean; httpStatus?: number }; mediaPipeline?: { ffmpegReady?: boolean; fontReady?: boolean } };
+    };
+    const failed = Number(report.jobs?.failed || 0);
+    const issues = [
+      ...(report.status !== 'healthy' ? ['Nadzorca zgłasza stan wymagający uwagi.'] : []),
+      ...(failed > 0 ? [`Zadania zakończone błędem: ${failed}.`] : []),
+      ...(report.nextActions || []).slice(0, 5)
+    ];
+    const uniqueIssues = [...new Set(issues)];
+    if (uniqueIssues.length === 0) {
+      if (supervisorAlertWasActive) {
+        await sendTelegramNotice(botToken, chatId, '✅ Nadzorca RaportFinansowy24: poprzednie ostrzeżenie już nie występuje. Sprawdź raport statusu, jeśli problem dotyczył publikacji lub renderowania.');
+      }
+      supervisorAlertWasActive = false;
+      lastSupervisorAlertFingerprint = '';
+      return;
+    }
+
+    const fingerprint = uniqueIssues.join('|');
+    if (fingerprint === lastSupervisorAlertFingerprint) return;
+    lastSupervisorAlertFingerprint = fingerprint;
+    supervisorAlertWasActive = true;
+    await sendTelegramNotice(
+      botToken,
+      chatId,
+      `⚠️ NADZORCA RAPORTFINANSOWY24\nStan: ${String(report.status || 'unknown')}\nAktywne zadania: ${Number(report.jobs?.active || 0)}\n\n${uniqueIssues.join('\n')}\n\nŻadna publikacja ani naprawa nie została wykonana automatycznie. Sprawdź status i zdecyduj o dalszym działaniu.`
+    );
+  } catch (error) {
+    const fingerprint = `monitor_check_failed:${(error as Error).message || 'unknown'}`;
+    if (fingerprint === lastSupervisorAlertFingerprint) return;
+    lastSupervisorAlertFingerprint = fingerprint;
+    supervisorAlertWasActive = true;
+    try {
+      await sendTelegramNotice(botToken, chatId, '⚠️ Nadzorca RaportFinansowy24 nie mógł wykonać kontroli statusu. Sprawdź logi Fly.io i dostępność /api/supervisor/status. Nie wykonano automatycznej naprawy.');
+    } catch (noticeError) {
+      console.warn('[Supervisor] Nie udało się wysłać alarmu Telegram:', (noticeError as Error).message);
+    }
+    console.warn('[Supervisor] Kontrola nie powiodła się:', (error as Error).message);
+  }
+}
+
+function startSupervisorMonitor(): void {
+  if (supervisorMonitorStarted || process.env.SUPERVISOR_MONITOR_ENABLED !== 'true') return;
+  supervisorMonitorStarted = true;
+  const timer = setInterval(() => { void runSupervisorMonitorCheck(); }, SUPERVISOR_MONITOR_INTERVAL_MS);
+  timer.unref?.();
+  // Run once after server startup; the recurring timer is unref'd so it won't keep Node alive.
+  setTimeout(() => { void runSupervisorMonitorCheck(); }, 15_000).unref?.();
+  console.info(`[Supervisor] Monitoring opt-in is enabled; interval=${SUPERVISOR_MONITOR_INTERVAL_MS}ms.`);
+}
+
 // Shared runtime diagnostics used by health and supervisor endpoints to avoid duplicated checks.
 async function getMediaRuntimeDiagnostics() {
   let ffmpegVersion = 'Unknown';
@@ -6943,6 +7021,7 @@ async function startServer() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Video Combiner Express Server listening on http://0.0.0.0:${PORT}`);
+    startSupervisorMonitor();
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
     const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
     const appUrl = process.env.APP_URL;
