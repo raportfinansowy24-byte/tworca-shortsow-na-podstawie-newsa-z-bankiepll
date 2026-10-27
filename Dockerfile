@@ -12,7 +12,8 @@ RUN apt-get update \
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
+# This repository tracks bun.lock, not package-lock.json; install from package.json.
+COPY package.json ./
 RUN npm install --include=dev --no-audit --no-fund
 
 COPY . .
