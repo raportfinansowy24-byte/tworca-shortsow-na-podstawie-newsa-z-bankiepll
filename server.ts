@@ -2596,6 +2596,61 @@ router.get('/health', async (req, res) => {
   });
 });
 
+// Central supervisor: read-only health checks across Shorts generation and RaportFinansowy24.
+router.get('/supervisor/status', async (_req, res) => {
+  const jobs = Array.from(jobsStore.values());
+  const activeJobs = jobs.filter((job) => job.status === 'queued' || job.status === 'processing').length;
+  const failedJobs = jobs.filter((job) => job.status === 'failed').length;
+  const completedJobs = jobs.filter((job) => job.status === 'completed').length;
+  const envReady = {
+    appAuth: Boolean(process.env.APP_AUTH_SECRET && process.env.APP_AUTH_SECRET.length >= 32),
+    machineToken: Boolean(process.env.BANKIER_SHORTS_API_TOKEN),
+    gemini: Boolean(process.env.GEMINI_API_KEY),
+    pexels: Boolean(process.env.PEXELS_API_KEY),
+    elevenLabs: Boolean(process.env.ELEVENLABS_API_KEY),
+    telegramApproval: Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID && process.env.TELEGRAM_WEBHOOK_SECRET),
+    supabaseHistory: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_KEY),
+    postiz: Boolean(process.env.POSTIZ_API_KEY && process.env.POSTIZ_INTEGRATIONS),
+    postizAutoPublishEnabled: process.env.POSTIZ_AUTO_PUBLISH === 'true'
+  };
+
+  const websiteUrl = (process.env.RAPORTFINANSOWY24_URL || 'https://raport-finansowy24.pl').trim();
+  let website: { url: string; reachable: boolean; httpStatus?: number; error?: string } = { url: websiteUrl, reachable: false };
+  try {
+    const response = await fetch(websiteUrl, { method: 'GET', redirect: 'follow', signal: AbortSignal.timeout(7000) });
+    website = { url: websiteUrl, reachable: response.ok, httpStatus: response.status };
+  } catch (error) {
+    website = { url: websiteUrl, reachable: false, error: (error as Error).name === 'TimeoutError' ? 'timeout' : 'request_failed' };
+  }
+
+  const missingRequired = [
+    !envReady.appAuth ? 'APP_AUTH_SECRET (minimum 32 characters)' : null,
+    !envReady.machineToken ? 'BANKIER_SHORTS_API_TOKEN' : null,
+    !envReady.gemini ? 'GEMINI_API_KEY' : null,
+    !envReady.pexels ? 'PEXELS_API_KEY' : null,
+    !envReady.elevenLabs ? 'ELEVENLABS_API_KEY' : null
+  ].filter(Boolean);
+
+  res.json({
+    agent: 'RaportFinansowy24 Central Supervisor',
+    mode: 'read-only',
+    status: missingRequired.length === 0 && website.reachable ? 'healthy' : 'needs_attention',
+    checkedAt: new Date().toISOString(),
+    services: { shortsGenerator: 'online', raportFinansowy24: website },
+    jobs: { retained: jobs.length, active: activeJobs, completed: completedJobs, failed: failedJobs },
+    configuration: envReady,
+    missingRequired,
+    nextActions: [
+      ...(!website.reachable ? ['Sprawdź domenę RaportFinansowy24: witryna nie zwróciła poprawnego HTTP 2xx.'] : []),
+      ...missingRequired.map((name) => 'Uzupełnij sekret w Fly.io: ' + name + '.'),
+      ...(!envReady.telegramApproval ? ['Skonfiguruj token bota, chat ID i sekret webhooka Telegrama, jeśli chcesz zatwierdzać shorty przez Telegram.'] : []),
+      ...(!envReady.supabaseHistory ? ['Skonfiguruj Supabase, aby historia zadań była trwała między restartami.'] : []),
+      ...(!envReady.postiz ? ['Postiz nie jest skonfigurowany; publikowanie pozostaje wyłączone.'] : []),
+      ...(envReady.postizAutoPublishEnabled ? ['UWAGA: automatyczna publikacja Postiz jest włączona.'] : ['Publikacja automatyczna jest wyłączona; zatwierdzenie w Telegramie nie publikuje publicznie.'])
+    ]
+  });
+});
+
 // Record Google Drive export attempts server-side; this route is protected by the API auth middleware.
 router.post('/jobs/:jobId/exports', async (req, res) => {
   const jobId = String(req.params.jobId || '');
