@@ -1,0 +1,34 @@
+name: Validate Shorts Generator
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: TypeScript validation
+        run: npm run lint
+      - name: Production build
+        run: npm run build
+      - name: Scene contract tests
+        run: npm run test:scene-contract
+      - name: Telegram approval and revision tests
+        run: npm run test:telegram-review
+      - name: Telegram chat command tests
+        run: npm run test:telegram-chat
+      - name: API auth tests
+        run: npm run test:auth
+      - name: Supabase job history tests
+        run: npm run test:supabase-history
