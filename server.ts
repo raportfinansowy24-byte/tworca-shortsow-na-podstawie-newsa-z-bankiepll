@@ -2579,7 +2579,10 @@ async function runSupervisorMonitorCheck(): Promise<void> {
   const botToken = process.env.TELEGRAM_BOT_TOKEN?.trim() || '';
   const chatId = process.env.TELEGRAM_CHAT_ID?.trim() || '';
   const machineToken = process.env.BANKIER_SHORTS_API_TOKEN?.trim() || '';
-  if (process.env.SUPERVISOR_MONITOR_ENABLED !== 'true' || !botToken || !chatId || !machineToken) return;
+  if (process.env.SUPERVISOR_MONITOR_ENABLED !== 'true') return;
+  if (!botToken || !chatId || !machineToken) {
+    throw new Error('monitor_prerequisites_missing: configure TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID and BANKIER_SHORTS_API_TOKEN');
+  }
 
   const baseUrl = (process.env.APP_URL || `http://127.0.0.1:${PORT}`).trim().replace(/\\/+$/, '');
   try {
@@ -2759,12 +2762,34 @@ router.post('/supervisor/recheck', async (_req, res) => {
       safeRecovery: 'No changes or retries were performed.'
     });
   }
-  await runSupervisorMonitorCheck();
-  return res.json({
-    success: true,
-    message: 'Kontrola nadzorcy została uruchomiona; alarm Telegram jest wysyłany tylko przy nowym lub zmienionym problemie.',
-    safeRecovery: 'Read-only diagnostics only. No jobs were retried and no public posts were created.'
-  });
+  const missingPrerequisites = [
+    !process.env.TELEGRAM_BOT_TOKEN?.trim() ? 'TELEGRAM_BOT_TOKEN' : null,
+    !process.env.TELEGRAM_CHAT_ID?.trim() ? 'TELEGRAM_CHAT_ID' : null,
+    !process.env.BANKIER_SHORTS_API_TOKEN?.trim() ? 'BANKIER_SHORTS_API_TOKEN' : null
+  ].filter((value): value is string => Boolean(value));
+  if (missingPrerequisites.length > 0) {
+    return res.status(503).json({
+      success: false,
+      error: 'Nadzorca nie może wykonać kontroli; brakuje wymaganej konfiguracji.',
+      missingPrerequisites,
+      safeRecovery: 'No changes or retries were performed.'
+    });
+  }
+  try {
+    await runSupervisorMonitorCheck();
+    return res.json({
+      success: true,
+      message: 'Kontrola nadzorcy została uruchomiona; alarm Telegram jest wysyłany tylko przy nowym lub zmienionym problemie.',
+      safeRecovery: 'Read-only diagnostics only. No jobs were retried and no public posts were created.'
+    });
+  } catch (error) {
+    return res.status(503).json({
+      success: false,
+      error: 'Kontrola nadzorcy nie powiodła się.',
+      detail: (error as Error).message,
+      safeRecovery: 'No changes or retries were performed.'
+    });
+  }
 });
 
 // Record Google Drive export attempts server-side; this route is protected by the API auth middleware.
