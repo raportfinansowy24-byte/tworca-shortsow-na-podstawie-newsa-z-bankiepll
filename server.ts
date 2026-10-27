@@ -2579,9 +2579,12 @@ async function runSupervisorMonitorCheck(): Promise<void> {
   const botToken = process.env.TELEGRAM_BOT_TOKEN?.trim() || '';
   const chatId = process.env.TELEGRAM_CHAT_ID?.trim() || '';
   const machineToken = process.env.BANKIER_SHORTS_API_TOKEN?.trim() || '';
-  if (process.env.SUPERVISOR_MONITOR_ENABLED !== 'true') return;
+  if (process.env.SUPERVISOR_MONITOR_ENABLED !== 'true') {
+    return;
+  }
   // Without Telegram credentials no alert can be delivered; avoid an unhandled timer rejection.
-  if (!botToken || !chatId) {
+  const hasTelegramCredentials = Boolean(botToken && chatId);
+  if (hasTelegramCredentials === false) {
     console.warn('[Supervisor] Monitoring enabled, but Telegram credentials are missing.');
     return;
   }
