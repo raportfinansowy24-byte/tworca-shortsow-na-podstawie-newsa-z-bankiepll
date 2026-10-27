@@ -2719,23 +2719,6 @@ router.get('/supervisor/status', async (_req, res) => {
     !envReady.elevenLabs ? 'ELEVENLABS_API_KEY' : null
   ].filter(Boolean);
 
-// Explicit, authenticated recheck: runs diagnostics and sends a deduplicated Telegram alert if needed.
-router.post('/supervisor/recheck', async (_req, res) => {
-  if (process.env.SUPERVISOR_MONITOR_ENABLED !== 'true') {
-    return res.status(409).json({
-      success: false,
-      error: 'Monitoring jest wyłączony. Ustaw SUPERVISOR_MONITOR_ENABLED=true i skonfiguruj Telegram.',
-      safeRecovery: 'No changes or retries were performed.'
-    });
-  }
-  await runSupervisorMonitorCheck();
-  return res.json({
-    success: true,
-    message: 'Kontrola nadzorcy została uruchomiona; alarm Telegram jest wysyłany tylko przy nowym lub zmienionym problemie.',
-    safeRecovery: 'Read-only diagnostics only. No jobs were retried and no public posts were created.'
-  });
-});
-
   res.json({
     agent: 'RaportFinansowy24 Central Supervisor',
     mode: 'read-only',
@@ -2764,6 +2747,23 @@ router.post('/supervisor/recheck', async (_req, res) => {
       ...(!envReady.postiz ? ['Postiz nie jest skonfigurowany; publikowanie pozostaje wyłączone.'] : []),
       ...(envReady.postizAutoPublishEnabled ? ['UWAGA: automatyczna publikacja Postiz jest włączona.'] : ['Publikacja automatyczna jest wyłączona; zatwierdzenie w Telegramie nie publikuje publicznie.'])
     ]
+  });
+});
+
+// Explicit, authenticated recheck: runs diagnostics and sends a deduplicated Telegram alert if needed.
+router.post('/supervisor/recheck', async (_req, res) => {
+  if (process.env.SUPERVISOR_MONITOR_ENABLED !== 'true') {
+    return res.status(409).json({
+      success: false,
+      error: 'Monitoring jest wyłączony. Ustaw SUPERVISOR_MONITOR_ENABLED=true i skonfiguruj Telegram.',
+      safeRecovery: 'No changes or retries were performed.'
+    });
+  }
+  await runSupervisorMonitorCheck();
+  return res.json({
+    success: true,
+    message: 'Kontrola nadzorcy została uruchomiona; alarm Telegram jest wysyłany tylko przy nowym lub zmienionym problemie.',
+    safeRecovery: 'Read-only diagnostics only. No jobs were retried and no public posts were created.'
   });
 });
 
