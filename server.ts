@@ -3127,7 +3127,9 @@ function buildSmartFallbackScript(
   };
 }
 
-// Resilient Gemini Model Cascade: Prioritizes fast, modern, reliable models with automated failover
+// Model routing: prefer OpenAI for script quality when OPENAI_API_KEY is configured;
+// keep Gemini as a zero-downtime fallback until the new provider is enabled in Fly secrets.
+const OPENAI_SCRIPT_MODEL = (process.env.OPENAI_SCRIPT_MODEL || 'gpt-6.1-sol').trim();
 const GEMINI_MODEL_CASCADE = [
   'gemini-3.8-flash',
   'gemini-flash-latest',
@@ -3139,6 +3141,44 @@ async function callGeminiWithCascade(params: {
   config?: any;
 }): Promise<{ text: string; modelUsed: string } | null> {
   let lastError: Error | null = null;
+
+  // OpenAI-compatible JSON response path. No new npm dependency is required.
+  if (process.env.OPENAI_API_KEY?.trim()) {
+    try {
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY.trim()}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: OPENAI_SCRIPT_MODEL,
+          messages: [
+            { role: 'system', content: 'You are a precise Polish-language financial news Shorts script editor. Follow the supplied source facts and output requirements. Never invent facts. Return valid JSON only.' },
+            { role: 'user', content: params.contents }
+          ],
+          response_format: { type: 'json_object' },
+          temperature: 0.8
+        })
+      });
+      if (!response.ok) {
+        const detail = await response.text().catch(() => '');
+        throw new Error(`OpenAI API ${response.status}: ${detail.slice(0, 500)}`);
+      }
+      const payload: any = await response.json();
+      const text = payload?.choices?.[0]?.message?.content;
+      if (typeof text === 'string' && text.trim()) {
+        return { text, modelUsed: OPENAI_SCRIPT_MODEL };
+      }
+      throw new Error('OpenAI returned an empty script response.');
+    } catch (err: any) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      console.warn(`[OpenAI Script Provider] ${lastError.message}; trying Gemini fallback.`);
+    }
+  } else {
+    console.info('[Model Router] OPENAI_API_KEY is not configured; using Gemini fallback.');
+  }
+
   for (const model of GEMINI_MODEL_CASCADE) {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
@@ -3151,21 +3191,19 @@ async function callGeminiWithCascade(params: {
           return { text: response.text, modelUsed: model };
         }
       } catch (err: any) {
-        lastError = err;
+        lastError = err instanceof Error ? err : new Error(String(err));
         const msg = String(err?.message || err || '');
         const is503 = msg.includes('503') || err?.status === 503;
         if (is503 && attempt === 0) {
           await new Promise((resolve) => setTimeout(resolve, 350));
           continue;
         }
-        console.info(`[Model Failover] Model ${model} is currently busy, switching to next model in cascade.`);
+        console.info(`[Model Failover] Model ${model} is unavailable; switching to next model.`);
         break;
       }
     }
   }
-  if (lastError) {
-    console.info('[Model Cascade] Models busy; using high-retention heuristic generator.');
-  }
+  if (lastError) console.info('[Model Cascade] All model providers failed; using validated heuristic fallback.');
   return null;
 }
 
