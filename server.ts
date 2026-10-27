@@ -2602,6 +2602,7 @@ async function runSupervisorMonitorCheck(): Promise<void> {
     return;
   }
 
+// Remove trailing URL slashes; regex is intentionally /\/+$/ in TypeScript source.
   const baseUrl = (process.env.APP_URL || `http://127.0.0.1:${PORT}`).trim().replace(/\/+$/, '');
   try {
     const response = await fetch(new URL('/api/supervisor/status', baseUrl), {
