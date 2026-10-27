@@ -2100,10 +2100,8 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
     // Synthesize every scene with identical voice/model/settings. Keep the generated voice natural:
     // scene durations are expanded to fit narration rather than speeding every scene up globally.
     if (ttsEnabled) {
-      const overLimitScene = sceneSpeechTexts.findIndex((text, index) => text.split(/\s+/).filter(Boolean).length > Math.max(5, Math.floor(scenes[index].duration * 2.4)));
-      if (overLimitScene >= 0) {
-        throw new Error(`Tekst lektora w scenie ${overLimitScene + 1} przekracza limit dla jej czasu. Skróć tekst przed syntezą.`);
-      }
+      // Narration length is validated by the actual generated audio duration below.
+      // Do not reject text based on planned scene length; scenes can expand to fit the voice.
       if (sceneSpeechTexts.some((text) => !text)) {
         throw new Error(`Każda z ${scenes.length} scen musi zawierać tekst lektora.`);
       }
