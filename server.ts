@@ -2097,7 +2097,8 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
     type PreparedSceneTts = { path: string; duration: number; wordTimings: CaptionWordTiming[] };
     const preparedSceneTts: Array<PreparedSceneTts | null> = new Array(scenes.length).fill(null);
 
-    // Synthesize every scene with identical voice/model/settings, then apply one common tempo correction.
+    // Synthesize every scene with identical voice/model/settings. Keep the generated voice natural:
+    // scene durations are expanded to fit narration rather than speeding every scene up globally.
     if (ttsEnabled) {
       const overLimitScene = sceneSpeechTexts.findIndex((text, index) => text.split(/\s+/).filter(Boolean).length > Math.max(5, Math.floor(scenes[index].duration * 2.4)));
       if (overLimitScene >= 0) {
@@ -2107,7 +2108,6 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
         throw new Error(`Każda z ${scenes.length} scen musi zawierać tekst lektora.`);
       }
       updateJobProgress(jobId, { step: `Generowanie jednego głosu ElevenLabs dla ${scenes.length} scen`, progress: 12 }, `Jeden lektor ElevenLabs, model i tempo dla całego Shorta (${ttsSpeed.toFixed(2)}x).`);
-      let commonAtempo = 1;
       for (let index = 0; index < scenes.length; index++) {
         if (abortController.signal.aborted) throw new Error('Zadanie zostało anulowane przez użytkownika.');
         const speechText = sceneSpeechTexts[index];
@@ -2128,32 +2128,6 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
           throw new Error(`ElevenLabs nie wygenerował poprawnego lektora dla sceny ${index + 1}.`);
         }
         preparedSceneTts[index] = { path: ttsPath, duration, wordTimings };
-        const targetSpeechDuration = Math.max(0.8, (Number(scenes[index]?.duration) || [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5][index] || 2.25) - 0.12);
-        commonAtempo = Math.max(commonAtempo, duration / targetSpeechDuration);
-      }
-
-      // Use one shared tempo across scenes; never force extreme acceleration.
-      if (commonAtempo > 1.40) {
-        throw new Error(`Nawet po automatycznym podziale kwestia wymaga tempa ${commonAtempo.toFixed(2)}x. Skróć najdłuższą kwestię lektora.`);
-      }
-      if (commonAtempo > 1.005) {
-        for (const asset of preparedSceneTts) {
-          if (!asset) continue;
-          const fittedPath = `${asset.path}.uniform-fit.mp3`;
-          await execPromise(`ffmpeg -y -i "${asset.path}" -filter:a "atempo=${commonAtempo.toFixed(3)}" -c:a libmp3lame -b:a 128k "${fittedPath}"`);
-          if (!fs.existsSync(fittedPath) || fs.statSync(fittedPath).size <= 300) {
-            throw new Error('FFmpeg nie utworzył pliku lektora po wspólnym dopasowaniu tempa.');
-          }
-          fs.renameSync(fittedPath, asset.path);
-          const fittedDuration = await getAudioDuration(asset.path);
-          const timingScale = fittedDuration > 0 ? fittedDuration / asset.duration : 1 / commonAtempo;
-          asset.wordTimings.forEach((timing) => {
-            timing.start *= timingScale;
-            timing.end *= timingScale;
-          });
-          asset.duration = fittedDuration || asset.duration / commonAtempo;
-        }
-        console.log(`✓ Wszystkie 8 scen otrzymały ten sam mnożnik tempa ${commonAtempo.toFixed(3)}x.`);
       }
     }
 
@@ -2204,7 +2178,9 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
       const sceneTtsPath = ttsAsset?.path || path.join(jobTempDir, `scene_tts_${sceneNum}.mp3`);
       if (ttsEnabled && speechText.length > 0) {
         if (!hasTtsAudio || !ttsAsset) throw new Error(`Brakuje przygotowanego audio ElevenLabs dla sceny ${sceneNum}.`);
-        captionDuration = Math.min(sceneDuration, ttsAsset.duration);
+        // Never cut off speech or force unnatural 2x+ playback. Let this scene last as long as its narration.
+        sceneDuration = Math.max(sceneDuration, ttsAsset.duration + 0.12);
+        captionDuration = ttsAsset.duration;
       }
 
       totalEstimatedDuration += sceneDuration;
