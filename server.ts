@@ -42,6 +42,7 @@ import {
 import { classifyTelegramChatMessage } from './src/server/telegramChatCommands';
 import { FINANCE_SHORT_SCENE_COUNT, getSceneCountError, hasUniquePexelsSceneIds, sceneDurationsForCount, sceneRequestMetadata } from './src/server/sceneContract';
 import { nextTelegramRevisionNumber, normalizeTelegramFeedback } from './src/server/telegramRevision';
+import { publishApprovedShortToPostiz } from './src/server/postizPublisher';
 import { constantTimeTokenMatch, createApiAuthMiddleware, createAppSessionToken } from './src/server/apiAuth';
 import {
   loadShortJobsFromSupabase,
@@ -6650,8 +6651,32 @@ router.post('/telegram/webhook', async (req, res) => {
 
     const messageId = Number(callback.message?.message_id);
     if (match[1] === 'approve') {
-      updateJobProgress(jobId, { telegramApprovalStatus: 'approved' }, 'Użytkownik zaakceptował materiał w Telegramie. Publikacja wymaga osobnej integracji platformowej.');
-      await answerTelegramCallback(botToken, callback.id, 'Short zaakceptowany. Publikacja nie jest jeszcze skonfigurowana.');
+      updateJobProgress(jobId, { telegramApprovalStatus: 'approved' }, 'Użytkownik zaakceptował materiał w Telegramie.');
+      let publicationMessage = 'Short zaakceptowany. Publikacja automatyczna jest wyłączona.';
+      if (process.env.POSTIZ_AUTO_PUBLISH === 'true') {
+        try {
+          if (!job.outputFilename) throw new Error('Brak pliku MP4 dla zaakceptowanego zadania.');
+          const videoPath = path.join(EXPORTS_DIR, path.basename(job.outputFilename));
+          if (!fs.existsSync(videoPath)) throw new Error('Nie znaleziono pliku MP4 na dysku eksportów.');
+          const result = await publishApprovedShortToPostiz({
+            videoPath,
+            title: job.approvalTitle || job.title || job.articleTitle || 'RaportFinansowy24 — nowy materiał',
+            description: typeof job.shortMetadata?.description === 'string' ? job.shortMetadata.description : undefined,
+            articleUrl: job.articleUrl || job.approvalSourceUrl
+          });
+          if (result.published) {
+            publicationMessage = 'Short zaakceptowany i przekazany do publikacji przez Postiz.';
+            updateJobProgress(jobId, { telegramApprovalStatus: 'approved' }, 'Materiał zaakceptowany i przekazany do Postiz.');
+          } else {
+            publicationMessage = 'Short zaakceptowany. Postiz nie publikuje: ' + (result.reason || 'sprawdź konfigurację.');
+          }
+        } catch (error) {
+          publicationMessage = 'Short zaakceptowany, ale publikacja przez Postiz nie powiodła się.';
+          console.error(`[Postiz] Publikacja zadania ${jobId} nie powiodła się:`, (error as Error).message);
+          updateJobProgress(jobId, {}, 'Błąd publikacji Postiz: ' + ((error as Error).message || 'nieznany błąd').slice(0, 300));
+        }
+      }
+      await answerTelegramCallback(botToken, callback.id, publicationMessage);
       if (Number.isFinite(messageId)) {
         try { await updateTelegramApprovalMessage(botToken, configuredChatId, messageId, job.approvalTitle || 'Short z Bankier.pl', 'approved'); }
         catch (error) { console.warn(`[Telegram Approval] Nie udało się zaktualizować wiadomości dla ${jobId}:`, (error as Error).message); }
