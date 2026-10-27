@@ -2566,8 +2566,8 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
 // REST API ROUTER
 const router = express.Router();
 
-// Health Check Endpoint
-router.get('/health', async (req, res) => {
+// Shared runtime diagnostics used by health and supervisor endpoints to avoid duplicated checks.
+async function getMediaRuntimeDiagnostics() {
   let ffmpegVersion = 'Unknown';
   try {
     const { stdout } = await execPromise('ffmpeg -version');
@@ -2575,8 +2575,18 @@ router.get('/health', async (req, res) => {
   } catch {
     ffmpegVersion = 'Not installed or error running ffmpeg';
   }
+  return {
+    ffmpegVersion,
+    ffmpegReady: ffmpegVersion !== 'Not installed or error running ffmpeg',
+    fontReady: fs.existsSync(MONTSERRAT_FONT_PATH)
+  };
+}
 
-  const fontReady = fs.existsSync(MONTSERRAT_FONT_PATH);
+// Health Check Endpoint
+router.get('/health', async (req, res) => {
+  const mediaRuntime = await getMediaRuntimeDiagnostics();
+  const ffmpegVersion = mediaRuntime.ffmpegVersion;
+  const fontReady = mediaRuntime.fontReady;
   const activeJobsCount = Array.from(jobsStore.values()).filter(
     (job) => job.status === 'queued' || job.status === 'processing'
   ).length;
@@ -2598,7 +2608,7 @@ router.get('/health', async (req, res) => {
 
 // Central supervisor: read-only health checks across Shorts generation and RaportFinansowy24.
 router.get('/supervisor/status', async (_req, res) => {
-  const jobs = Array.from(jobsStore.values());
+  const [jobs, mediaRuntime] = [Array.from(jobsStore.values()), await getMediaRuntimeDiagnostics()];
   const activeJobs = jobs.filter((job) => job.status === 'queued' || job.status === 'processing').length;
   const failedJobs = jobs.filter((job) => job.status === 'failed').length;
   const completedJobs = jobs.filter((job) => job.status === 'completed').length;
@@ -2634,14 +2644,25 @@ router.get('/supervisor/status', async (_req, res) => {
   res.json({
     agent: 'RaportFinansowy24 Central Supervisor',
     mode: 'read-only',
-    status: missingRequired.length === 0 && website.reachable ? 'healthy' : 'needs_attention',
+    status: missingRequired.length === 0 && website.reachable && mediaRuntime.ffmpegReady && mediaRuntime.fontReady ? 'healthy' : 'needs_attention',
     checkedAt: new Date().toISOString(),
-    services: { shortsGenerator: 'online', raportFinansowy24: website },
+    services: {
+      shortsGenerator: 'online',
+      raportFinansowy24: website,
+      mediaPipeline: {
+        ffmpegReady: mediaRuntime.ffmpegReady,
+        ffmpegVersion: mediaRuntime.ffmpegVersion,
+        fontReady: mediaRuntime.fontReady
+      }
+    },
     jobs: { retained: jobs.length, active: activeJobs, completed: completedJobs, failed: failedJobs },
     configuration: envReady,
     missingRequired,
     nextActions: [
       ...(!website.reachable ? ['Sprawdź domenę RaportFinansowy24: witryna nie zwróciła poprawnego HTTP 2xx.'] : []),
+      ...(!mediaRuntime.ffmpegReady ? ['FFmpeg nie jest dostępny; sprawdź obraz wdrożeniowy i logi startowe Fly.io.'] : []),
+      ...(!mediaRuntime.fontReady ? ['Brakuje fontu Montserrat; sprawdź pobieranie fontu i ścieżkę zasobu.'] : []),
+      ...(failedJobs > 0 ? [`W historii pamięciowej jest ${failedJobs} zadań zakończonych błędem; sprawdź szczegóły zadań.`] : []),
       ...missingRequired.map((name) => 'Uzupełnij sekret w Fly.io: ' + name + '.'),
       ...(!envReady.telegramApproval ? ['Skonfiguruj token bota, chat ID i sekret webhooka Telegrama, jeśli chcesz zatwierdzać shorty przez Telegram.'] : []),
       ...(!envReady.supabaseHistory ? ['Skonfiguruj Supabase, aby historia zadań była trwała między restartami.'] : []),
