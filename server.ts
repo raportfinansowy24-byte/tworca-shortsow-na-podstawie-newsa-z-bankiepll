@@ -2176,12 +2176,17 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
       const sceneTtsPath = ttsAsset?.path || path.join(jobTempDir, `scene_tts_${sceneNum}.mp3`);
       if (ttsEnabled && speechText.length > 0) {
         if (!hasTtsAudio || !ttsAsset) throw new Error(`Brakuje przygotowanego audio ElevenLabs dla sceny ${sceneNum}.`);
-        // Never cut off speech or force unnatural 2x+ playback. Let this scene last as long as its narration.
-        sceneDuration = Math.max(sceneDuration, ttsAsset.duration + 0.12);
-        captionDuration = ttsAsset.duration;
+        // Hard duration budget: narration must fit the authored scene slot; never expand the Short to 40+ seconds.
+        // Audio/video are bounded by this sceneDuration in FFmpeg. Captions are clipped to the same slot.
+        const sceneBudget = Math.min(sceneDuration, renderSceneDurations[index] || 2.5);
+        sceneDuration = sceneBudget;
+        captionDuration = Math.min(ttsAsset.duration, sceneBudget);
       }
 
       totalEstimatedDuration += sceneDuration;
+      if (totalEstimatedDuration > 20.0) {
+        throw new Error(`Render przekracza limit 20 s (${totalEstimatedDuration.toFixed(2)} s). Skróć tekst lektora/sceny i spróbuj ponownie.`);
+      }
 
       // 2. Word-by-Word Animated Subtitles (ASS Format)
       const capStyle = scene.captionStyle || {};
