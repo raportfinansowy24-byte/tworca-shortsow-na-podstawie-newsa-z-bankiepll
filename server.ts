@@ -2097,11 +2097,10 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
     type PreparedSceneTts = { path: string; duration: number; wordTimings: CaptionWordTiming[] };
     const preparedSceneTts: Array<PreparedSceneTts | null> = new Array(scenes.length).fill(null);
 
-    // Synthesize every scene with identical voice/model/settings. Keep the generated voice natural:
-    // scene durations are expanded to fit narration rather than speeding every scene up globally.
+    // Synthesize every scene with identical voice/model/settings. Preserve the fixed 18-second
+    // timeline: reject overlong narration instead of clipping speech or extending the Short.
     if (ttsEnabled) {
-      // Narration length is validated by the actual generated audio duration below.
-      // Do not reject text based on planned scene length; scenes can expand to fit the voice.
+      // Validate each scene against its assigned duration using actual ElevenLabs audio length.
       if (sceneSpeechTexts.some((text) => !text)) {
         throw new Error(`Każda z ${scenes.length} scen musi zawierać tekst lektora.`);
       }
@@ -2124,6 +2123,13 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
         );
         if (duration <= 0 || !fs.existsSync(ttsPath)) {
           throw new Error(`ElevenLabs nie wygenerował poprawnego lektora dla sceny ${index + 1}.`);
+        }
+        const sceneBudget = Number(scenes[index].duration) || [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5][index] || 2.25;
+        if (duration > sceneBudget + 0.12) {
+          throw new Error(
+            `Lektor sceny ${index + 1} trwa ${duration.toFixed(2)} s, a limit tej sceny to ${sceneBudget.toFixed(2)} s. ` +
+            'Short nie został wyrenderowany, aby nie ucinać zdania ani nie przekraczać 18 sekund. Skróć tekst tej sceny i spróbuj ponownie.'
+          );
         }
         preparedSceneTts[index] = { path: ttsPath, duration, wordTimings };
       }
@@ -2176,8 +2182,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
       const sceneTtsPath = ttsAsset?.path || path.join(jobTempDir, `scene_tts_${sceneNum}.mp3`);
       if (ttsEnabled && speechText.length > 0) {
         if (!hasTtsAudio || !ttsAsset) throw new Error(`Brakuje przygotowanego audio ElevenLabs dla sceny ${sceneNum}.`);
-        // Never cut off speech or force unnatural 2x+ playback. Let this scene last as long as its narration.
-        sceneDuration = Math.max(sceneDuration, ttsAsset.duration + 0.12);
+        // Preflight validation guarantees narration fits this fixed scene budget.
         captionDuration = ttsAsset.duration;
       }
 
