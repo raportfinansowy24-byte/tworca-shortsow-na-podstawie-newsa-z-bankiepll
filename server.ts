@@ -6297,8 +6297,11 @@ interface AutopilotSchedulerState {
   processedUrls: string[];
 }
 
+const AUTOPILOT_SCHEDULER_ALLOWED = process.env.AUTOPILOT_SCHEDULER_ENABLED === 'true';
+
 const DEFAULT_SCHEDULER_STATE: AutopilotSchedulerState = {
-  enabled: true,
+  // Fail closed: scheduled generation stays off unless explicitly enabled in Fly.io secrets.
+  enabled: false,
   dailySlots: ['06:00', '11:00', '16:00', '21:00'],
   category: 'wiadomosci',
   voice: 'pl-PL-MarekNeural',
@@ -6326,6 +6329,8 @@ function loadSchedulerStateFromDisk() {
       schedulerState = {
         ...DEFAULT_SCHEDULER_STATE,
         ...parsed,
+        // A persisted legacy `enabled: true` must never bypass the explicit environment gate.
+        enabled: AUTOPILOT_SCHEDULER_ALLOWED && parsed.enabled === true,
         lastRunStatus: parsed.lastRunStatus === 'running' ? 'idle' : (parsed.lastRunStatus || 'idle')
       };
       console.log(`✓ Wczytano stan harmonogramu 4x/dobę z dysku (Wykonań: ${schedulerState.runsCount}, Historia: ${schedulerState.history.length})`);
@@ -6575,7 +6580,7 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
 
 // Check every 30 seconds for scheduled 4x/daily runs (slots: 06:00, 11:00, 16:00, 21:00)
 setInterval(() => {
-  if (!schedulerState.enabled) return;
+  if (!AUTOPILOT_SCHEDULER_ALLOWED || !schedulerState.enabled) return;
 
   const now = new Date();
   const currentSlot = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
@@ -6704,13 +6709,19 @@ router.post('/autopilot/scheduler/run-now', async (req, res) => {
 
 router.post('/autopilot/scheduler/toggle', (req, res) => {
   const { enabled } = req.body || {};
-  if (typeof enabled === 'boolean') {
-    schedulerState.enabled = enabled;
-  } else {
-    schedulerState.enabled = !schedulerState.enabled;
+  const requestedEnabled = typeof enabled === 'boolean' ? enabled : !schedulerState.enabled;
+  if (requestedEnabled && !AUTOPILOT_SCHEDULER_ALLOWED) {
+    schedulerState.enabled = false;
+    saveSchedulerStateToDisk();
+    return res.status(409).json({
+      success: false,
+      enabled: false,
+      error: 'Automatyczne generowanie jest zablokowane. Włącz je świadomie przez AUTOPILOT_SCHEDULER_ENABLED=true w konfiguracji Fly.io.'
+    });
   }
+  schedulerState.enabled = requestedEnabled && AUTOPILOT_SCHEDULER_ALLOWED;
   saveSchedulerStateToDisk();
-  res.json({ success: true, enabled: schedulerState.enabled });
+  return res.json({ success: true, enabled: schedulerState.enabled });
 });
 
 router.post('/autopilot/scheduler/config', (req, res) => {
