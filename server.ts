@@ -2434,6 +2434,11 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
       fs.copyFileSync(mergedVideoPath, finalOutputPath);
     }
 
+    // Final hard cap: do not deliver a Short longer than 20 seconds.
+    const capPath = path.join(jobTempDir, `cap_${jobId}.mp4`);
+    await runFfmpegWithProgress(['-y', '-i', finalOutputPath, '-t', '20', '-map', '0:v:0', '-map', '0:a?', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', capPath], jobId, 95, 98, 20);
+    fs.copyFileSync(capPath, finalOutputPath);
+
     // Measure Output
     const stats = fs.statSync(finalOutputPath);
     const outputUrl = `${baseUrl}/exports/${outputFilename}`;
