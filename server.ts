@@ -2049,6 +2049,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
     const sceneCountError = getSceneCountError(expectedSceneCount, rawScenes.length);
     console.info(`[Scene request] source=${payload.source || 'internal'} request_id=${payload.requestId || jobId} route=renderer expected=${expectedSceneCount} actual=${rawScenes.length}`);
     if (sceneCountError) throw new Error(sceneCountError);
+    const MAX_SHORT_DURATION_SECONDS = 20;
     const renderSceneDurations = sceneDurationsForCount(expectedSceneCount);
     const scenes = rawScenes.map((scene, idx) => ({ ...scene, duration: renderSceneDurations[idx] }));
 
@@ -2127,6 +2128,15 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
         }
         preparedSceneTts[index] = { path: ttsPath, duration, wordTimings };
       }
+    }
+
+    // Hard guard: refuse to render a finished Short whose actual generated narration exceeds 20 seconds.
+    // This prevents long scripts/TTS from silently expanding the planned 18-second format.
+    const totalNarrationDuration = preparedSceneTts.reduce((sum, item) => sum + (item?.duration || 0), 0);
+    if (ttsEnabled && totalNarrationDuration > MAX_SHORT_DURATION_SECONDS) {
+      throw new Error(
+        `Lektor ma ${totalNarrationDuration.toFixed(1)} s, a limit Shorta to ${MAX_SHORT_DURATION_SECONDS} s. Skróć tekst/narrację i wygeneruj ponownie; długi film nie zostanie wyrenderowany.`
+      );
     }
 
     // Process each scene
@@ -2358,6 +2368,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
       '-f', 'concat',
       '-safe', '0',
       '-i', concatListPath,
+      '-t', String(MAX_SHORT_DURATION_SECONDS),
       '-c:v', 'libx264',
       '-pix_fmt', 'yuv420p',
       '-c:a', 'aac',
@@ -2403,6 +2414,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
         '-filter_complex', `[0:a]volume=1.0[a1];[1:a]volume=${audioVol}[a2];[a1][a2]amix=inputs=2:duration=first:dropout_transition=2[aout]`,
         '-map', '0:v',
         '-map', '[aout]',
+        '-t', String(MAX_SHORT_DURATION_SECONDS),
         '-c:v', 'copy',
         '-c:a', 'aac',
         '-movflags', '+faststart',
@@ -2419,6 +2431,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
             '-i', bgAudioPath,
             '-map', '0:v',
             '-map', '1:a',
+            '-t', String(MAX_SHORT_DURATION_SECONDS),
             '-c:v', 'copy',
             '-c:a', 'aac',
             '-shortest',
