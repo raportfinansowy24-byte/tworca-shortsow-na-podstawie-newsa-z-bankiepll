@@ -505,7 +505,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
         animation: captionAnimation,
         position: captionPosition,
         fontSize: captionFontSize,
-        fontFamily: 'Montserrat-Bold.ttf'
+        fontFamily: 'TikTok Sans'
       },
       colors: {
         highlightColor,
@@ -1199,7 +1199,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
       id: 'pending',
       status: 'processing',
       progress: 10,
-      step: 'Przesyłanie scen do silnika FFmpeg (audio, lektor neuralny i napisy Montserrat-Bold)...',
+      step: 'Przesyłanie scen do silnika FFmpeg (audio, lektor neuralny i napisy TikTok Sans Bold)...',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     });
@@ -1580,7 +1580,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
           </h2>
 
           <p className="text-slate-300 text-sm leading-relaxed">
-            Wszystkie operacje — pobieranie newsów z Bankier.pl, dobór wzorców wirusowych i nisz, tłumaczenie, synteza głosu lektora, napisy <strong>Montserrat-Bold</strong> oraz montaż FFmpeg — odbywają się całkowicie w tle bez potrzeby manualnego klikania.
+            Wszystkie operacje — pobieranie newsów z Bankier.pl, dobór wzorców wirusowych i nisz, tłumaczenie, synteza głosu lektora, napisy <strong>TikTok Sans Bold</strong> oraz montaż FFmpeg — odbywają się całkowicie w tle bez potrzeby manualnego klikania.
           </p>
         </div>
       </div>
@@ -2336,7 +2336,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
                 className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 transition leading-relaxed"
               />
               <p className="text-[11px] text-slate-400">
-                Gemini AI przeanalizuje treść nagrania, przetłumaczy na wybrany język i podzieli na idealne sceny z dopasowanym wideo oraz napisami Montserrat.
+                Gemini AI przeanalizuje treść nagrania, przetłumaczy na wybrany język i podzieli na idealne sceny z dopasowanym wideo oraz napisami TikTok Sans.
               </p>
             </div>
           )}
@@ -2453,7 +2453,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
                       : highlightColor === 'cyan'
                       ? 'Cyjan'
                       : 'Białe'}{' '}
-                    (Montserrat)
+                    (TikTok Sans)
                   </span>
                 </span>
                 <span className="text-[10px] text-slate-400 block font-mono">
@@ -2751,7 +2751,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-white">Napisy & Kolorystyka (libass Montserrat-Bold)</span>
+                      <span className="text-sm font-bold text-white">Napisy & Kolorystyka (libass TikTok Sans Bold)</span>
                       <span className="px-2 py-0.5 rounded-full bg-yellow-500/20 text-yellow-300 text-[10px] font-semibold border border-yellow-400/30 font-mono">
                         {captionAnimation}
                       </span>
@@ -2850,7 +2850,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <label className="text-slate-300 text-xs font-semibold">
-                      Rozmiar czcionki (Montserrat-Bold):
+                      Rozmiar czcionki (TikTok Sans Bold):
                     </label>
                     <span className="text-indigo-400 font-mono font-bold text-xs">{captionFontSize}px</span>
                   </div>
@@ -3450,7 +3450,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
             {/* Generated Scenes Table */}
             <div className="lg:col-span-7 space-y-4">
               <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
-                <Layers className="w-4 h-4 text-indigo-400" /> Sekwencja Scen & Napisów Montserrat-Bold
+                <Layers className="w-4 h-4 text-indigo-400" /> Sekwencja Scen & Napisów TikTok Sans Bold
               </h4>
 
               <div className="space-y-3">
@@ -3470,7 +3470,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
                       <div className="text-[11px] text-slate-400 flex items-center gap-3">
                         <span>⏱️ {sc.duration || 4}s</span>
                         <span>🎬 Wideo: {sc.searchKeyword || 'Stock Clip'}</span>
-                        <span className="text-indigo-400">Montserrat-Bold</span>
+                        <span className="text-indigo-400">TikTok Sans Bold</span>
                       </div>
                     </div>
                   </div>

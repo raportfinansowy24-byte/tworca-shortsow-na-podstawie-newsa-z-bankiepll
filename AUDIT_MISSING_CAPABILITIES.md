@@ -18,7 +18,7 @@ Zamiast dodawać drugi framework agenta, wykorzystujemy istniejące moduły:
 ## Zmiany w tej gałęzi
 
 - Wspólna funkcja `getMediaRuntimeDiagnostics()` jest wykorzystywana przez `/health` i `/supervisor/status`, żeby nie utrzymywać dwóch kopii sprawdzania FFmpeg i fontu.
-- Status nadzorcy nie zgłasza już `healthy`, gdy FFmpeg nie działa albo brakuje fontu Montserrat.
+- Status nadzorcy nie zgłasza już `healthy`, gdy FFmpeg nie działa albo brakuje fontu TikTok Sans.
 - `nextActions` wskazuje brak FFmpeg/fontu i obecność zakończonych błędem zadań.
 - Nie zwracamy wartości sekretów i nie uruchamiamy automatycznej publikacji, restartów ani zmian konfiguracji.
 

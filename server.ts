@@ -770,7 +770,7 @@ const WORK_DIR = process.cwd();
 const TEMP_DIR = path.join(WORK_DIR, 'temp');
 const EXPORTS_DIR = path.join(WORK_DIR, 'exports');
 const FONTS_DIR = path.join(WORK_DIR, 'fonts');
-const MONTSERRAT_FONT_PATH = path.join(FONTS_DIR, 'Montserrat-Bold.ttf');
+const TIKTOK_SANS_FONT_PATH = path.join(FONTS_DIR, 'TikTokSans-Bold.ttf');
 
 // Ensure necessary directories exist
 [TEMP_DIR, EXPORTS_DIR, FONTS_DIR].forEach((dir) => {
@@ -1291,29 +1291,28 @@ async function createTelegramRevisionJob(parentJobId: string, feedback: string):
   return jobId;
 }
 
-// Download Montserrat-Bold.ttf font if missing
-async function ensureMontserratFont(): Promise<boolean> {
-  if (fs.existsSync(MONTSERRAT_FONT_PATH)) {
-    const stats = fs.statSync(MONTSERRAT_FONT_PATH);
+// Ensure TikTok Sans Bold is available for mobile-first captions.
+async function ensureTikTokSansFont(): Promise<boolean> {
+  if (fs.existsSync(TIKTOK_SANS_FONT_PATH)) {
+    const stats = fs.statSync(TIKTOK_SANS_FONT_PATH);
     if (stats.size > 10000) {
-      console.log('✓ Montserrat-Bold.ttf font is ready at:', MONTSERRAT_FONT_PATH);
+      console.log('✓ TikTokSans-Bold.ttf font is ready at:', TIKTOK_SANS_FONT_PATH);
       return true;
     }
   }
 
-  console.log('⏳ Montserrat-Bold.ttf not found. Downloading font...');
+  console.log('⏳ TikTokSans-Bold.ttf not found. Downloading font...');
   const fontUrls = [
-    'https://fonts.gstatic.com/s/montserrat/v31/JTUHjIg1_i6t8kCHKm4532VJOt5-QNFgpCuM70w-.ttf',
-    'https://cdn.jsdelivr.net/fontsource/fonts/montserrat@latest/latin-700-normal.ttf',
-    'https://cdn.jsdelivr.net/npm/@fontsource/montserrat/files/montserrat-latin-700-normal.ttf'
+    'https://cdn.jsdelivr.net/npm/@fontsource/tiktok-sans@5.3.0/files/tiktok-sans-latin-700-normal.woff',
+    'https://cdn.jsdelivr.net/fontsource/fonts/tiktok-sans@latest/latin-700-normal.woff'
   ];
 
   for (const fontUrl of fontUrls) {
     try {
-      await downloadFile(fontUrl, MONTSERRAT_FONT_PATH);
-      const stats = fs.statSync(MONTSERRAT_FONT_PATH);
+      await downloadFile(fontUrl, TIKTOK_SANS_FONT_PATH);
+      const stats = fs.statSync(TIKTOK_SANS_FONT_PATH);
       if (stats.size > 10000) {
-        console.log(`✓ Montserrat-Bold.ttf successfully downloaded (${stats.size} bytes)`);
+        console.log(`✓ TikTokSans-Bold.ttf successfully downloaded (${stats.size} bytes)`);
         return true;
       }
     } catch (err) {
@@ -1321,7 +1320,7 @@ async function ensureMontserratFont(): Promise<boolean> {
     }
   }
 
-  console.error('⚠️ Could not download Montserrat-Bold.ttf. FFmpeg will fallback to default system fonts if needed.');
+  console.error('⚠️ Could not download TikTokSans-Bold.ttf. FFmpeg will fallback to default system fonts if needed.');
   return false;
 }
 
@@ -1985,7 +1984,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: HormoziStyle,Montserrat-Bold,${fontSize},&H002222FF,&H000000FF,&H00000000,&H90000000,-1,0,0,0,100,100,0,0,1,${outlineWidth},2,${alignment},24,24,${marginV},1
+Style: HormoziStyle,TikTok Sans,${fontSize},&H002222FF,&H000000FF,&H00000000,&H90000000,-1,0,0,0,100,100,0,0,1,${outlineWidth},2,${alignment},24,24,${marginV},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -2139,11 +2138,11 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
   try {
     updateJobProgress(
       jobId,
-      { status: 'processing', step: 'Sprawdzanie środowiska i czcionki Montserrat', progress: 5 },
+      { status: 'processing', step: 'Sprawdzanie środowiska i czcionki TikTok Sans', progress: 5 },
       'Rozpoczęto zadanie renderowania scen wideo FFmpeg'
     );
 
-    await ensureMontserratFont();
+    await ensureTikTokSansFont();
 
     // Resolution setup (defaults to 720p vertical 720x1280 for fast processing)
     let rawRes = payload.outputResolution || (payload as any).resolution || '720x1280';
@@ -2861,7 +2860,7 @@ async function getMediaRuntimeDiagnostics() {
   return {
     ffmpegVersion,
     ffmpegReady: ffmpegVersion !== 'Not installed or error running ffmpeg',
-    fontReady: fs.existsSync(MONTSERRAT_FONT_PATH)
+    fontReady: fs.existsSync(TIKTOK_SANS_FONT_PATH)
   };
 }
 
@@ -2879,9 +2878,9 @@ router.get('/health', async (req, res) => {
     service: 'Make.com HTTP Video Scene Combiner Connector',
     ffmpeg: ffmpegVersion,
     fontStatus: {
-      name: 'Montserrat-Bold.ttf',
+      name: 'TikTokSans-Bold.ttf',
       ready: fontReady,
-      path: MONTSERRAT_FONT_PATH
+      path: TIKTOK_SANS_FONT_PATH
     },
     activeJobsCount,
     retainedJobsCount: jobsStore.size,
@@ -2944,7 +2943,7 @@ router.get('/supervisor/status', async (_req, res) => {
     nextActions: [
       ...(!website.reachable ? ['Sprawdź domenę RaportFinansowy24: witryna nie zwróciła poprawnego HTTP 2xx.'] : []),
       ...(!mediaRuntime.ffmpegReady ? ['FFmpeg nie jest dostępny; sprawdź obraz wdrożeniowy i logi startowe Fly.io.'] : []),
-      ...(!mediaRuntime.fontReady ? ['Brakuje fontu Montserrat; sprawdź pobieranie fontu i ścieżkę zasobu.'] : []),
+      ...(!mediaRuntime.fontReady ? ['Brakuje fontu TikTok Sans; sprawdź pobieranie fontu i ścieżkę zasobu.'] : []),
       ...(failedJobs > 0 ? [`W historii pamięciowej jest ${failedJobs} zadań zakończonych błędem; sprawdź szczegóły zadań.`] : []),
       ...missingRequired.map((name) => 'Uzupełnij sekret w Fly.io: ' + name + '.'),
       ...(!envReady.telegramApproval ? ['Skonfiguruj token bota, chat ID i sekret webhooka Telegrama, jeśli chcesz zatwierdzać shorty przez Telegram.'] : []),
@@ -7397,7 +7396,7 @@ async function startServer() {
   loadJobsFromDisk();
   loadSchedulerStateFromDisk();
   void hydrateJobsFromSupabase();
-  ensureMontserratFont().catch(console.error);
+  ensureTikTokSansFont().catch(console.error);
   void refreshOfferCatalogSnapshot();
   const offerCatalogRefreshTimer = setInterval(() => {
     void refreshOfferCatalogSnapshot();

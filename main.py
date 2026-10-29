@@ -18,8 +18,8 @@ logger = logging.getLogger()
 def get_font_path():
     """Find a usable TTF font file supporting Polish characters."""
     possible_paths = [
-        os.path.join(os.path.dirname(__file__), "fonts", "Montserrat-Bold.ttf"),
-        os.path.join(os.path.dirname(__file__), "Montserrat-Bold.ttf"),
+        os.path.join(os.path.dirname(__file__), "fonts", "TikTokSans-Bold.ttf"),
+        os.path.join(os.path.dirname(__file__), "TikTokSans-Bold.ttf"),
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     ]

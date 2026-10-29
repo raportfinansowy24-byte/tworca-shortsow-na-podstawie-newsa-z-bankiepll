@@ -56,7 +56,7 @@ System składa się z dwóch ściśle zintegrowanych warstw:
 
 2. **Animowane napisy Word-by-Word (Styl Alex Hormozi / MrBeast)**:
    - Dynamiczne podświetlanie aktualnie czytanego słowa (żółty, limonkowy, cyjan, czerwony, biały).
-   - Czcionka Montserrat ExtraBold z solidnym konturem (ASS outline) zapobiegającym zlewaniu się z tłem.
+   - Czcionka TikTok Sans Bold z solidnym konturem (ASS outline), zoptymalizowana pod czytelność napisów na ekranie mobilnym.
    - Precyzyjna synchronizacja czasu trwania sceny z długością wypowiedzi lektora.
 
 3. **Auto-Pilot Tematyczny & Wiadomości Finansowe**:

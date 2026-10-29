@@ -359,9 +359,9 @@ export const StockFootageGrid: React.FC<StockFootageGridProps> = ({
                 <div className="absolute inset-x-2 top-1/2 -translate-y-1/2 p-2 rounded-xl bg-black/85 backdrop-blur-md border border-red-500/40 shadow-xl pointer-events-none text-center">
                   <div className="text-[9px] font-semibold text-red-400 uppercase tracking-wider mb-0.5 flex items-center justify-center gap-1">
                     <Sparkles className="w-2.5 h-2.5 text-red-400" />
-                    Montserrat-Bold (Środek):
+                    TikTok Sans Bold (Środek):
                   </div>
-                  <div className="text-xs font-black text-red-500 uppercase tracking-wider line-clamp-2 drop-shadow-sm font-['Montserrat']">
+                  <div className="text-xs font-black text-red-500 uppercase tracking-wider line-clamp-2 drop-shadow-sm font-['TikTok Sans']">
                     "{scene.subtitles}"
                   </div>
                 </div>
@@ -456,7 +456,7 @@ export const StockFootageGrid: React.FC<StockFootageGridProps> = ({
               </span>
             </div>
             <p className="text-xs text-slate-400">
-              Ujęcia 9:16 są zsynchronizowane z czasem lektora i napisami Montserrat-Bold. Kliknij poniżej, aby zrenderować plik MP4.
+              Ujęcia 9:16 są zsynchronizowane z czasem lektora i napisami TikTok Sans Bold. Kliknij poniżej, aby zrenderować plik MP4.
             </p>
           </div>
         </div>
@@ -531,7 +531,7 @@ export const StockFootageGrid: React.FC<StockFootageGridProps> = ({
                     <Sparkles className="w-3.5 h-3.5 text-red-400" />
                     Wypalane napisy na środku (single-word):
                   </div>
-                  <div className="text-base sm:text-xl font-black text-red-500 uppercase tracking-wider drop-shadow-md font-['Montserrat']">
+                  <div className="text-base sm:text-xl font-black text-red-500 uppercase tracking-wider drop-shadow-md font-['TikTok Sans']">
                     "{previewClip.subtitles}"
                   </div>
                 </div>

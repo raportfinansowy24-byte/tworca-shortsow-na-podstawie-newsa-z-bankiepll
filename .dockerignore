@@ -5,7 +5,6 @@ dist
 coverage
 exports
 temp
-fonts
 .env
 .env.*
 *.log
