@@ -3,6 +3,7 @@ import { motionSoundSpecForBeat, type MotionSoundSpec } from './motionSoundRende
 
 export type VisualMode = 'data_visual' | 'matched_clip';
 export type StoryBeat = 'hook' | 'market_snapshot' | 'leader' | 'loser' | 'contrast' | 'meaning' | 'takeaway' | 'cta';
+export type HookFormula = 'contrarian_claim' | 'mistake_warning' | 'list_tease_ranking';
 
 export interface FinanceFact {
   label: string;
@@ -43,7 +44,9 @@ export interface FinanceShortPlan {
   planId: string;
   title: string;
   hook: string;
+  hookFormula: HookFormula;
   hookVariants: string[];
+  viralStrategy: ViralStrategyProfile;
   cta: string;
   sourceUrl?: string;
   article: FinanceArticleInput;
@@ -52,6 +55,17 @@ export interface FinanceShortPlan {
   riskFlags: string[];
   qualityGate: QualityGateResult;
   architecture: string[];
+}
+
+export interface ViralStrategyProfile {
+  source: 'STRATEGIA_VIRAL_SHORTS.pdf';
+  targetDurationSeconds: 18;
+  hookWindowSeconds: 2;
+  mutedFirst: true;
+  proofWindow: [number, number];
+  payoffWindow: [number, number];
+  platforms: Array<'tiktok' | 'youtube-shorts' | 'instagram-reels'>;
+  retentionTargets: { retention3s: 0.6; commentsPerThousand: 5 };
 }
 
 export interface QualityGateResult {
@@ -136,14 +150,24 @@ export function buildFinanceShortPlan(articleInput: FinanceArticleInput): Financ
   const leader = positive[0] || facts[0];
   const loser = negative[0] || facts.find((fact) => fact.value < 0);
   const hook = loser && leader
-    ? `Rynek bije rekordy, ale ${loser.label} traci ${Math.abs(loser.value).toFixed(2).replace('.', ',')}%.`
+    ? `Indeks rośnie, ale ${loser.label} traci ${Math.abs(loser.value).toFixed(2).replace('.', ',')}%.`
     : `Co naprawdę wydarzyło się dziś na rynku?`;
   const cta = 'Sprawdź pełną analizę na RaportFinansowy24.';
   const hookVariants = [
     hook,
-    loser && leader ? `${leader.label} ciągnie GPW w górę, ale ${loser.label} zalicza tąpnięcie.` : hook,
-    loser && leader ? `Jedna sesja, dwa kierunki: ${leader.label} ${leader.displayValue}, ${loser.label} ${loser.displayValue}.` : hook
+    loser ? `Stop: ${loser.label} traci ${Math.abs(loser.value).toFixed(2).replace('.', ',')}% — sprawdź dlaczego.` : hook,
+    loser ? `Top 3 ruchy GPW: ${loser.label} traci ${Math.abs(loser.value).toFixed(2).replace('.', ',')}%.` : hook
   ].filter((value, index, list) => value && list.indexOf(value) === index);
+  const viralStrategy: ViralStrategyProfile = {
+    source: 'STRATEGIA_VIRAL_SHORTS.pdf',
+    targetDurationSeconds: 18,
+    hookWindowSeconds: 2,
+    mutedFirst: true,
+    proofWindow: [2, 14],
+    payoffWindow: [14, 18],
+    platforms: ['tiktok', 'youtube-shorts', 'instagram-reels'],
+    retentionTargets: { retention3s: 0.6, commentsPerThousand: 5 }
+  };
   const scenes: PipelineScene[] = [
     { index: 0, beat: 'hook', duration: DURATIONS[0], voiceover_text: hook, caption: hook.toUpperCase(), visualMode: 'data_visual', visualTitle: 'REKORDY I TĄPNIĘCIE', visualSubtitle: 'Jeden rynek. Dwa skrajne wyniki.', facts: [leader, loser].filter(Boolean) as FinanceFact[], camera: 'fast push-in', transition: 'hard-cut', assetRequired: false },
     { index: 1, beat: 'market_snapshot', duration: DURATIONS[1], voiceover_text: leader ? `${formatFact(leader)}. To on ciągnął rynek.` : 'Główne indeksy zakończyły sesję na plusie.', caption: leader ? formatFact(leader) : 'RYNEK NA PLUSIE', visualMode: 'data_visual', visualTitle: 'NAJWAŻNIEJSZY RUCH', visualSubtitle: 'Liderzy dzisiejszej sesji', facts: [leader].filter(Boolean) as FinanceFact[], camera: 'data zoom', transition: 'whip-pan', assetRequired: false },
@@ -172,7 +196,7 @@ export function buildFinanceShortPlan(articleInput: FinanceArticleInput): Financ
     warnings
   };
   const planId = `fsp_${crypto.createHash('sha1').update(`${article.title}|${article.link || ''}`).digest('hex').slice(0, 12)}`;
-  return { planId, title: article.title, hook, hookVariants, cta, sourceUrl: article.link, article, facts, scenes, riskFlags: ['Zweryfikuj liczby i znak zmian względem źródła przed publikacją.'], qualityGate, architecture: ['fact-checker', 'hook-retention', 'visual-storyboard', 'financial-data-visualizer', 'asset-curator', 'tts-performance', 'motion-renderer', 'quality-gate', 'supabase-feedback-loop'] };
+  return { planId, title: article.title, hook, hookFormula: 'contrarian_claim', hookVariants, viralStrategy, cta, sourceUrl: article.link, article, facts, scenes, riskFlags: ['Zweryfikuj liczby i znak zmian względem źródła przed publikacją.'], qualityGate, architecture: ['fact-checker', 'hook-retention', 'viral-short-strategy-2026', 'visual-storyboard', 'financial-data-visualizer', 'asset-curator', 'tts-performance', 'motion-renderer', 'quality-gate', 'supabase-feedback-loop'] };
 }
 
 export function validateFinanceShortPlan(plan: FinanceShortPlan): QualityGateResult {
@@ -181,5 +205,10 @@ export function validateFinanceShortPlan(plan: FinanceShortPlan): QualityGateRes
   if (plan.scenes.some((scene) => !scene.visualSvg && scene.visualMode === 'data_visual')) failures.push('Każda scena data_visual musi mieć wygenerowaną grafikę SVG.');
   if (plan.scenes.some((scene) => !scene.voiceover_text.trim())) failures.push('Każda scena musi mieć tekst lektora.');
   if (plan.scenes.some((scene) => scene.duration <= 0)) failures.push('Każda scena musi mieć dodatni czas trwania.');
+  const hookWordCount = plan.hook.trim().split(/\s+/).filter(Boolean).length;
+  if (hookWordCount > 14) failures.push('Hook nie może przekraczać 14 słów.');
+  if (!/(\d+[,.]?\d*\s*%|\d+[,.]?\d*)/.test(plan.hook)) failures.push('Hook musi zawierać konkretną liczbę lub procent z artykułu.');
+  if (plan.scenes[0]?.duration > 2.1) failures.push('Pierwsza scena musi mieścić się w oknie hooka 0–2 sekundy.');
+  if (plan.scenes.at(-1)?.beat !== 'cta') failures.push('Ostatnia scena musi zawierać pojedyncze CTA.');
   return { ...plan.qualityGate, publishable: failures.length === 0, failures };
 }

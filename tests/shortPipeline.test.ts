@@ -11,6 +11,10 @@ assert.equal(plan.scenes.length, 8);
 assert.ok(plan.facts.length >= 3);
 assert.equal(plan.hookVariants.length, 3);
 assert.equal(plan.hookVariants.includes(plan.hook), true);
+assert.equal(plan.hookFormula, 'contrarian_claim');
+assert.equal(plan.viralStrategy.hookWindowSeconds, 2);
+assert.equal(plan.viralStrategy.mutedFirst, true);
+assert.equal(plan.viralStrategy.retentionTargets.retention3s, 0.6);
 assert.equal(plan.scenes.every((scene) => scene.visualMode === 'data_visual'), true);
 assert.equal(plan.scenes.every((scene) => typeof scene.visualSvg === 'string' && scene.visualSvg.includes('<svg')), true);
 assert.equal(plan.qualityGate.publishable, true);
@@ -20,5 +24,9 @@ assert.match(plan.hook, /Cyfrowy Polsat/);
 const broken = { ...plan, scenes: plan.scenes.map((scene, index) => index === 3 ? { ...scene, visualSvg: '' } : scene) };
 assert.equal(validateFinanceShortPlan(broken).publishable, false);
 assert.ok(validateFinanceShortPlan(broken).failures.some((failure) => failure.includes('data_visual')));
+
+const weakHook = { ...plan, hook: 'Rynek zachował się dziś ciekawie i warto to sprawdzić' };
+assert.equal(validateFinanceShortPlan(weakHook).publishable, false);
+assert.ok(validateFinanceShortPlan(weakHook).failures.some((failure) => failure.includes('liczbę')));
 
 console.log('Short pipeline tests passed');
