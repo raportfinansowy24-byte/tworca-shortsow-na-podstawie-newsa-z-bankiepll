@@ -20,7 +20,8 @@
     "test:scene-contract": "tsx tests/sceneContract.test.ts",
     "test:creative-director": "tsx tests/creativeDirector.test.ts",
     "test:short-pipeline": "tsx tests/shortPipeline.test.ts",
-    "test:motion-sound": "tsx tests/motionSoundRenderer.test.ts"
+    "test:motion-sound": "tsx tests/motionSoundRenderer.test.ts",
+    "deploy:production": "bash scripts/deploy-production.sh"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
