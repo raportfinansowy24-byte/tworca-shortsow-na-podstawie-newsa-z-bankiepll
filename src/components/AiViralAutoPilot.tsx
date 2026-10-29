@@ -46,7 +46,11 @@ import {
   Folder,
   HardDrive,
   LogOut,
-  Square
+  Square,
+  Upload,
+  RotateCcw,
+  Settings,
+  Palette
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 import type { OfferMatchPreview } from '../utils/financeOfferMatching';
@@ -424,10 +428,180 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
     }
   };
 
-  // Animated Subtitles: na stałe 'single-word' czerwone na środku ekranu, powiększone (Montserrat-Bold + libass)
-  const captionAnimation: 'single-word' = 'single-word';
-  const highlightColor: 'red' = 'red';
-  const captionPosition: 'center' = 'center';
+  // Subtitle, Color, and Voice Preferences state
+  const [captionAnimation, setCaptionAnimation] = useState<'single-word' | 'word-by-word' | 'classic'>('single-word');
+  const [highlightColor, setHighlightColor] = useState<'red' | 'yellow' | 'lime' | 'cyan' | 'white'>('red');
+  const [captionPosition, setCaptionPosition] = useState<'center' | 'bottom' | 'top'>('center');
+  const [captionFontSize, setCaptionFontSize] = useState<number>(68);
+  const [captionFontColor, setCaptionFontColor] = useState<string>('white');
+  const [captionOutlineColor, setCaptionOutlineColor] = useState<string>('black');
+  const [captionOutlineWidth, setCaptionOutlineWidth] = useState<number>(8);
+  const [captionBoxColor, setCaptionBoxColor] = useState<string>('black@0.6');
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Restore preferences from localStorage on mount if present
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('viral_settings_config');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.subtitles?.animation) setCaptionAnimation(parsed.subtitles.animation);
+        if (parsed.subtitles?.position) setCaptionPosition(parsed.subtitles.position);
+        if (typeof parsed.subtitles?.fontSize === 'number') setCaptionFontSize(parsed.subtitles.fontSize);
+        if (parsed.colors?.highlightColor) setHighlightColor(parsed.colors.highlightColor);
+        if (parsed.colors?.fontColor) setCaptionFontColor(parsed.colors.fontColor);
+        if (parsed.colors?.outlineColor) setCaptionOutlineColor(parsed.colors.outlineColor);
+        if (typeof parsed.colors?.outlineWidth === 'number') setCaptionOutlineWidth(parsed.colors.outlineWidth);
+        if (parsed.colors?.boxColor) setCaptionBoxColor(parsed.colors.boxColor);
+        if (parsed.voice?.voiceId) setTtsVoice(parsed.voice.voiceId);
+        if (typeof parsed.voice?.speed === 'number') setTtsSpeed(parsed.voice.speed);
+        if (parsed.voice?.language) setTargetLanguage(parsed.voice.language);
+        if (typeof parsed.voice?.enabled === 'boolean') setTtsEnabled(parsed.voice.enabled);
+        if (parsed.video?.resolution) setResolution(parsed.video.resolution);
+      }
+    } catch (err) {
+      console.warn('Błąd odczytu zapisanej konfiguracji:', err);
+    }
+  }, []);
+
+  // Export current preferences as a JSON file
+  const handleDownloadConfig = () => {
+    const selectedVoiceObj = elevenLabsVoices.find((v) => v.id === ttsVoice);
+    const configData = {
+      version: '1.0',
+      appName: 'RaportFinansowy24 Viral Video Studio',
+      exportedAt: new Date().toISOString(),
+      subtitles: {
+        animation: captionAnimation,
+        position: captionPosition,
+        fontSize: captionFontSize,
+        fontFamily: 'Montserrat-Bold.ttf'
+      },
+      colors: {
+        highlightColor,
+        fontColor: captionFontColor,
+        outlineColor: captionOutlineColor,
+        outlineWidth: captionOutlineWidth,
+        boxColor: captionBoxColor
+      },
+      voice: {
+        enabled: ttsEnabled,
+        voiceId: ttsVoice,
+        voiceName: selectedVoiceObj?.name || ttsVoice,
+        speed: ttsSpeed,
+        language: targetLanguage,
+        syncDurationWithVoice
+      },
+      video: {
+        resolution,
+        sceneCount: 4,
+        fps: 30
+      }
+    };
+
+    const jsonString = JSON.stringify(configData, null, 2);
+    const blob = new Blob([jsonString], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `viral_studio_config_${targetLanguage.toLowerCase()}_${highlightColor}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    try {
+      localStorage.setItem('viral_settings_config', jsonString);
+    } catch {}
+
+    onToast?.(
+      'success',
+      'Pobrano konfigurację (JSON)',
+      'Plik konfiguracyjny z preferencjami napisów, kolorów i głosu został pomyślnie zapisany.'
+    );
+  };
+
+  // Import preferences from a user-uploaded JSON file
+  const handleImportConfig = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const text = evt.target?.result as string;
+        const parsed = JSON.parse(text);
+
+        const anim = parsed.subtitles?.animation || parsed.captionAnimation;
+        if (anim && ['single-word', 'word-by-word', 'classic'].includes(anim)) {
+          setCaptionAnimation(anim);
+        }
+        const pos = parsed.subtitles?.position || parsed.captionPosition;
+        if (pos && ['center', 'bottom', 'top'].includes(pos)) {
+          setCaptionPosition(pos);
+        }
+        const fSize = parsed.subtitles?.fontSize || parsed.fontSize;
+        if (typeof fSize === 'number') {
+          setCaptionFontSize(fSize);
+        }
+
+        const hColor = parsed.colors?.highlightColor || parsed.highlightColor;
+        if (hColor && ['red', 'yellow', 'lime', 'cyan', 'white'].includes(hColor)) {
+          setHighlightColor(hColor);
+        }
+        if (parsed.colors?.fontColor) setCaptionFontColor(parsed.colors.fontColor);
+        if (parsed.colors?.outlineColor) setCaptionOutlineColor(parsed.colors.outlineColor);
+        if (typeof parsed.colors?.outlineWidth === 'number') setCaptionOutlineWidth(parsed.colors.outlineWidth);
+        if (parsed.colors?.boxColor) setCaptionBoxColor(parsed.colors.boxColor);
+
+        const vVoice = parsed.voice?.voiceId || parsed.ttsVoice;
+        if (vVoice) setTtsVoice(vVoice);
+        const vSpeed = parsed.voice?.speed || parsed.ttsSpeed;
+        if (typeof vSpeed === 'number') setTtsSpeed(vSpeed);
+        const vLang = parsed.voice?.language || parsed.targetLanguage;
+        if (vLang) setTargetLanguage(vLang);
+        const vEnabled = parsed.voice?.enabled ?? parsed.ttsEnabled;
+        if (typeof vEnabled === 'boolean') setTtsEnabled(vEnabled);
+
+        const vRes = parsed.video?.resolution || parsed.resolution;
+        if (vRes) setResolution(vRes);
+
+        try {
+          localStorage.setItem('viral_settings_config', text);
+        } catch {}
+
+        onToast?.(
+          'success',
+          'Konfiguracja zaimportowana!',
+          `Wczytano preferencje: lektor (${vVoice || ttsVoice}), napisy (${anim || captionAnimation}), kolor (${hColor || highlightColor}).`
+        );
+      } catch (err: any) {
+        onToast?.('error', 'Błąd importu konfiguracji', 'Wybrany plik nie zawiera poprawnego formatu JSON.');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  // Reset preferences to default values
+  const handleResetConfig = () => {
+    setCaptionAnimation('single-word');
+    setCaptionPosition('center');
+    setCaptionFontSize(68);
+    setHighlightColor('red');
+    setCaptionFontColor('white');
+    setCaptionOutlineColor('black');
+    setCaptionOutlineWidth(8);
+    setCaptionBoxColor('black@0.6');
+    setTtsSpeed(1.0);
+    setTargetLanguage('Polski');
+    setTtsEnabled(true);
+    setResolution('720x1280');
+    try {
+      localStorage.removeItem('viral_settings_config');
+    } catch {}
+    onToast?.('info', 'Przywrócono domyślne', 'Ustawienia napisów, kolorów i lektora zostały zresetowane.');
+  };
 
   // Synchronizacja Autonomicznego Reżysera SI i algorytmu Virality Score z bieżącym tematem / artykułem
   useEffect(() => {
@@ -1841,15 +2015,27 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setShowManualStudioPanel(!showManualStudioPanel)}
-          className="px-4 py-2.5 rounded-xl bg-slate-950 hover:bg-slate-800/80 text-slate-400 hover:text-white border border-slate-800 hover:border-slate-700 text-xs font-semibold transition flex items-center gap-2 shrink-0 self-end sm:self-auto cursor-pointer"
-        >
-          <Sliders className="w-3.5 h-3.5" />
-          <span>{showManualStudioPanel ? 'Ukryj sterowanie ręczne' : 'Opcjonalne sterowanie ręczne (w tle)'}</span>
-          {showManualStudioPanel ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-        </button>
+        <div className="flex items-center gap-2 flex-wrap shrink-0 self-end sm:self-auto">
+          <button
+            type="button"
+            onClick={handleDownloadConfig}
+            className="px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white border border-indigo-400/30 text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-indigo-950 active:scale-95 cursor-pointer"
+            title="Pobierz plik JSON z preferencjami napisów, kolorów i głosu do innej sesji"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Download Config</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowManualStudioPanel(!showManualStudioPanel)}
+            className="px-4 py-2.5 rounded-xl bg-slate-950 hover:bg-slate-800/80 text-slate-400 hover:text-white border border-slate-800 hover:border-slate-700 text-xs font-semibold transition flex items-center gap-2 shrink-0 cursor-pointer"
+          >
+            <Sliders className="w-3.5 h-3.5" />
+            <span>{showManualStudioPanel ? 'Ukryj sterowanie ręczne' : 'Opcjonalne sterowanie ręczne (w tle)'}</span>
+            {showManualStudioPanel ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
+        </div>
       </div>
 
       {/* Control Panel Grid - Ukryte domyślnie, odbywa się w 100% w tle */}
@@ -2202,11 +2388,46 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
                   3. Napisy libass & Barwa
                 </span>
                 <span className="font-bold text-white flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full inline-block bg-red-500 shadow-xs" />
-                  <span className="text-red-400 font-semibold">Czerwone (Montserrat-Bold)</span>
+                  <span
+                    className={`w-2.5 h-2.5 rounded-full inline-block shadow-xs ${
+                      highlightColor === 'red'
+                        ? 'bg-red-500'
+                        : highlightColor === 'yellow'
+                        ? 'bg-yellow-400'
+                        : highlightColor === 'lime'
+                        ? 'bg-lime-400'
+                        : highlightColor === 'cyan'
+                        ? 'bg-cyan-400'
+                        : 'bg-white'
+                    }`}
+                  />
+                  <span
+                    className={`font-semibold ${
+                      highlightColor === 'red'
+                        ? 'text-red-400'
+                        : highlightColor === 'yellow'
+                        ? 'text-yellow-400'
+                        : highlightColor === 'lime'
+                        ? 'text-lime-400'
+                        : highlightColor === 'cyan'
+                        ? 'text-cyan-400'
+                        : 'text-slate-200'
+                    }`}
+                  >
+                    {highlightColor === 'red'
+                      ? 'Czerwone'
+                      : highlightColor === 'yellow'
+                      ? 'Żółte'
+                      : highlightColor === 'lime'
+                      ? 'Limonkowe'
+                      : highlightColor === 'cyan'
+                      ? 'Cyjan'
+                      : 'Białe'}{' '}
+                    (Montserrat)
+                  </span>
                 </span>
                 <span className="text-[10px] text-slate-400 block font-mono">
-                  Środek ekranu • single-word (powiększone)
+                  {captionPosition === 'center' ? 'Środek' : captionPosition === 'bottom' ? 'Dół' : 'Góra'} • {captionAnimation} ({captionFontSize}px)
                 </span>
               </div>
 
@@ -2429,9 +2650,238 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
             </div>
           )}
 
-          {/* Advanced Features: Lektor AI & Animated Subtitles Panel */}
-          <div className="space-y-4 pt-2 border-t border-slate-800">
-            {/* Lektor Text-to-Speech Block */}
+          {/* ⚙️ Panel Ustawień: Lektor AI, Animacja Napisów, Kolory & Eksport Konfiguracji */}
+          <div className="space-y-5 pt-3 border-t border-slate-800">
+            {/* Hidden file input for importing config JSON */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".json,application/json"
+              onChange={handleImportConfig}
+              className="hidden"
+            />
+
+            {/* Settings Panel Header Bar */}
+            <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-slate-950 via-slate-900 to-indigo-950/50 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2.5">
+                  <span className="p-2 rounded-xl bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">
+                    <Settings className="w-5 h-5" />
+                  </span>
+                  <div>
+                    <h4 className="text-sm sm:text-base font-extrabold text-white flex items-center gap-2">
+                      Panel Ustawień (Napisy, Kolory i Lektor)
+                    </h4>
+                    <p className="text-xs text-slate-400">
+                      Zarządzaj preferencjami napisów, kolorystyki i głosu. Pobierz plik JSON do innej sesji.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Buttons: Download Config, Import Config, Reset */}
+              <div className="flex items-center gap-2 flex-wrap shrink-0">
+                <button
+                  type="button"
+                  onClick={handleDownloadConfig}
+                  className="px-3.5 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-indigo-950 active:scale-95 cursor-pointer"
+                  title="Pobierz aktualną konfigurację napisów, kolorów i głosu jako plik JSON"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download Config</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white rounded-xl text-xs font-semibold transition flex items-center gap-1.5 border border-slate-700/80 cursor-pointer"
+                  title="Wgraj wcześniej pobrany plik JSON z innej sesji"
+                >
+                  <Upload className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Wgraj JSON</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleResetConfig}
+                  className="p-2 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-rose-400 rounded-xl transition border border-slate-800 cursor-pointer"
+                  title="Przywróć domyślne preferencje"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            {/* 1. Subtitles & Color Preferences Block */}
+            <div className="bg-slate-950/70 border border-slate-800/80 rounded-2xl p-4 sm:p-5 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-xl bg-yellow-500/10 border border-yellow-500/30 text-yellow-400">
+                    <Type className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-bold text-white">Napisy & Kolorystyka (libass Montserrat-Bold)</span>
+                      <span className="px-2 py-0.5 rounded-full bg-yellow-500/20 text-yellow-300 text-[10px] font-semibold border border-yellow-400/30 font-mono">
+                        {captionAnimation}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400">
+                      Wybierz styl animacji, pozycję i barwę wyróżnienia słów kluczowych.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Subtitle animation presets */}
+                <div className="flex items-center gap-1.5 bg-slate-900 p-1 border border-slate-800 rounded-xl text-xs">
+                  {[
+                    { id: 'single-word' as const, label: 'Pojedyncze Słowo (Viral)' },
+                    { id: 'word-by-word' as const, label: 'Słowo po Słowie (Karaoke)' },
+                    { id: 'classic' as const, label: 'Klasyczne (Cały wers)' }
+                  ].map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => setCaptionAnimation(preset.id)}
+                      className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                        captionAnimation === preset.id
+                          ? 'bg-indigo-600 text-white shadow-sm'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Subtitle Details: Highlight Color, Position & Font Size */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1">
+                {/* Highlight Color */}
+                <div>
+                  <label className="text-slate-300 text-xs font-semibold block mb-2 flex items-center justify-between">
+                    <span>Kolor aktywnego słowa (Highlight):</span>
+                    <span className="text-[10px] font-mono text-slate-400 capitalize">{highlightColor}</span>
+                  </label>
+                  <div className="grid grid-cols-5 gap-1.5">
+                    {[
+                      { id: 'red' as const, label: 'Czerwony', bg: 'bg-red-500', border: 'border-red-400' },
+                      { id: 'yellow' as const, label: 'Żółty', bg: 'bg-yellow-400', border: 'border-yellow-300' },
+                      { id: 'lime' as const, label: 'Limonka', bg: 'bg-lime-400', border: 'border-lime-300' },
+                      { id: 'cyan' as const, label: 'Cyjan', bg: 'bg-cyan-400', border: 'border-cyan-300' },
+                      { id: 'white' as const, label: 'Biały', bg: 'bg-white', border: 'border-slate-200' }
+                    ].map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => setHighlightColor(c.id)}
+                        className={`p-2 rounded-xl border flex flex-col items-center gap-1.5 transition cursor-pointer ${
+                          highlightColor === c.id
+                            ? 'bg-slate-900 border-indigo-500 ring-2 ring-indigo-500/40 text-white font-bold'
+                            : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                        }`}
+                        title={`Ustaw kolor: ${c.label}`}
+                      >
+                        <span className={`w-3.5 h-3.5 rounded-full ${c.bg} shadow-sm`} />
+                        <span className="text-[10px] truncate max-w-full">{c.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Caption Position */}
+                <div>
+                  <label className="text-slate-300 text-xs font-semibold block mb-2">
+                    Pozycja napisów na wideo:
+                  </label>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {[
+                      { id: 'center' as const, label: 'Środek (Reels)' },
+                      { id: 'bottom' as const, label: 'Dół (Standard)' },
+                      { id: 'top' as const, label: 'Góra (Header)' }
+                    ].map((pos) => (
+                      <button
+                        key={pos.id}
+                        type="button"
+                        onClick={() => setCaptionPosition(pos.id)}
+                        className={`py-2 px-2 rounded-xl text-xs font-semibold transition border cursor-pointer ${
+                          captionPosition === pos.id
+                            ? 'bg-indigo-600 border-indigo-400 text-white shadow-sm'
+                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                        }`}
+                      >
+                        {pos.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Font Size Preset */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-slate-300 text-xs font-semibold">
+                      Rozmiar czcionki (Montserrat-Bold):
+                    </label>
+                    <span className="text-indigo-400 font-mono font-bold text-xs">{captionFontSize}px</span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {[
+                      { val: 48, label: '48px' },
+                      { val: 58, label: '58px' },
+                      { val: 68, label: '68px (Def)' },
+                      { val: 78, label: '78px (Max)' }
+                    ].map((size) => (
+                      <button
+                        key={size.val}
+                        type="button"
+                        onClick={() => setCaptionFontSize(size.val)}
+                        className={`py-2 px-1 rounded-xl text-xs font-semibold transition border cursor-pointer ${
+                          captionFontSize === size.val
+                            ? 'bg-indigo-600 border-indigo-400 text-white shadow-sm'
+                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                        }`}
+                      >
+                        {size.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Live Interactive Subtitle Simulation Box */}
+              <div className="p-3.5 bg-slate-900/90 border border-slate-800 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                <div className="flex items-center gap-2">
+                  <Palette className="w-4 h-4 text-indigo-400 shrink-0" />
+                  <span className="text-slate-400 font-medium">Podgląd na żywo wybranego stylu:</span>
+                </div>
+
+                <div className="p-2.5 px-4 bg-black/80 rounded-xl border border-slate-800 font-black text-center tracking-wider font-sans uppercase">
+                  <span className="text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]">
+                    INWESTUJ W{' '}
+                  </span>
+                  <span
+                    className={`drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)] transition-colors ${
+                      highlightColor === 'red'
+                        ? 'text-red-500'
+                        : highlightColor === 'yellow'
+                        ? 'text-yellow-400'
+                        : highlightColor === 'lime'
+                        ? 'text-lime-400'
+                        : highlightColor === 'cyan'
+                        ? 'text-cyan-400'
+                        : 'text-white underline decoration-amber-400'
+                    }`}
+                  >
+                    WIEDZĘ
+                  </span>
+                  <span className="text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]">
+                    , A NIE EMOCJE
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* 2. Lektor Text-to-Speech Block */}
             <div className="bg-slate-950/70 border border-slate-800/80 rounded-2xl p-4 sm:p-5 space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
@@ -2456,7 +2906,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
                     type="button"
                     onClick={handleToggleVoicePreview}
                     disabled={voicePreviewLoading || !ttsEnabled}
-                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-xs font-semibold text-slate-200 rounded-xl border border-slate-700 transition flex items-center gap-1.5"
+                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-xs font-semibold text-slate-200 rounded-xl border border-slate-700 transition flex items-center gap-1.5 cursor-pointer"
                     title="Odsłuchaj próbkę głosu"
                   >
                     {voicePreviewLoading ? (
@@ -2472,7 +2922,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
                   <button
                     type="button"
                     onClick={() => setTtsEnabled(!ttsEnabled)}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none cursor-pointer ${
                       ttsEnabled ? 'bg-indigo-600' : 'bg-slate-800'
                     }`}
                   >
@@ -2526,7 +2976,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
                           type="button"
                           onClick={handleToggleVoicePreview}
                           disabled={voicePreviewLoading || !ttsEnabled}
-                          className={`px-3 py-2.5 rounded-xl text-xs font-semibold border transition flex items-center gap-1.5 shrink-0 ${
+                          className={`px-3 py-2.5 rounded-xl text-xs font-semibold border transition flex items-center gap-1.5 shrink-0 cursor-pointer ${
                             voicePreviewPlaying
                               ? 'bg-rose-600/20 border-rose-500/50 text-rose-300 hover:bg-rose-600/30'
                               : 'bg-indigo-600 hover:bg-indigo-500 border-indigo-500 text-white shadow-sm'
@@ -2572,7 +3022,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
                             key={preset.val}
                             type="button"
                             onClick={() => setTtsSpeed(preset.val)}
-                            className={`py-1.5 px-2 rounded-lg text-[11px] font-medium transition border ${
+                            className={`py-1.5 px-2 rounded-lg text-[11px] font-medium transition border cursor-pointer ${
                               Math.abs(ttsSpeed - preset.val) < 0.01
                                 ? 'bg-indigo-600 border-indigo-400 text-white shadow-sm'
                                 : 'bg-slate-900 border-slate-700/80 text-slate-300 hover:bg-slate-800'
@@ -2593,6 +3043,44 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* 3. Export / Import Config Banner Box */}
+            <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-purple-950/30 via-slate-900 to-indigo-950/40 border border-purple-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Download className="w-4 h-4 text-purple-400" />
+                  <span className="text-sm font-bold text-white">Eksport i Import Konfiguracji (.json)</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 font-mono font-semibold">
+                    JSON v1.0
+                  </span>
+                </div>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  Pobierz plik ze swoimi preferencjami (styl napisów: <strong className="text-white">{captionAnimation}</strong>, kolor: <strong className="text-white">{highlightColor}</strong>, głos: <strong className="text-white">{elevenLabsVoices.find((v) => v.id === ttsVoice)?.name || ttsVoice}</strong> {ttsSpeed}x). Możesz go wgrać w każdej nowej sesji lub na innym urządzeniu.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2.5 shrink-0 self-start sm:self-auto">
+                <button
+                  type="button"
+                  onClick={handleDownloadConfig}
+                  className="px-4 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-lg shadow-indigo-950 active:scale-95 cursor-pointer"
+                  title="Pobierz plik JSON z aktualnymi preferencjami"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Download Config</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-3.5 py-2.5 bg-slate-900 hover:bg-slate-800 text-slate-200 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 border border-slate-700/80 cursor-pointer"
+                  title="Wgraj plik konfiguracyjny JSON"
+                >
+                  <Upload className="w-4 h-4 text-purple-400" />
+                  <span>Importuj Config</span>
+                </button>
+              </div>
             </div>
           </div>
 

@@ -772,6 +772,57 @@ export const MakeHttpConnector: React.FC = () => {
     URL.revokeObjectURL(url);
   };
 
+  const downloadVideoStudioConfig = () => {
+    let baseConfig: any = null;
+    try {
+      const cached = localStorage.getItem('viral_settings_config');
+      if (cached) {
+        baseConfig = JSON.parse(cached);
+      }
+    } catch {}
+
+    const configData = {
+      version: '1.0',
+      appName: 'RaportFinansowy24 Viral Video Studio',
+      exportedAt: new Date().toISOString(),
+      subtitles: {
+        animation: baseConfig?.subtitles?.animation || globalCaptionAnimation,
+        position: baseConfig?.subtitles?.position || 'center',
+        fontSize: baseConfig?.subtitles?.fontSize || 68,
+        fontFamily: 'Montserrat-Bold.ttf'
+      },
+      colors: {
+        highlightColor: baseConfig?.colors?.highlightColor || globalHighlightColor,
+        fontColor: baseConfig?.colors?.fontColor || 'white',
+        outlineColor: baseConfig?.colors?.outlineColor || 'black',
+        outlineWidth: baseConfig?.colors?.outlineWidth || 8,
+        boxColor: baseConfig?.colors?.boxColor || 'black@0.6'
+      },
+      voice: {
+        enabled: typeof baseConfig?.voice?.enabled === 'boolean' ? baseConfig.voice.enabled : globalTtsEnabled,
+        voiceId: baseConfig?.voice?.voiceId || globalTtsVoice,
+        speed: baseConfig?.voice?.speed || globalTtsSpeed,
+        language: baseConfig?.voice?.language || globalTtsLanguage,
+        syncDurationWithVoice: globalSyncDuration
+      },
+      video: {
+        resolution: baseConfig?.video?.resolution || outputResolution,
+        fps: 30
+      }
+    };
+
+    const blob = new Blob([JSON.stringify(configData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'viral_studio_config.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    addToast('success', 'Pobrano konfigurację', 'Plik viral_studio_config.json z preferencjami napisów, kolorów i głosu został zapisany.');
+  };
+
   const handleSelectDriveVideoForScene = (videoUrl: string, name: string) => {
     setScenes((prev) => [
       ...prev,
@@ -794,7 +845,7 @@ export const MakeHttpConnector: React.FC = () => {
         }
       }
     ]);
-    setActiveTab('editor');
+    setActiveTab('autopilot');
     addToast('success', 'Wideo z Google Drive dodane', `Dodano "${name}" jako nową scenę do edytora.`);
   };
 
@@ -861,10 +912,20 @@ export const MakeHttpConnector: React.FC = () => {
               <RefreshCw className={`w-3.5 h-3.5 ${healthLoading ? 'animate-spin' : ''}`} />
             </button>
 
+            {/* Download Config Button */}
+            <button
+              onClick={downloadVideoStudioConfig}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 hover:text-indigo-200 border border-indigo-500/30 hover:border-indigo-400/60 transition text-xs font-semibold shadow-sm cursor-pointer"
+              title="Pobierz plik JSON z preferencjami napisów, kolorów i głosu"
+            >
+              <Download className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Download Config</span>
+            </button>
+
             {/* Ostatnie 5 Renderów Button */}
             <button
               onClick={() => setIsRecentJobsPanelOpen(!isRecentJobsPanelOpen)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 hover:text-yellow-300 border border-yellow-500/30 hover:border-yellow-400/60 transition text-xs font-semibold shadow-sm"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 hover:text-yellow-300 border border-yellow-500/30 hover:border-yellow-400/60 transition text-xs font-semibold shadow-sm cursor-pointer"
               title="Otwórz boczny panel z 5 ostatnio wyrenderowanymi filmami i linkami do pobrania"
             >
               <Film className="w-3.5 h-3.5 text-yellow-400" />
