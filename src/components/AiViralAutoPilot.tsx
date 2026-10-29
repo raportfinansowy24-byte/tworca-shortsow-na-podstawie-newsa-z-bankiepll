@@ -227,6 +227,34 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
     return ctx;
   };
 
+  const handlePrepareCreativeDirectorPlan = async () => {
+    const article = selectedBankierArticle || {
+      title: topic,
+      description: topic,
+      category: niche
+    } as BankierArticle;
+    if (!article.title.trim()) return;
+
+    setCreativeDirectorLoading(true);
+    try {
+      const res = await fetch('/api/creative-director/news', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ article, platform: 'youtube-shorts', duration: 18, sceneCount: 8, language: targetLanguage })
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success || !data.plan) {
+        throw new Error(data?.error || 'Nie udało się przygotować storyboardu marki.');
+      }
+      setCreativeDirectorPlan(data.plan);
+      onToast?.('success', 'Storyboard marki gotowy', 'Creative Director przygotował hook, sceny, zapytania wizualne i CTA. Render nadal korzysta z istniejącego pipeline’u.');
+    } catch (err) {
+      onToast?.('error', 'Błąd Creative Director', (err as Error).message);
+    } finally {
+      setCreativeDirectorLoading(false);
+    }
+  };
+
   // Translation mode text input
   const [translationScriptText, setTranslationScriptText] = useState(
     'This is a recording of a question that was sent in asking for a translation of this video: "Can artificial intelligence completely replace human video editors in the next five years, or will it remain just an assistant for creators?"'
@@ -246,6 +274,8 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
     backgroundMusicUrl: string;
     offerMatch?: OfferMatchPreview;
   } | null>(null);
+  const [creativeDirectorPlan, setCreativeDirectorPlan] = useState<any | null>(null);
+  const [creativeDirectorLoading, setCreativeDirectorLoading] = useState(false);
 
   // Stock Footage Verification & Preview state (false by default for 100% full zero-touch automation)
   const [verifyFootageBeforeRender, setVerifyFootageBeforeRender] = useState<boolean>(false);
@@ -3159,7 +3189,33 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
                 <Film className="w-4 h-4 text-cyan-400" />
                 <span>Podgląd Kadrów</span>
               </button>
+
+              <button
+                type="button"
+                onClick={handlePrepareCreativeDirectorPlan}
+                disabled={autoPilotLoading || generatingScript || creativeDirectorLoading}
+                className="w-full sm:w-auto py-4 px-4 bg-emerald-900/60 hover:bg-emerald-800/70 text-emerald-100 font-semibold rounded-xl text-xs border border-emerald-700/60 transition flex items-center justify-center gap-2 disabled:opacity-50"
+                title="Przygotuj markowy hook, storyboard i brief reżyserski dla wybranego newsa"
+              >
+                {creativeDirectorLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4 text-emerald-300" />}
+                <span>{creativeDirectorLoading ? 'Tworzenie storyboardu...' : 'Storyboard marki'}</span>
+              </button>
             </div>
+
+            {creativeDirectorPlan && (
+              <div className="mt-3 rounded-xl border border-emerald-800/60 bg-emerald-950/25 p-4 text-xs text-emerald-50 space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <strong className="text-emerald-200">Creative Director — {creativeDirectorPlan.title}</strong>
+                  <span className="text-[10px] text-emerald-300/70">{creativeDirectorPlan.modelUsed || 'model'}</span>
+                </div>
+                <p><span className="text-emerald-300 font-semibold">Hook:</span> {creativeDirectorPlan.hook}</p>
+                <p><span className="text-emerald-300 font-semibold">CTA:</span> {creativeDirectorPlan.cta}</p>
+                <p className="text-emerald-100/70">{creativeDirectorPlan.scenes?.length || 0} beatów · {creativeDirectorPlan.brandFilesUsed?.join(', ') || 'domyślny kontekst marki'}</p>
+                {creativeDirectorPlan.riskFlags?.length > 0 && (
+                  <p className="text-amber-200/80">Weryfikacja redakcyjna: {creativeDirectorPlan.riskFlags.join(' ')}</p>
+                )}
+              </div>
+            )}
           </div>
         </div>
 

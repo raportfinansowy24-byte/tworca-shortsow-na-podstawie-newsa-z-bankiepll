@@ -17,7 +17,10 @@
     "test:supabase-history": "tsx tests/supabaseJobStore.test.ts",
     "test:telegram-review": "tsx tests/telegramReview.test.ts",
     "test:telegram-chat": "tsx tests/telegramChatCommands.test.ts",
-    "test:scene-contract": "tsx tests/sceneContract.test.ts"
+    "test:scene-contract": "tsx tests/sceneContract.test.ts",
+    "test:creative-director": "tsx tests/creativeDirector.test.ts",
+    "test:short-pipeline": "tsx tests/shortPipeline.test.ts",
+    "test:motion-sound": "tsx tests/motionSoundRenderer.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

@@ -1,0 +1,191 @@
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import type { FinanceShortPlan, QualityGateResult } from './shortPipeline';
+
+export interface PipelineRunRecord {
+  runId: string;
+  jobId?: string;
+  plan: FinanceShortPlan;
+  source?: string;
+  status: 'planned' | 'queued' | 'rendering' | 'completed' | 'failed' | 'cancelled';
+  selectedHookVariant?: string;
+}
+
+export interface PipelineEventRecord {
+  runId: string;
+  jobId?: string;
+  eventType: 'hook_generated' | 'hook_selected' | 'scene_started' | 'scene_completed' | 'motion_applied' | 'sfx_applied' | 'quality_gate' | 'render_completed' | 'render_failed' | 'retention_metric_received' | 'telegram_feedback' | 'revision_created';
+  sceneIndex?: number;
+  payload?: unknown;
+}
+
+export interface RetentionMetricRecord {
+  runId?: string;
+  jobId?: string;
+  platform: string;
+  externalVideoId?: string;
+  hookText?: string;
+  niche?: string;
+  views?: number;
+  averageWatchSeconds?: number;
+  averageCompletionRate?: number;
+  retention1s?: number;
+  retention3s?: number;
+  retention50Percent?: number;
+  retention100Percent?: number;
+  likes?: number;
+  comments?: number;
+  shares?: number;
+  saves?: number;
+  capturedAt?: string;
+  raw?: Record<string, unknown>;
+}
+
+export interface LearningSignal {
+  hookText: string;
+  sampleSize: number;
+  averageCompletionRate: number;
+  averageWatchSeconds: number;
+  averageShares: number;
+}
+
+export interface HookVariantRecord {
+  runId: string;
+  variantKey: string;
+  hookText: string;
+  selected?: boolean;
+  generatedScore?: number;
+}
+
+let client: SupabaseClient | null = null;
+let warned = false;
+
+function getClient(): SupabaseClient | null {
+  if (client) return client;
+  const url = process.env.SUPABASE_URL?.trim();
+  const key = process.env.SUPABASE_KEY?.trim();
+  if (!url || !key) {
+    if (!warned) {
+      warned = true;
+      console.warn('[Pipeline telemetry] Supabase telemetry disabled: SUPABASE_URL/SUPABASE_KEY missing.');
+    }
+    return null;
+  }
+  client = createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false } });
+  return client;
+}
+
+function warnError(operation: string, error: { message?: string; code?: string } | null): void {
+  if (!error) return;
+  console.warn(`[Pipeline telemetry] ${operation} failed (${error.code || 'api'}): ${error.message || 'unknown error'}`);
+}
+
+export function toPlanTelemetry(run: PipelineRunRecord): Record<string, unknown> {
+  const gate: QualityGateResult = run.plan.qualityGate;
+  return {
+    id: run.runId,
+    job_id: run.jobId || null,
+    plan_id: run.plan.planId,
+    source: run.source || 'finance-v2',
+    status: run.status,
+    title: run.plan.title,
+    article_url: run.plan.sourceUrl || null,
+    niche: run.plan.article.category || 'Finanse',
+    hook_text: run.plan.hook,
+    cta_text: run.plan.cta,
+    selected_hook_variant: run.selectedHookVariant || run.plan.hook,
+    facts: run.plan.facts,
+    plan: run.plan,
+    quality_gate: gate,
+    architecture: run.plan.architecture
+  };
+}
+
+export async function recordPipelineRun(run: PipelineRunRecord): Promise<void> {
+  const supabase = getClient();
+  if (!supabase) return;
+  const { error } = await supabase.from('short_pipeline_runs').upsert(toPlanTelemetry(run), { onConflict: 'id' });
+  warnError('recordPipelineRun', error);
+}
+
+export async function recordHookVariants(runId: string, variants: HookVariantRecord[]): Promise<void> {
+  const supabase = getClient();
+  if (!supabase || variants.length === 0) return;
+  const { error } = await supabase.from('short_pipeline_hook_variants').upsert(variants.map((variant) => ({
+    run_id: runId,
+    variant_key: variant.variantKey,
+    hook_text: variant.hookText,
+    selected: variant.selected === true,
+    generated_score: variant.generatedScore ?? null
+  })), { onConflict: 'run_id,variant_key' });
+  warnError('recordHookVariants', error);
+}
+
+export async function updatePipelineRunStatus(runId: string, status: PipelineRunRecord['status'], jobId?: string, extra: Record<string, unknown> = {}): Promise<void> {
+  const supabase = getClient();
+  if (!supabase) return;
+  const { error } = await supabase.from('short_pipeline_runs').update({ status, job_id: jobId || null, ...extra, updated_at: new Date().toISOString() }).eq('id', runId);
+  warnError('updatePipelineRunStatus', error);
+}
+
+export async function recordPipelineEvent(event: PipelineEventRecord): Promise<void> {
+  const supabase = getClient();
+  if (!supabase) return;
+  const { error } = await supabase.from('short_pipeline_events').insert({
+    run_id: event.runId,
+    job_id: event.jobId || null,
+    event_type: event.eventType,
+    scene_index: typeof event.sceneIndex === 'number' ? event.sceneIndex : null,
+    payload: event.payload || {},
+    occurred_at: new Date().toISOString()
+  });
+  warnError('recordPipelineEvent', error);
+}
+
+export async function recordRetentionMetric(metric: RetentionMetricRecord): Promise<void> {
+  const supabase = getClient();
+  if (!supabase) return;
+  const { error } = await supabase.from('short_retention_metrics').insert({
+    run_id: metric.runId || null,
+    job_id: metric.jobId || null,
+    platform: metric.platform,
+    external_video_id: metric.externalVideoId || null,
+    hook_text: metric.hookText || null,
+    niche: metric.niche || null,
+    views: metric.views ?? null,
+    average_watch_seconds: metric.averageWatchSeconds ?? null,
+    average_completion_rate: metric.averageCompletionRate ?? null,
+    retention_1s: metric.retention1s ?? null,
+    retention_3s: metric.retention3s ?? null,
+    retention_50_percent: metric.retention50Percent ?? null,
+    retention_100_percent: metric.retention100Percent ?? null,
+    likes: metric.likes ?? null,
+    comments: metric.comments ?? null,
+    shares: metric.shares ?? null,
+    saves: metric.saves ?? null,
+    captured_at: metric.capturedAt || new Date().toISOString(),
+    raw: metric.raw || {}
+  });
+  warnError('recordRetentionMetric', error);
+}
+
+export async function getLearningSignals(niche: string, limit = 20): Promise<LearningSignal[]> {
+  const supabase = getClient();
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from('pipeline_learning_signals')
+    .select('hook_text,sample_size,average_completion_rate,average_watch_seconds,average_shares')
+    .eq('niche', niche)
+    .order('average_completion_rate', { ascending: false })
+    .limit(Math.min(Math.max(limit, 1), 100));
+  if (error) {
+    warnError('getLearningSignals', error);
+    return [];
+  }
+  return (data || []).map((row: any) => ({
+    hookText: String(row.hook_text || ''),
+    sampleSize: Number(row.sample_size || 0),
+    averageCompletionRate: Number(row.average_completion_rate || 0),
+    averageWatchSeconds: Number(row.average_watch_seconds || 0),
+    averageShares: Number(row.average_shares || 0)
+  }));
+}

@@ -1,0 +1,34 @@
+{
+  "clientSource": "bankier-gpw-full-render-test",
+  "topic": "Dramat na akcjach Cyfrowego Polsatu i Eurocashu. Szeroki rynek pędzi dzięki bankom",
+  "niche": "Giełda GPW & Spółki",
+  "language": "Polski",
+  "bankierArticle": {
+    "title": "Dramat na akcjach Cyfrowego Polsatu i Eurocashu. Szeroki rynek pędzi dzięki bankom",
+    "description": "Na zamknięciu czwartkowych notowań WIG20 wzrósł o 0,86 proc. do 4283,82 pkt., WIG zwyżkował o 0,72 proc. do 161 499 pkt., a mWIG40 wzrósł o 0,53 proc. do 10 945 pkt. WIG20, WIG i mWIG40 pobiły historyczne maksima. Subindeks WIG-Banki urósł o 1,96 proc. Cyfrowy Polsat spadł o 17,67 proc., a Eurocash o 13,15 proc.",
+    "category": "Giełda GPW & Spółki",
+    "keyTakeaway": "Banki wspierały rekordy indeksów, a wybrane spółki mocno traciły.",
+    "link": "https://www.bankier.pl/wiadomosc/Dramat-na-akcjach-Cyfrowego-Polsatu-i-Eurocashu-Szeroki-rynek-pedzi-dzieki-bankom-9220547.html"
+  },
+  "scenes": [
+    { "source": "curated", "videoUrl": "https://assets.mixkit.co/videos/preview/mixkit-stock-market-candlestick-charts-and-graphs-41315-large.mp4", "subtitles": "REKORDY I GWAŁTOWNA PRZECENA", "voiceover_text": "GPW ustanawia rekordy, a Cyfrowy Polsat traci prawie 18 procent — co wydarzyło się na rynku?", "duration": 2 },
+    { "source": "curated", "videoUrl": "https://assets.mixkit.co/videos/preview/mixkit-digital-animation-of-screens-with-graphs-and-data-31913-large.mp4", "subtitles": "WIG20 +0,86%", "voiceover_text": "WIG20 wzrósł o 0,86 procent, a WIG pobił historyczne maksimum.", "duration": 2 },
+    { "source": "curated", "videoUrl": "https://assets.mixkit.co/videos/preview/mixkit-aerial-view-of-city-skyscrapers-at-night-42416-large.mp4", "subtitles": "BANKI NAPĘDZAJĄ RYNEK", "voiceover_text": "Wzrosty napędzał sektor bankowy — WIG-Banki urósł o 1,96 procent.", "duration": 2 },
+    { "source": "curated", "videoUrl": "https://assets.mixkit.co/videos/preview/mixkit-futuristic-tunnel-with-neon-lights-42845-large.mp4", "subtitles": "CYFROWY POLSAT -17,67%", "voiceover_text": "Po drugiej stronie Cyfrowy Polsat stracił 17,67 procent.", "duration": 2 },
+    { "source": "curated", "videoUrl": "https://assets.mixkit.co/videos/preview/mixkit-hands-counting-a-stack-of-euro-bills-48243-large.mp4", "subtitles": "EUROCASH -13,15%", "voiceover_text": "Eurocash spadł o 13,15 procent, gdy inwestorzy oceniali perspektywy spółki.", "duration": 2 },
+    { "source": "curated", "videoUrl": "https://assets.mixkit.co/videos/preview/mixkit-aerial-view-of-ocean-waves-crashing-on-rocks-42414-large.mp4", "subtitles": "RYNEK NIE ROSŁ RÓWNOMIERNIE", "voiceover_text": "To nie był jednolity ruch całego rynku, lecz silne rozwarstwienie między sektorami.", "duration": 2 },
+    { "source": "curated", "videoUrl": "https://assets.mixkit.co/videos/preview/mixkit-stars-in-space-1610-large.mp4", "subtitles": "SPRAWDZAJ SEKTORY I SPÓŁKI", "voiceover_text": "Dlatego sam rekord indeksu nie mówi jeszcze, jak zachowały się poszczególne akcje.", "duration": 2.5 },
+    { "source": "curated", "videoUrl": "https://assets.mixkit.co/videos/preview/mixkit-close-up-of-the-wheel-of-a-luxury-car-spinning-42512-large.mp4", "subtitles": "PEŁNA ANALIZA NA RAPORTFINANSOWY24", "voiceover_text": "Sprawdź pełną analizę sesji na RaportFinansowy24.", "duration": 2.5 }
+  ],
+  "outputResolution": "720x1280",
+  "async": true,
+  "tts": true,
+  "ttsLanguage": "pl",
+  "ttsVoice": "pl-PL-MarekNeural",
+  "ttsSpeed": 1.05,
+  "syncDurationWithVoice": true,
+  "lockSceneDurations": true,
+  "captionAnimation": "word-by-word",
+  "highlightColor": "lime",
+  "audioVolume": 0.15
+}
