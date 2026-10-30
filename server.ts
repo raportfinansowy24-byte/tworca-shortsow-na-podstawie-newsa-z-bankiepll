@@ -154,64 +154,11 @@ const ai = new GoogleGenAI({
   }
 });
 
-// Curated Vertical (9:16) Motion Graphics & Stock Video Library (Mixkit / Coverr / Pexels CDN)
-// Optimized for seamless looping, financial charts, modern cityscapes, and high-tech aesthetics
-const CURATED_MOTION_CLIPS_POOL = [
-  {
-    title: 'Giełda & Wykresy Świecowe (Finanse / Trading)',
-    keywords: ['giełda', 'akcje', 'finanse', 'pieniądz', 'inwestycje', 'trading', 'finance', 'stock', 'market', 'chart', 'candlestick', 'crypto', 'bitcoin', 'bankier', 'economy'],
-    url: 'https://assets.mixkit.co/videos/preview/mixkit-stock-market-candlestick-charts-and-graphs-41315-large.mp4',
-    thumbnailUrl: 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=640&q=80'
-  },
-  {
-    title: 'Metropolia Nocą & Drapacze Chmur (Biznes / Gospodarka)',
-    keywords: ['miasto', 'metropolia', 'biznes', 'drapacze', 'wieżowce', 'sukces', 'city', 'drone', 'skyscrapers', 'building', 'metropolis', 'urban', 'night', 'corporate'],
-    url: 'https://assets.mixkit.co/videos/preview/mixkit-aerial-view-of-city-skyscrapers-at-night-42416-large.mp4',
-    thumbnailUrl: 'https://images.unsplash.com/photo-1519501025264-65ba15a82390?auto=format&fit=crop&w=640&q=80'
-  },
-  {
-    title: 'Cyfrowy Matrix & Animacja Danych (AI / Technologia)',
-    keywords: ['ai', 'sztuczna inteligencja', 'technologia', 'dane', 'kod', 'sieci', 'komputer', 'tech', 'cyber', 'code', 'data', 'algorithm', 'digital', 'neural', 'matrix'],
-    url: 'https://assets.mixkit.co/videos/preview/mixkit-digital-animation-of-screens-with-graphs-and-data-31913-large.mp4',
-    thumbnailUrl: 'https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?auto=format&fit=crop&w=640&q=80'
-  },
-  {
-    title: 'Przeliczanie Gotówki & Pieniądze (Kapitał / Waluty)',
-    keywords: ['pieniądze', 'gotówka', 'waluty', 'dolar', 'euro', 'złoty', 'banknoty', 'money', 'cash', 'currency', 'bills', 'wealth', 'millionaire'],
-    url: 'https://assets.mixkit.co/videos/preview/mixkit-hands-counting-a-stack-of-euro-bills-48243-large.mp4',
-    thumbnailUrl: 'https://images.unsplash.com/photo-1559526324-4b87b5e36e44?auto=format&fit=crop&w=640&q=80'
-  },
-  {
-    title: 'Cyberpunk & Neonowy Tunel (Nowoczesność / Przyszłość)',
-    keywords: ['przyszłość', 'neon', 'cyberpunk', 'tunel', 'dynamika', 'future', 'tunnel', 'neon', 'glow', 'abstract', 'motion', 'loop'],
-    url: 'https://assets.mixkit.co/videos/preview/mixkit-futuristic-tunnel-with-neon-lights-42845-large.mp4',
-    thumbnailUrl: 'https://images.unsplash.com/photo-1508739773434-c26b3d09e071?auto=format&fit=crop&w=640&q=80'
-  },
-  {
-    title: 'Koło Luksusowego Samochodu & Prędkość (Adrenalina / Motoryzacja)',
-    keywords: ['samochód', 'auto', 'prędkość', 'luksus', 'adrenalina', 'car', 'speed', 'luxury', 'wheel', 'drive', 'hypercar', 'fast'],
-    url: 'https://assets.mixkit.co/videos/preview/mixkit-close-up-of-the-wheel-of-a-luxury-car-spinning-42512-large.mp4',
-    thumbnailUrl: 'https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=640&q=80'
-  },
-  {
-    title: 'Fale Oceanu & Klif (Natura / Spokój / Psychologia)',
-    keywords: ['natura', 'ocean', 'morze', 'klif', 'psychologia', 'mózg', 'spokój', 'nature', 'ocean', 'water', 'cliff', 'waves', 'calm', 'landscape'],
-    url: 'https://assets.mixkit.co/videos/preview/mixkit-aerial-view-of-ocean-waves-crashing-on-rocks-42414-large.mp4',
-    thumbnailUrl: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=640&q=80'
-  },
-  {
-    title: 'Głęboki Kosmos & Gwiazdy (Wszechświat / Filozofia)',
-    keywords: ['kosmos', 'gwiazdy', 'galaktyka', 'wszechświat', 'filozofia', 'space', 'galaxy', 'stars', 'cosmos', 'universe', 'deep space'],
-    url: 'https://assets.mixkit.co/videos/preview/mixkit-stars-in-space-1610-large.mp4',
-    thumbnailUrl: 'https://images.unsplash.com/photo-1506703719100-a0f3a48c0f86?auto=format&fit=crop&w=640&q=80'
-  }
-];
-
 export interface ResolvedStockVideo {
   videoUrl: string;
   thumbnailUrl: string;
   searchKeyword?: string;
-  source: 'pexels' | 'curated';
+  source: 'pexels';
   pexelsId?: number;
   width?: number;
   height?: number;
@@ -514,7 +461,7 @@ async function searchPexelsVideoDetailed(
   const enrichedQuery = translateAndEnrichViralKeyword(query, sceneIndex, 2, options?.context);
 
   try {
-    const searchUrl = `https://api.pexels.com/videos/search?query=${encodeURIComponent(enrichedQuery)}&orientation=portrait&per_page=25`;
+    const searchUrl = `https://api.pexels.com/v1/videos/search?query=${encodeURIComponent(enrichedQuery)}&orientation=portrait&per_page=25`;
     console.log(`[Pexels API] Szukanie ultra-dynamicznego ujęcia 9:16 dla hasła: "${enrichedQuery}" (Scena #${sceneIndex + 1})...`);
 
     const res = await fetch(searchUrl, {
@@ -596,6 +543,56 @@ async function searchPexelsVideoDetailed(
   return null;
 }
 
+// Refresh Pexels video-file links by video ID after a CDN denies an older link.
+// Pexels documents video-file links on the Video resource; fetching the resource again
+// obtains the current links while keeping Pexels as the only stock-footage provider.
+async function refreshPexelsVideoFileLinks(pexelsId: number): Promise<string[]> {
+  const pexelsKey = process.env.PEXELS_API_KEY?.trim();
+  if (!pexelsKey) {
+    throw new Error('Brak PEXELS_API_KEY; nie można odświeżyć linku do klipu Pexels.');
+  }
+  if (!Number.isInteger(pexelsId) || pexelsId <= 0) {
+    throw new Error('Nieprawidłowy identyfikator klipu Pexels.');
+  }
+
+  const endpoint = `https://api.pexels.com/v1/videos/videos/${encodeURIComponent(String(pexelsId))}`;
+  const response = await fetch(endpoint, {
+    headers: {
+      Authorization: pexelsKey,
+      Accept: 'application/json',
+      'User-Agent': 'RaportFinansowy24-Shorts/1.0'
+    },
+    signal: AbortSignal.timeout(12000)
+  });
+
+  if (!response.ok) {
+    throw new Error(`Pexels nie odświeżył klipu ${pexelsId}: HTTP ${response.status} ${response.statusText}`);
+  }
+
+  const video: any = await response.json();
+  const files = Array.isArray(video?.video_files) ? video.video_files : [];
+  const candidates = files
+    .filter((file: any) =>
+      file?.file_type === 'video/mp4' &&
+      typeof file?.link === 'string' &&
+      file.link.startsWith('https://') &&
+      Number(file.height) > 0 &&
+      Number(file.width) > 0
+    )
+    .sort((a: any, b: any) => {
+      const aPortrait = Number(a.height) > Number(a.width) ? 1 : 0;
+      const bPortrait = Number(b.height) > Number(b.width) ? 1 : 0;
+      if (aPortrait !== bPortrait) return bPortrait - aPortrait;
+      return Number(b.height) - Number(a.height);
+    });
+
+  const uniqueLinks = [...new Set(candidates.map((file: any) => file.link as string))];
+  if (uniqueLinks.length === 0) {
+    throw new Error(`Pexels nie zwrócił dostępnego pliku MP4 dla klipu ${pexelsId}.`);
+  }
+  return uniqueLinks.slice(0, 6);
+}
+
 // Search multiple alternative clips for a given query (for gallery / swapping)
 async function searchPexelsMultiple(
   query: string,
@@ -609,7 +606,7 @@ async function searchPexelsMultiple(
   const enrichedQuery = translateAndEnrichViralKeyword(query, 0, 4, context);
 
   try {
-    const searchUrl = `https://api.pexels.com/videos/search?query=${encodeURIComponent(enrichedQuery)}&orientation=portrait&per_page=${Math.max(perPage, 14)}`;
+    const searchUrl = `https://api.pexels.com/v1/videos/search?query=${encodeURIComponent(enrichedQuery)}&orientation=portrait&per_page=${Math.max(perPage, 14)}`;
     const res = await fetch(searchUrl, {
       headers: {
         Authorization: pexelsKey.trim(),
@@ -678,81 +675,50 @@ async function searchPexelsVideo(query: string): Promise<string | null> {
   return detailed ? detailed.videoUrl : null;
 }
 
-// Synchronous stock video resolver matching keywords with thumbnail
-function getStockVideoWithThumbnail(query: string, index: number): { url: string; thumbnailUrl: string; title: string } {
-  if (!query) {
-    const item = CURATED_MOTION_CLIPS_POOL[index % CURATED_MOTION_CLIPS_POOL.length];
-    return { url: item.url, thumbnailUrl: item.thumbnailUrl, title: item.title };
-  }
-  const lower = query.toLowerCase();
-  const matched = CURATED_MOTION_CLIPS_POOL.find((item) =>
-    item.keywords.some((k) => lower.includes(k))
-  );
-  if (matched) {
-    return { url: matched.url, thumbnailUrl: matched.thumbnailUrl, title: matched.title };
-  }
-  const fallback = CURATED_MOTION_CLIPS_POOL[index % CURATED_MOTION_CLIPS_POOL.length];
-  return { url: fallback.url, thumbnailUrl: fallback.thumbnailUrl, title: fallback.title };
-}
-
-// Synchronous stock video resolver matching keywords
-function getStockVideoUrl(query: string, index: number): string {
-  return getStockVideoWithThumbnail(query, index).url;
-}
-
-// Asynchronous stock or Pexels video resolver with full metadata, dynamic scoring & deduplication
+// Resolve stock footage exclusively from Pexels. Missing key or no matching clip is a hard error.
 async function resolveStockOrPexelsVideoDetailed(
   query: string,
   index: number = 0,
   avoidVideoIds?: number[],
   options?: { context?: string; requirePexels?: boolean }
 ): Promise<ResolvedStockVideo> {
-  const hasPexelsKey = Boolean(process.env.PEXELS_API_KEY?.trim());
-  if (hasPexelsKey) {
-    // Pass 1: Try strict topic-matched Pexels search
-    const pexelsResult = await searchPexelsVideoDetailed(query, {
-      sceneIndex: index,
-      avoidVideoIds,
-      context: options?.context,
-      requireTopicMatch: options?.requirePexels
-    });
-    if (pexelsResult) return pexelsResult;
+  const pexelsKey = process.env.PEXELS_API_KEY?.trim();
+  if (!pexelsKey) {
+    throw new Error('Brak PEXELS_API_KEY. Materiały wideo mogą pochodzić wyłącznie z Pexels.');
+  }
 
-    // Pass 2: Try alternative keywords from category visual plan
-    const altKeywords = options?.context ? getCategorySceneAlternatives(options.context, index) : [];
-    for (const altQuery of altKeywords) {
-      if (altQuery && altQuery !== query) {
-        console.log(`[Pexels Fallback] Próba alternatywnego zapytania: "${altQuery}" dla sceny #${index + 1}...`);
-        const altResult = await searchPexelsVideoDetailed(altQuery, {
-          sceneIndex: index,
-          avoidVideoIds,
-          context: options?.context,
-          requireTopicMatch: false
-        });
-        if (altResult) return altResult;
-      }
-    }
+  const avoidIds = avoidVideoIds ?? [];
+  const pexelsResult = await searchPexelsVideoDetailed(query, {
+    sceneIndex: index,
+    avoidVideoIds: avoidIds,
+    context: options?.context,
+    requireTopicMatch: options?.requirePexels
+  });
+  if (pexelsResult) return pexelsResult;
 
-    // Pass 3: Try relaxed Pexels search without strict topic match restriction
-    console.log(`[Pexels Fallback] Próba rozszerzonego zapytania Pexels dla: "${query}"...`);
-    const relaxedResult = await searchPexelsVideoDetailed(query, {
+  const altKeywords = options?.context ? getCategorySceneAlternatives(options.context, index) : [];
+  for (const altQuery of altKeywords) {
+    if (!altQuery || altQuery === query) continue;
+    console.log(`[Pexels Fallback] Próba alternatywnego zapytania Pexels: "${altQuery}" dla sceny #${index + 1}...`);
+    const altResult = await searchPexelsVideoDetailed(altQuery, {
       sceneIndex: index,
-      avoidVideoIds,
+      avoidVideoIds: avoidIds,
       context: options?.context,
       requireTopicMatch: false
     });
-    if (relaxedResult) return relaxedResult;
+    if (altResult) return altResult;
   }
 
-  // Pass 4: Safe curated video fallback if no vertical Pexels clip matched or API key is missing
-  console.warn(`[Pexels Fallback] Dla zapytania "${query}" użyto bezpiecznego pionowego klipu z puli kuratorowanej.`);
-  const fallback = getStockVideoWithThumbnail(query, index);
-  return {
-    videoUrl: fallback.url,
-    thumbnailUrl: fallback.thumbnailUrl,
-    searchKeyword: query,
-    source: 'curated'
-  };
+  console.log(`[Pexels Fallback] Próba rozszerzonego zapytania Pexels dla: "${query}"...`);
+  const relaxedResult = await searchPexelsVideoDetailed(query, {
+    sceneIndex: index,
+    avoidVideoIds: avoidIds,
+    context: options?.context,
+    requireTopicMatch: false
+  });
+  if (relaxedResult) return relaxedResult;
+
+  throw new Error(`Nie znaleziono odpowiedniego klipu Pexels dla sceny ${index + 1}: "${query}". Render został zatrzymany bez użycia obcego źródła.`);
 }
 
 // Asynchronous stock or Pexels video resolver
@@ -2315,7 +2281,47 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
         updateJobProgress(jobId, {}, `Wygenerowano deterministyczną wizualizację danych dla sceny ${sceneNum}`);
       } else {
         console.log(`Downloading scene ${sceneNum}: ${rawAssetUrl}`);
-        await downloadFile(rawAssetUrl, downloadedAssetPath, jobId, abortController.signal, payload.allowLocalFallback === true);
+        try {
+          await downloadFile(rawAssetUrl, downloadedAssetPath, jobId, abortController.signal, payload.allowLocalFallback === true);
+        } catch (downloadError) {
+          const downloadMessage = (downloadError as Error).message || String(downloadError);
+          const pexelsId = Number((scene as any).pexelsId ?? (scene as any).pexels_id);
+          const sceneSource = String((scene as any).source ?? (scene as any).videoSource ?? '').toLowerCase();
+          const isPexelsAsset = sceneSource === 'pexels' || (Number.isInteger(pexelsId) && pexelsId > 0);
+
+          if (!isPexelsAsset || !Number.isInteger(pexelsId) || pexelsId <= 0 || !/HTTP 403/.test(downloadMessage)) {
+            throw downloadError;
+          }
+
+          console.warn(`[Pexels Download] CDN odmówił pobrania klipu ${pexelsId} (HTTP 403). Odświeżam metadane i linki przez Pexels API...`);
+          const refreshedLinks = await refreshPexelsVideoFileLinks(pexelsId);
+          const retryLinks = refreshedLinks.filter((link) => link !== rawAssetUrl);
+          if (retryLinks.length === 0) {
+            throw new Error(`Pexels zwrócił HTTP 403 dla klipu ${pexelsId}, a odświeżenie nie dostarczyło nowego linku do pliku.`);
+          }
+
+          const retryErrors: string[] = [];
+          let downloaded = false;
+          for (const freshLink of retryLinks) {
+            if (abortController.signal.aborted) {
+              throw new Error('Zadanie zostało anulowane podczas ponawiania pobierania klipu Pexels.');
+            }
+            try {
+              await downloadFile(freshLink, downloadedAssetPath, jobId, abortController.signal, false);
+              (scene as any).videoUrl = freshLink;
+              (scene as any).video_url = freshLink;
+              downloaded = true;
+              console.log(`[Pexels Download] Pobrano odświeżony plik dla klipu ${pexelsId}.`);
+              break;
+            } catch (retryError) {
+              retryErrors.push((retryError as Error).message || String(retryError));
+            }
+          }
+
+          if (!downloaded) {
+            throw new Error(`Nie udało się pobrać klipu Pexels ${pexelsId} po odświeżeniu linków: ${retryErrors.join(' | ').slice(0, 1200)}`);
+          }
+        }
       }
       updateJobProgress(jobId, {}, `Zapisano plik źródłowy: raw_scene_${sceneNum}.${isImage ? 'jpg' : 'mp4'}`);
 
@@ -4239,7 +4245,7 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
             requirePexels: requireNewsPexels
           });
           if (requireNewsPexels && (resolved.source !== 'pexels' || !resolved.pexelsId)) {
-            console.warn(`[Pexels Warning] Scena ${idx + 1} użyje dopasowanego klipu z biblioteki kuratorowanej.`);
+            console.warn(`[Pexels Warning] Scena ${idx + 1} nie otrzymała klipu Pexels.`);
           }
           if (resolved.pexelsId) {
             usedPexelsIds.push(resolved.pexelsId);
@@ -4324,7 +4330,7 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
       requirePexels: requireNewsPexels
     });
     if (requireNewsPexels && (resolved.source !== 'pexels' || !resolved.pexelsId)) {
-      console.warn(`[Pexels Warning] Scena ${idx + 1} użyje dopasowanego klipu z biblioteki kuratorowanej.`);
+      console.warn(`[Pexels Warning] Scena ${idx + 1} nie otrzymała klipu Pexels.`);
     }
     if (resolved.pexelsId) {
       usedPexelsIds.push(resolved.pexelsId);
