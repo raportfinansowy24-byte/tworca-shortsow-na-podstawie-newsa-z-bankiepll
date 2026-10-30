@@ -3163,7 +3163,7 @@ function normalizeSceneItem(sc: any, idx: number, totalCount: number): SceneInpu
     return {
       subtitles: `SCENA ${idx + 1}`,
       voiceover_text: `SCENA ${idx + 1}`,
-      videoUrl: getStockVideoUrl('nature', idx),
+      videoUrl: '',
       duration: 6
     };
   }
@@ -3182,7 +3182,7 @@ function normalizeSceneItem(sc: any, idx: number, totalCount: number): SceneInpu
     sc.imageUrl ||
     sc.fileUrl ||
     sc.uri ||
-    getStockVideoUrl('nature', idx);
+    '';
 
   const rawText =
     sc.voiceover_text ??
@@ -3365,9 +3365,9 @@ function buildSmartFallbackScript(
         voiceover_text: s1Voiceover,
         duration: 9.0,
         searchKeyword: kw1,
-        videoUrl: CURATED_MOTION_CLIPS_POOL[videoIndex].url,
-        thumbnailUrl: CURATED_MOTION_CLIPS_POOL[videoIndex].thumbnailUrl,
-        source: 'curated' as const,
+        videoUrl: '',
+        thumbnailUrl: '',
+        source: 'pexels' as const,
         captionStyle: {
           position: 'center' as const,
           animation: 'single-word' as const,
@@ -3384,9 +3384,9 @@ function buildSmartFallbackScript(
         voiceover_text: s2WithCta,
         duration: 9.0,
         searchKeyword: kw2,
-        videoUrl: CURATED_MOTION_CLIPS_POOL[(videoIndex + 1) % CURATED_MOTION_CLIPS_POOL.length].url,
-        thumbnailUrl: CURATED_MOTION_CLIPS_POOL[(videoIndex + 1) % CURATED_MOTION_CLIPS_POOL.length].thumbnailUrl,
-        source: 'curated' as const,
+        videoUrl: '',
+        thumbnailUrl: '',
+        source: 'pexels' as const,
         captionStyle: {
           position: 'center' as const,
           animation: 'single-word' as const,
@@ -3436,7 +3436,7 @@ function buildSmartFallbackScript(
       voiceover_text: smartVoiceover,
       duration: 18.0,
       searchKeyword: theme,
-      videoUrl: CURATED_MOTION_CLIPS_POOL[videoIndex].url,
+      videoUrl: '',
       captionStyle: {
         position: 'center' as const,
         animation: 'single-word' as const,
@@ -3504,7 +3504,7 @@ function buildSmartFallbackScript(
       voiceover_text: text,
       duration: sceneDurations[idx],
       searchKeyword,
-      videoUrl: CURATED_MOTION_CLIPS_POOL[(videoIndex + idx) % CURATED_MOTION_CLIPS_POOL.length].url,
+      videoUrl: '',
       captionStyle: {
         position: 'center' as const,
         animation: 'single-word' as const,
@@ -4527,7 +4527,7 @@ Wymagania JSON:
     voiceover_text: chunk,
     duration: dur,
     searchKeyword: 'tech cyber nature',
-    videoUrl: CURATED_MOTION_CLIPS_POOL[idx % CURATED_MOTION_CLIPS_POOL.length].url,
+    videoUrl: LEGACY_MIXKIT_VIDEO_POOL_REMOVED[idx % LEGACY_MIXKIT_VIDEO_POOL_REMOVED.length].url,
     captionStyle: {
       position: 'center' as const,
       animation: 'single-word' as const,
@@ -5242,10 +5242,36 @@ const handleInboundWebhook = async (req: express.Request, res: express.Response)
           duration: body.duration || 10
         }, 0, 1)];
       } else if (hasTopic) {
-        // Smart fallback script for topic
-        const topicName = body.topic || body.prompt || 'Fascynujący świat AI';
-        const smartScript = buildSmartFallbackScript(topicName, 'Viral Shorts', 'Polski', 4);
-        scenesToRender = smartScript.scenes as any;
+        // Topic-only webhook requests must fetch every stock clip from Pexels.
+        if (!process.env.PEXELS_API_KEY?.trim()) {
+          throw new Error('Brak PEXELS_API_KEY. Webhook nie może użyć zastępczego źródła klipów.');
+        }
+        const topicName = String(body.topic || body.prompt || 'Fascynujący świat AI');
+        const smartScript = buildSmartFallbackScript(topicName, 'Viral Shorts', String(body.language || 'Polski'), 8);
+        const usedPexelsIds: number[] = [];
+        scenesToRender = [];
+        for (let idx = 0; idx < smartScript.scenes.length; idx++) {
+          const scene: any = smartScript.scenes[idx];
+          const resolved = await resolveStockOrPexelsVideoDetailed(
+            String(scene.searchKeyword || topicName),
+            idx,
+            usedPexelsIds,
+            { context: topicName, requirePexels: true }
+          );
+          if (resolved.source !== 'pexels' || !resolved.pexelsId) {
+            throw new Error(`Scena ${idx + 1} nie otrzymała klipu z Pexels.`);
+          }
+          usedPexelsIds.push(resolved.pexelsId);
+          scenesToRender.push({
+            ...scene,
+            videoUrl: resolved.videoUrl,
+            thumbnailUrl: resolved.thumbnailUrl,
+            source: 'pexels',
+            pexelsId: resolved.pexelsId,
+            photographer: resolved.photographer,
+            photographerUrl: resolved.photographerUrl
+          });
+        }
       }
 
       const baseUrl = getPublicBaseUrl(req);
@@ -5564,7 +5590,7 @@ router.get('/stock/status', (req, res) => {
   res.json({
     success: true,
     hasPexelsKey: !!(process.env.PEXELS_API_KEY && process.env.PEXELS_API_KEY.trim()),
-    curatedClipsCount: CURATED_MOTION_CLIPS_POOL.length,
+    curatedClipsCount: LEGACY_MIXKIT_VIDEO_POOL_REMOVED.length,
     defaultDuration: 18.0,
     recommendedScenes: 2
   });
@@ -5580,10 +5606,10 @@ router.get('/stock/search-pexels', async (req, res) => {
     // If Pexels returned nothing or key is absent, provide relevant curated fallback with thumbnails
     if (videos.length === 0) {
       const lower = query.toLowerCase();
-      const matched = CURATED_MOTION_CLIPS_POOL.filter((item) =>
+      const matched = LEGACY_MIXKIT_VIDEO_POOL_REMOVED.filter((item) =>
         item.keywords.some((k) => lower.includes(k))
       );
-      const fallbackList = (matched.length > 0 ? matched : CURATED_MOTION_CLIPS_POOL).map((item, idx) => ({
+      const fallbackList = (matched.length > 0 ? matched : LEGACY_MIXKIT_VIDEO_POOL_REMOVED).map((item, idx) => ({
         videoUrl: item.url,
         thumbnailUrl: item.thumbnailUrl,
         pexelsId: 900000 + idx,
@@ -5623,8 +5649,8 @@ router.get('/stock/search-pexels', async (req, res) => {
 router.get('/stock/curated', (req, res) => {
   res.json({
     success: true,
-    count: CURATED_MOTION_CLIPS_POOL.length,
-    clips: CURATED_MOTION_CLIPS_POOL
+    count: LEGACY_MIXKIT_VIDEO_POOL_REMOVED.length,
+    clips: LEGACY_MIXKIT_VIDEO_POOL_REMOVED
   });
 });
 
