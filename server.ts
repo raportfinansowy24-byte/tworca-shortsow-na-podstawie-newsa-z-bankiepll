@@ -586,7 +586,7 @@ async function refreshPexelsVideoFileLinks(pexelsId: number): Promise<string[]> 
       return Number(b.height) - Number(a.height);
     });
 
-  const uniqueLinks = [...new Set(candidates.map((file: any) => file.link as string))];
+  const uniqueLinks: string[] = [...new Set<string>(candidates.map((file: any) => String(file.link)))];
   if (uniqueLinks.length === 0) {
     throw new Error(`Pexels nie zwrócił dostępnego pliku MP4 dla klipu ${pexelsId}.`);
   }
