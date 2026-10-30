@@ -4441,7 +4441,7 @@ Wymagania JSON:
 
         for (let idx = 0; idx < parsed.scenes.length; idx++) {
           const sc = parsed.scenes[idx];
-          const resolved = await resolveStockOrPexelsVideoDetailed(sc.searchKeyword, idx, usedPexelsIds);
+          const resolved = await resolveStockOrPexelsVideoDetailed(sc.searchKeyword, idx, usedPexelsIds, { requirePexels: true });
           if (resolved.pexelsId) {
             usedPexelsIds.push(resolved.pexelsId);
           }
@@ -4522,23 +4522,44 @@ Wymagania JSON:
     parts[count - 1] = ensureConciseRaportFinansowyCta(parts[count - 1]);
   }
 
-  const scenesWithVideo = parts.map((chunk, idx) => ({
-    subtitles: chunk,
-    voiceover_text: chunk,
-    duration: dur,
-    searchKeyword: 'tech cyber nature',
-    videoUrl: LEGACY_MIXKIT_VIDEO_POOL_REMOVED[idx % LEGACY_MIXKIT_VIDEO_POOL_REMOVED.length].url,
-    captionStyle: {
-      position: 'center' as const,
-      animation: 'single-word' as const,
-      highlightColor: 'red' as const,
-      fontColor: idx === 0 ? 'red' : 'white',
-      outlineColor: 'black',
-      fontSize: 44,
-      outlineWidth: 4,
-      boxColor: 'black@0.6'
+  const usedPexelsIds: number[] = [];
+  const scenesWithVideo = [];
+  for (let idx = 0; idx < parts.length; idx++) {
+    const chunk = parts[idx];
+    const searchKeyword = chunk.slice(0, 120);
+    const resolved = await resolveStockOrPexelsVideoDetailed(
+      searchKeyword,
+      idx,
+      usedPexelsIds,
+      { context: scriptText, requirePexels: true }
+    );
+    if (resolved.source !== 'pexels' || !resolved.pexelsId) {
+      throw new Error(`Scena tłumaczenia ${idx + 1} nie otrzymała klipu Pexels.`);
     }
-  }));
+    usedPexelsIds.push(resolved.pexelsId);
+    scenesWithVideo.push({
+      subtitles: chunk,
+      voiceover_text: chunk,
+      duration: dur,
+      searchKeyword: resolved.searchKeyword || searchKeyword,
+      videoUrl: resolved.videoUrl,
+      thumbnailUrl: resolved.thumbnailUrl,
+      source: 'pexels',
+      pexelsId: resolved.pexelsId,
+      photographer: resolved.photographer,
+      photographerUrl: resolved.photographerUrl,
+      captionStyle: {
+        position: 'center' as const,
+        animation: 'single-word' as const,
+        highlightColor: 'red' as const,
+        fontColor: idx === 0 ? 'red' : 'white',
+        outlineColor: 'black',
+        fontSize: 44,
+        outlineWidth: 4,
+        boxColor: 'black@0.6'
+      }
+    });
+  }
 
   return {
     success: true,
@@ -5590,7 +5611,9 @@ router.get('/stock/status', (req, res) => {
   res.json({
     success: true,
     hasPexelsKey: !!(process.env.PEXELS_API_KEY && process.env.PEXELS_API_KEY.trim()),
-    curatedClipsCount: LEGACY_MIXKIT_VIDEO_POOL_REMOVED.length,
+    curatedClipsCount: 0,
+    pexelsOnly: true,
+    videoSource: 'pexels',
     defaultDuration: 18.0,
     recommendedScenes: 2
   });
@@ -5603,29 +5626,21 @@ router.get('/stock/search-pexels', async (req, res) => {
     const perPage = Math.min(24, Math.max(1, Number(req.query.per_page) || 8));
     const videos = await searchPexelsMultiple(query, perPage);
 
-    // If Pexels returned nothing or key is absent, provide relevant curated fallback with thumbnails
-    if (videos.length === 0) {
-      const lower = query.toLowerCase();
-      const matched = LEGACY_MIXKIT_VIDEO_POOL_REMOVED.filter((item) =>
-        item.keywords.some((k) => lower.includes(k))
-      );
-      const fallbackList = (matched.length > 0 ? matched : LEGACY_MIXKIT_VIDEO_POOL_REMOVED).map((item, idx) => ({
-        videoUrl: item.url,
-        thumbnailUrl: item.thumbnailUrl,
-        pexelsId: 900000 + idx,
-        width: 720,
-        height: 1280,
-        duration: 18,
-        photographer: 'Mixkit / Studio',
-        searchKeyword: query,
-        source: 'curated' as const
-      }));
-      return res.json({
-        success: true,
+    if (!process.env.PEXELS_API_KEY?.trim()) {
+      return res.status(503).json({
+        success: false,
         query,
-        count: fallbackList.length,
-        source: 'curated',
-        videos: fallbackList
+        source: 'pexels',
+        error: 'Brak PEXELS_API_KEY. Wyszukiwanie klipów jest dostępne wyłącznie przez Pexels.'
+      });
+    }
+    if (videos.length === 0) {
+      return res.status(404).json({
+        success: false,
+        query,
+        count: 0,
+        source: 'pexels',
+        error: 'Pexels nie zwrócił pasujących klipów. Nie podstawiono materiałów z innego serwisu.'
       });
     }
 
@@ -5633,6 +5648,7 @@ router.get('/stock/search-pexels', async (req, res) => {
       success: true,
       query,
       count: videos.length,
+      source: 'pexels',
       source: 'pexels',
       videos
     });
