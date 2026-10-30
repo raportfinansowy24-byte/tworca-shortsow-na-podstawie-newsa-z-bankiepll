@@ -5649,7 +5649,6 @@ router.get('/stock/search-pexels', async (req, res) => {
       query,
       count: videos.length,
       source: 'pexels',
-      source: 'pexels',
       videos
     });
   } catch (error) {
@@ -5661,12 +5660,15 @@ router.get('/stock/search-pexels', async (req, res) => {
   }
 });
 
-// Endpoint: Get All Curated Vertical Motion Clips (/api/stock/curated)
-router.get('/stock/curated', (req, res) => {
+// Backward-compatible endpoint: curated third-party stock pools are disabled.
+// All generated stock footage is now sourced from Pexels only.
+router.get('/stock/curated', (_req, res) => {
   res.json({
     success: true,
-    count: LEGACY_MIXKIT_VIDEO_POOL_REMOVED.length,
-    clips: LEGACY_MIXKIT_VIDEO_POOL_REMOVED
+    count: 0,
+    source: 'pexels-only',
+    clips: [],
+    message: 'Zewnętrzne pule klipów zastępczych są wyłączone. Użyj wyszukiwarki Pexels.'
   });
 });
 
