@@ -2292,6 +2292,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
     const ttsEnabled = payload.tts !== false;
     const ttsLanguage = normalizeLanguageCode(payload.ttsLanguage || (payload as any).language || 'pl');
     const ttsVoice = payload.ttsVoice || (payload as any).tts_voice || (payload as any).voice || (payload as any).lektor || (payload as any).glos || process.env.ELEVENLABS_VOICE_ID || DEFAULT_ELEVENLABS_VOICE_ID;
+    const lockedTtsVoiceId = resolveElevenLabsVoiceId(ttsVoice);
     const requestedTtsSpeed = typeof payload.ttsSpeed === 'number' && payload.ttsSpeed > 0 ? payload.ttsSpeed : (typeof (payload as any).tts_speed === 'number' ? (payload as any).tts_speed : 1.0);
     const ttsSpeed = Math.max(0.7, Math.min(requestedTtsSpeed, 1.2));
     const defaultCaptionAnim = 'single-word';
@@ -2327,7 +2328,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
           ttsLanguage,
           ttsPath,
           jobTempDir,
-          ttsVoice,
+          lockedTtsVoiceId,
           ttsSpeed,
           wordTimings,
           sceneSpeechTexts[index - 1],
@@ -2336,32 +2337,40 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
         if (duration <= 0 || !fs.existsSync(ttsPath)) {
           throw new Error(`Nie udało się wygenerować lektora dla sceny ${index + 1}.`);
         }
-        const sceneBudget = Number(scenes[index].duration) || [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5][index] || 2.25;
-        // Allow short duration up to 22.0s max (average ~2.75s per scene for 8 scenes)
-        const maxSceneBudget = Math.max(sceneBudget, 22.0 / Math.max(1, scenes.length));
-        let finalDuration = duration;
-        if (finalDuration > maxSceneBudget + 0.1) {
-          try {
-            const ratio = Math.min(2.0, finalDuration / maxSceneBudget);
-            const speedupPath = path.join(jobTempDir, `scene_tts_speedup_${index + 1}.mp3`);
-            await execPromise(`ffmpeg -y -i "${ttsPath}" -filter:a "atempo=${ratio.toFixed(3)}" "${speedupPath}"`);
-            if (fs.existsSync(speedupPath)) {
-              await fs.promises.copyFile(speedupPath, ttsPath);
-              try { await fs.promises.unlink(speedupPath); } catch {}
-              finalDuration = await getAudioDuration(ttsPath);
-              if (wordTimings.length > 0) {
-                wordTimings.forEach((wt) => {
-                  wt.start /= ratio;
-                  wt.end /= ratio;
-                });
-              }
-              console.log(`[TTS Speedup] Lektor sceny #${index + 1} został dopasowany do limitu (${maxSceneBudget.toFixed(2)}s, max 22s) z użyciem atempo (${ratio.toFixed(2)}x).`);
-            }
-          } catch (speedupErr) {
-            console.warn(`[TTS Speedup Warning] Nie udało się dostosować tempa lektora dla sceny #${index + 1}:`, (speedupErr as Error).message);
-          }
+        preparedSceneTts[index] = { path: ttsPath, duration, wordTimings };
+      }
+
+      // Never accelerate only selected scenes: that creates visibly different
+      // narration tempo and can sound like a different speaker. Calculate one
+      // common ratio from the slowest scene and apply it to every scene.
+      const sceneBudgets = scenes.map((scene, index) => Math.max(
+        Number(scene.duration) || [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5][index] || 2.25,
+        22.0 / Math.max(1, scenes.length)
+      ));
+      const requiredUniformRatio = preparedSceneTts.reduce((maxRatio, prepared, index) => {
+        if (!prepared) return maxRatio;
+        return Math.max(maxRatio, prepared.duration / sceneBudgets[index]);
+      }, 1);
+      const uniformTtsSpeedup = Math.max(1, requiredUniformRatio);
+      if (uniformTtsSpeedup > 2.0 + 0.01) {
+        throw new Error(`Narracja nie mieści się w czasie scen przy jednym tempie (wymagane ${uniformTtsSpeedup.toFixed(2)}x). Skróć tekst scen lub zwiększ ich budżet czasu.`);
+      }
+      if (uniformTtsSpeedup > 1.01) {
+        console.log(`[TTS Speedup] Wspólne tempo ${uniformTtsSpeedup.toFixed(2)}x dla wszystkich ${scenes.length} scen (voice ID: ${lockedTtsVoiceId}).`);
+        for (let index = 0; index < preparedSceneTts.length; index++) {
+          const prepared = preparedSceneTts[index];
+          if (!prepared) continue;
+          const speedupPath = path.join(jobTempDir, `scene_tts_uniform_speedup_${index + 1}.mp3`);
+          await execPromise(`ffmpeg -y -i "${prepared.path}" -filter:a "atempo=${uniformTtsSpeedup.toFixed(3)}" "${speedupPath}"`);
+          if (!fs.existsSync(speedupPath)) throw new Error(`Nie udało się ujednolicić tempa audio dla sceny ${index + 1}.`);
+          await fs.promises.copyFile(speedupPath, prepared.path);
+          try { await fs.promises.unlink(speedupPath); } catch {}
+          prepared.duration = await getAudioDuration(prepared.path);
+          prepared.wordTimings.forEach((wt) => {
+            wt.start /= uniformTtsSpeedup;
+            wt.end /= uniformTtsSpeedup;
+          });
         }
-        preparedSceneTts[index] = { path: ttsPath, duration: finalDuration, wordTimings };
       }
     }
 
