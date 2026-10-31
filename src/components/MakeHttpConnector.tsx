@@ -359,6 +359,32 @@ export const MakeHttpConnector: React.FC = () => {
     }
   };
 
+  const [isGlobalRefreshing, setIsGlobalRefreshing] = useState(false);
+
+  const handleGlobalRefreshAll = async () => {
+    if (isGlobalRefreshing) return;
+    setIsGlobalRefreshing(true);
+    try {
+      await Promise.allSettled([
+        fetch('/api/autopilot/refresh-all', { method: 'POST' }),
+        fetch('/api/health').then(async (r) => {
+          if (r.ok) setHealth(await r.json());
+        }),
+        fetch('/api/jobs').then(async (r) => {
+          if (r.ok) {
+            const data = await r.json();
+            if (Array.isArray(data)) setRecentJobs(data.slice(0, 10));
+          }
+        })
+      ]);
+      addToast('success', 'Odświeżono wszystko!', 'Zsynchronizowano newsy z Bankier.pl, bazę hooków, kategorie niszowe, katalog ofert oraz status.');
+    } catch (err: any) {
+      console.warn('Błąd globalnego odświeżania:', err);
+    } finally {
+      setIsGlobalRefreshing(false);
+    }
+  };
+
   useEffect(() => {
     fetchHealth();
     return () => {
@@ -904,12 +930,15 @@ export const MakeHttpConnector: React.FC = () => {
               )}
             </div>
 
+            {/* Master One-Click Global Refresh Button */}
             <button
-              onClick={fetchHealth}
-              className="p-1.5 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white rounded-lg border border-slate-800 transition"
-              title="Odśwież stan serwera"
+              onClick={handleGlobalRefreshAll}
+              disabled={isGlobalRefreshing || healthLoading}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 hover:text-emerald-200 border border-emerald-500/30 hover:border-emerald-400/60 transition text-xs font-semibold shadow-sm cursor-pointer disabled:opacity-50"
+              title="Odśwież wszystko na raz: newsy z Bankier.pl, bazę hooków, kategorie niszowe, katalog ofert oraz status"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${healthLoading ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 text-emerald-400 ${isGlobalRefreshing || healthLoading ? 'animate-spin' : ''}`} />
+              <span>{isGlobalRefreshing ? 'Odświeżanie...' : 'Odśwież wszystko'}</span>
             </button>
 
             {/* Download Config Button */}

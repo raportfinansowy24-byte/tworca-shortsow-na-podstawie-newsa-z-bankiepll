@@ -188,6 +188,10 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
   const [sceneCount, setSceneCount] = useState(4);
   const [resolution, setResolution] = useState('720x1280');
 
+  // Master Global Refresh State
+  const [isRefreshingAll, setIsRefreshingAll] = useState<boolean>(false);
+  const [refreshTrigger, setRefreshTrigger] = useState<number>(0);
+
   const [showSwipeFileModal, setShowSwipeFileModal] = useState<boolean>(false);
   const [showPromptCalibrationModal, setShowPromptCalibrationModal] = useState<boolean>(false);
 
@@ -992,6 +996,100 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
     return () => clearInterval(interval);
   }, []);
 
+  // Master One-Click Global Refresh (Bankier News, AI Hooks, Categories, Offer Catalog, TTS Voices, Scheduler)
+  const handleRefreshAll = async () => {
+    if (isRefreshingAll) return;
+    setIsRefreshingAll(true);
+    setRefreshTrigger(Date.now());
+    try {
+      const currentTopicText = selectedBankierArticle?.title || topic || 'GPW giełda finanse osobiste';
+      const currentDescText = selectedBankierArticle?.description || '';
+      const currentCatText = selectedBankierArticle?.category || niche;
+
+      // 1. Call unified backend master refresh endpoint
+      const refreshPromise = fetch('/api/autopilot/refresh-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          topic: currentTopicText,
+          description: currentDescText,
+          category: currentCatText
+        })
+      }).then(async (r) => (r.ok ? r.json() : null)).catch(() => null);
+
+      // 2. Refresh TTS voices
+      const voicesPromise = fetch('/api/tts/voices')
+        .then(async (r) => (r.ok ? r.json() : null))
+        .catch(() => null);
+
+      // 3. Re-evaluate live AI viral decisions & virality score for the active topic
+      const decisionsPromise = fetch('/api/autopilot/ai-decisions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          topic: currentTopicText,
+          description: currentDescText,
+          category: currentCatText
+        })
+      }).then(async (r) => (r.ok ? r.json() : null)).catch(() => null);
+
+      const viralityPromise = fetch('/api/autopilot/predict-virality', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: currentTopicText,
+          description: currentDescText,
+          category: currentCatText
+        })
+      }).then(async (r) => (r.ok ? r.json() : null)).catch(() => null);
+
+      const [refreshData, voicesData, decisionsData, viralityData] = await Promise.all([
+        refreshPromise,
+        voicesPromise,
+        decisionsPromise,
+        viralityPromise
+      ]);
+
+      // Apply updated voices
+      if (voicesData?.success && Array.isArray(voicesData.voices) && voicesData.voices.length > 0) {
+        setElevenLabsVoices(voicesData.voices);
+      }
+
+      // Apply updated scheduler state
+      if (refreshData?.schedulerState) {
+        setSchedulerState(refreshData.schedulerState);
+      } else {
+        await fetchSchedulerState();
+      }
+
+      // Apply AI viral decisions
+      const finalDecisions = decisionsData?.decisions || refreshData?.aiDecisions;
+      if (finalDecisions) {
+        setLiveAiDecisions(finalDecisions);
+        if (aiDirectorMode && finalDecisions.detectedNiche && finalDecisions.detectedNiche !== niche) {
+          setNiche(finalDecisions.detectedNiche);
+        }
+      }
+
+      // Apply predicted virality score
+      const finalScore = viralityData?.score || refreshData?.candidateViralityScore;
+      if (finalScore) {
+        setLiveViralityScore(finalScore);
+      }
+
+      onToast?.(
+        'success',
+        'Odświeżono wszystko na raz!',
+        'Pomyślnie zsynchronizowano najnowsze newsy z Bankier.pl, bazę hooków, kategorie niszowe, katalog ofert oraz harmonogram.'
+      );
+    } catch (err: any) {
+      console.warn('[Refresh All] Błąd wykonania:', err);
+      onToast?.('warning', 'Odświeżanie', 'Zaktualizowano dane lokalne, sprawdź połączenie.');
+    } finally {
+      setIsRefreshingAll(false);
+    }
+  };
+
   const handleTriggerSchedulerRunNow = async () => {
     setTriggeringSchedulerRun(true);
     try {
@@ -1569,19 +1667,41 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
         <div className="absolute top-0 right-0 -mt-8 -mr-8 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute bottom-0 left-0 -mb-8 -ml-8 w-64 h-64 bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
 
-        <div className="relative z-10 max-w-3xl space-y-3">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 text-xs font-semibold uppercase tracking-wider">
-            <Sparkles className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
-            100% Autonomiczny Auto-Pilot w Tle • Cel: 10 000 € / mc
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 relative z-10">
+          <div className="max-w-3xl space-y-3">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 text-xs font-semibold uppercase tracking-wider">
+              <Sparkles className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+              100% Autonomiczny Auto-Pilot w Tle • Cel: 10 000 € / mc
+            </div>
+
+            <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight leading-tight">
+              Autonomiczna Fabryka Wideo w Tle dla RaportFinansowy24
+            </h2>
+
+            <p className="text-slate-300 text-sm leading-relaxed">
+              Wszystkie operacje — pobieranie newsów z Bankier.pl, dobór wzorców wirusowych i nisz, tłumaczenie, synteza głosu lektora, napisy <strong>TikTok Sans Bold</strong> oraz montaż FFmpeg — odbywają się całkowicie w tle bez potrzeby manualnego klikania.
+            </p>
           </div>
 
-          <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight leading-tight">
-            Autonomiczna Fabryka Wideo w Tle dla RaportFinansowy24
-          </h2>
-
-          <p className="text-slate-300 text-sm leading-relaxed">
-            Wszystkie operacje — pobieranie newsów z Bankier.pl, dobór wzorców wirusowych i nisz, tłumaczenie, synteza głosu lektora, napisy <strong>TikTok Sans Bold</strong> oraz montaż FFmpeg — odbywają się całkowicie w tle bez potrzeby manualnego klikania.
-          </p>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 shrink-0">
+            <button
+              type="button"
+              onClick={handleRefreshAll}
+              disabled={isRefreshingAll}
+              className="flex items-center justify-center gap-3 px-5 py-3.5 rounded-2xl bg-gradient-to-r from-emerald-500 via-teal-500 to-indigo-600 hover:from-emerald-400 hover:to-indigo-500 text-white font-extrabold text-sm shadow-xl shadow-emerald-950/40 border border-emerald-400/40 transition active:scale-95 disabled:opacity-60 cursor-pointer"
+              title="Odśwież wszystko na raz: newsy Bankier.pl, bazę hooków, kategorie niszowe, katalog ofert i harmonogram"
+            >
+              <RefreshCw className={`w-5 h-5 text-white ${isRefreshingAll ? 'animate-spin' : ''}`} />
+              <div className="text-left">
+                <div className="font-extrabold text-sm leading-none">
+                  {isRefreshingAll ? 'Odświeżanie wszystkiego...' : 'Odśwież wszystko'}
+                </div>
+                <div className="text-[10px] text-emerald-100 font-normal mt-1 opacity-90">
+                  Newsy • Hooki • Kategorie • Oferty • Status
+                </div>
+              </div>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1715,6 +1835,17 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
             >
               {schedulerState?.enabled ? <ToggleRight className="w-4 h-4 text-emerald-400" /> : <ToggleLeft className="w-4 h-4" />}
               <span>{schedulerState?.enabled ? 'Wstrzymaj automat' : 'Włącz automat'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleRefreshAll}
+              disabled={isRefreshingAll}
+              className="px-3.5 py-2 rounded-xl bg-slate-950 hover:bg-slate-800 text-slate-200 hover:text-white border border-slate-700 font-bold text-xs transition flex items-center gap-2 cursor-pointer shadow-sm disabled:opacity-50"
+              title="Odśwież wszystko: newsy Bankier.pl, hooki, kategorie, oferty i stan harmonogramu"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-emerald-400 ${isRefreshingAll ? 'animate-spin' : ''}`} />
+              <span>{isRefreshingAll ? 'Odświeżanie...' : 'Odśwież wszystko'}</span>
             </button>
 
             <button
@@ -2020,6 +2151,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
               onToast?.('info', 'Zastosowano trend rynkowy', `Ustawiono słowo kluczowe "${kw}" jako wiodący temat wirusowy.`);
             }}
             defaultExpanded={false}
+            refreshTrigger={refreshTrigger}
           />
         </div>
       </div>
@@ -2318,6 +2450,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
                     processedUrls={schedulerState?.processedUrls}
                     candidateArticleLink={schedulerState?.candidateArticle?.link}
                     onRunNowWithArticle={handleRunNowWithArticle}
+                    refreshTrigger={refreshTrigger}
                   />
                 )}
               </div>

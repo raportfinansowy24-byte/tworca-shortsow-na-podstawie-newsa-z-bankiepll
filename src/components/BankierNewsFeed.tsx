@@ -21,6 +21,7 @@ interface BankierNewsFeedProps {
   processedUrls?: string[];
   candidateArticleLink?: string | null;
   onRunNowWithArticle?: (article: BankierArticle) => void;
+  refreshTrigger?: number;
 }
 
 export const BankierNewsFeed: React.FC<BankierNewsFeedProps> = ({
@@ -29,7 +30,8 @@ export const BankierNewsFeed: React.FC<BankierNewsFeedProps> = ({
   onToast,
   processedUrls = [],
   candidateArticleLink,
-  onRunNowWithArticle
+  onRunNowWithArticle,
+  refreshTrigger
 }) => {
   const [category, setCategory] = useState<'wiadomosci' | 'gielda' | 'waluty'>('wiadomosci');
   const [articles, setArticles] = useState<BankierArticle[]>([]);
@@ -70,6 +72,12 @@ export const BankierNewsFeed: React.FC<BankierNewsFeedProps> = ({
   useEffect(() => {
     fetchRssNews(false);
   }, [category]);
+
+  useEffect(() => {
+    if (refreshTrigger && refreshTrigger > 0) {
+      fetchRssNews(true);
+    }
+  }, [refreshTrigger]);
 
   const filteredArticles = articles.filter((a) => {
     if (!searchQuery.trim()) return true;

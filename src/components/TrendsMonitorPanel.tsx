@@ -19,11 +19,13 @@ import { TrendsMonitorData, BankierTrendKeyword } from '../types';
 interface TrendsMonitorPanelProps {
   onSelectKeywordNarrative?: (keyword: string, category: string) => void;
   defaultExpanded?: boolean;
+  refreshTrigger?: number;
 }
 
 export const TrendsMonitorPanel: React.FC<TrendsMonitorPanelProps> = ({
   onSelectKeywordNarrative,
-  defaultExpanded = false
+  defaultExpanded = false,
+  refreshTrigger
 }) => {
   const [data, setData] = useState<TrendsMonitorData | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -52,6 +54,12 @@ export const TrendsMonitorPanel: React.FC<TrendsMonitorPanelProps> = ({
     const timer = setInterval(fetchTrends, 60000); // Odświeżaj trendy co 60 sekund
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (refreshTrigger && refreshTrigger > 0) {
+      fetchTrends();
+    }
+  }, [refreshTrigger]);
 
   return (
     <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950/40 border border-slate-800 rounded-2xl overflow-hidden shadow-xl transition-all">
