@@ -119,6 +119,36 @@ function getSupabaseClient(): SupabaseClient | null {
   return client;
 }
 
+export async function getPexelsSearchCache(cacheKey: string): Promise<unknown | null> {
+  const supabase = getSupabaseClient();
+  if (!supabase) return null;
+  const { data, error } = await supabase
+    .from('pexels_search_cache')
+    .select('data, expires_at')
+    .eq('cache_key', cacheKey)
+    .maybeSingle();
+  if (error) {
+    warnOnce('pexels-cache-read', `[Supabase] Nie udało się odczytać cache Pexels: ${error.message}`);
+    return null;
+  }
+  if (!data || new Date(String(data.expires_at)).getTime() <= Date.now()) return null;
+  return data.data ?? null;
+}
+
+export async function setPexelsSearchCache(cacheKey: string, value: unknown, ttlMs: number): Promise<void> {
+  const supabase = getSupabaseClient();
+  if (!supabase) return;
+  const { error } = await supabase
+    .from('pexels_search_cache')
+    .upsert({
+      cache_key: cacheKey,
+      data: value,
+      expires_at: new Date(Date.now() + ttlMs).toISOString(),
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'cache_key' });
+  if (error) warnOnce('pexels-cache-write', `[Supabase] Nie udało się zapisać cache Pexels: ${error.message}`);
+}
+
 export function toSupabaseJobRow(job: ShortJobSnapshot): Record<string, unknown> {
   return {
     id: job.id,

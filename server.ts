@@ -45,7 +45,7 @@ import { FINANCE_SHORT_SCENE_COUNT, getSceneCountError, hasUniquePexelsSceneIds,
 import { nextTelegramRevisionNumber, normalizeTelegramFeedback } from './src/server/telegramRevision';
 import { publishApprovedShortToPostiz } from './src/server/postizPublisher';
 import { constantTimeTokenMatch, createApiAuthMiddleware, createAppSessionToken } from './src/server/apiAuth';
-import { loadShortJobsFromSupabase, persistShortJobSnapshot, queueShortJobSnapshot, upsertShortJobExport, upsertShortJobsBatch, type DriveExportStatus, type ShortJobSnapshot } from './src/server/supabaseJobStore';
+import { getPexelsSearchCache, loadShortJobsFromSupabase, persistShortJobSnapshot, queueShortJobSnapshot, setPexelsSearchCache, upsertShortJobExport, upsertShortJobsBatch, type DriveExportStatus, type ShortJobSnapshot } from './src/server/supabaseJobStore';
 import { buildCreativeDirectorFallback, buildCreativeDirectorPrompt, loadBrandContext, parseCreativeDirectorPlan, type CreativeDirectorArticle } from './src/server/creativeDirector';
 import { buildFinanceShortPlan, validateFinanceShortPlan, type FinanceShortPlan } from './src/server/shortPipeline';
 import { buildAudioMixFilter, buildMotionFilter, generateSceneSoundEffect, motionSoundSpecForBeat } from './src/server/motionSoundRenderer';
@@ -175,7 +175,6 @@ type PexelsSearchCacheEntry = {
 
 const pexelsSearchCache = new Map<string, PexelsSearchCacheEntry>();
 const pexelsSearchInFlight = new Map<string, Promise<any>>();
-let pexelsSearchCacheLoaded = false;
 
 function getPexelsCacheTtlMs(): number {
   const configured = Number(process.env.PEXELS_CACHE_TTL_SECONDS || 21600);
@@ -185,41 +184,6 @@ function getPexelsCacheTtlMs(): number {
 function getPexelsCacheMaxEntries(): number {
   const configured = Number(process.env.PEXELS_CACHE_MAX_ENTRIES || 300);
   return Math.max(20, Number.isFinite(configured) ? Math.floor(configured) : 300);
-}
-
-function getPexelsSearchCachePath(): string {
-  const cacheDir = process.env.PEXELS_CACHE_DIR?.trim() || path.join(process.cwd(), 'temp');
-  return path.join(cacheDir, 'pexels-search-cache.json');
-}
-
-function loadPexelsSearchCache(): void {
-  if (pexelsSearchCacheLoaded) return;
-  pexelsSearchCacheLoaded = true;
-  try {
-    const cachePath = getPexelsSearchCachePath();
-    if (!fs.existsSync(cachePath)) return;
-    const parsed = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
-    if (!parsed || typeof parsed !== 'object') return;
-    const now = Date.now();
-    for (const [key, entry] of Object.entries(parsed)) {
-      const typed = entry as PexelsSearchCacheEntry;
-      if (typed && typed.expiresAt > now && typed.data) pexelsSearchCache.set(key, typed);
-    }
-  } catch (error) {
-    console.warn('[Pexels Cache] Nie udało się wczytać cache, startuję z pustym cache:', (error as Error).message);
-  }
-}
-
-function persistPexelsSearchCache(): void {
-  try {
-    const cachePath = getPexelsSearchCachePath();
-    fs.mkdirSync(path.dirname(cachePath), { recursive: true });
-    const tempPath = `${cachePath}.tmp`;
-    fs.writeFileSync(tempPath, JSON.stringify(Object.fromEntries(pexelsSearchCache)), 'utf8');
-    fs.renameSync(tempPath, cachePath);
-  } catch (error) {
-    console.warn('[Pexels Cache] Nie udało się zapisać cache:', (error as Error).message);
-  }
 }
 
 function trimPexelsSearchCache(): void {
@@ -232,7 +196,6 @@ function trimPexelsSearchCache(): void {
 }
 
 async function fetchPexelsSearchData(searchUrl: string, headers: Record<string, string>): Promise<any> {
-  loadPexelsSearchCache();
   const now = Date.now();
   const cached = pexelsSearchCache.get(searchUrl);
   if (cached && cached.expiresAt > now) {
@@ -248,6 +211,14 @@ async function fetchPexelsSearchData(searchUrl: string, headers: Record<string, 
   }
 
   const request = (async () => {
+    const remoteCached = await getPexelsSearchCache(searchUrl);
+    if (remoteCached && typeof remoteCached === 'object') {
+      pexelsSearchCache.set(searchUrl, { expiresAt: Date.now() + getPexelsCacheTtlMs(), data: remoteCached });
+      trimPexelsSearchCache();
+      console.log(`[Pexels Cache] SUPABASE HIT ${searchUrl}`);
+      return remoteCached;
+    }
+
     const response = await fetch(searchUrl, { headers });
     if (!response.ok) {
       throw new Error(`Pexels API HTTP ${response.status}: ${response.statusText}`);
@@ -255,7 +226,7 @@ async function fetchPexelsSearchData(searchUrl: string, headers: Record<string, 
     const data = await response.json();
     pexelsSearchCache.set(searchUrl, { expiresAt: Date.now() + getPexelsCacheTtlMs(), data });
     trimPexelsSearchCache();
-    persistPexelsSearchCache();
+    await setPexelsSearchCache(searchUrl, data, getPexelsCacheTtlMs());
     console.log(`[Pexels Cache] SET ${searchUrl}`);
     return data;
   })();

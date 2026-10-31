@@ -1,8 +1,6 @@
 node_modules/
 build/
 dist/
-temp/pexels-search-cache.json
-temp/pexels-search-cache.json.tmp
 # Temporary neural-voice previews; do not add new generated audio to source control.
 exports/tts_preview_*.mp3
 coverage/
