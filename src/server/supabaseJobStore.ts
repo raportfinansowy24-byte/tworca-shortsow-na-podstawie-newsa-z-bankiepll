@@ -80,16 +80,31 @@ function getServiceRoleKeyKind(key: string): 'service_role' | 'not_service_role'
   }
 }
 
+export function getSupabaseServiceRoleKey(env: NodeJS.ProcessEnv = process.env): string {
+  // Support current Supabase naming and the legacy project-specific alias.
+  return env.SUPABASE_KEY?.trim() ||
+    env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
+    env.SUPABASE_SECRET_KEY?.trim() ||
+    '';
+}
+
+export function hasSupabaseHistoryConfiguration(env: NodeJS.ProcessEnv = process.env): boolean {
+  return Boolean(env.SUPABASE_URL?.trim() && getSupabaseServiceRoleKey(env));
+}
+
 function getSupabaseClient(): SupabaseClient | null {
   if (client) return client;
   if (configurationChecked && configurationError) return null;
   configurationChecked = true;
 
   const url = process.env.SUPABASE_URL?.trim() || '';
-  const key = process.env.SUPABASE_KEY?.trim() || '';
+  const key = getSupabaseServiceRoleKey();
   if (!url || !key) {
     configurationError = 'missing';
-    warnOnce('config-missing', '[Supabase] Historia zadań wyłączona: ustaw SUPABASE_URL i SUPABASE_KEY (server-side service role).');
+    warnOnce(
+      'config-missing',
+      '[Supabase] Historia zadań wyłączona: ustaw SUPABASE_URL oraz SUPABASE_SERVICE_ROLE_KEY (lub zgodny alias SUPABASE_KEY / SUPABASE_SECRET_KEY) po stronie serwera.'
+    );
     return null;
   }
 
@@ -104,7 +119,7 @@ function getSupabaseClient(): SupabaseClient | null {
 
   if (getServiceRoleKeyKind(key) !== 'service_role') {
     configurationError = 'invalid-key';
-    warnOnce('config-key', '[Supabase] Historia zadań wyłączona: SUPABASE_KEY musi być kluczem secret/service_role używanym wyłącznie po stronie serwera.');
+    warnOnce('config-key', '[Supabase] Historia zadań wyłączona: ustaw SUPABASE_SERVICE_ROLE_KEY (lub alias) na klucz secret/service_role używany wyłącznie po stronie serwera.');
     return null;
   }
 
