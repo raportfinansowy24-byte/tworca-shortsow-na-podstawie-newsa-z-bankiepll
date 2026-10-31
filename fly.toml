@@ -11,6 +11,7 @@ kill_timeout = "30s"
 [env]
   NODE_ENV = "production"
   PORT = "8080"
+  TZ = "Europe/Warsaw"
   APP_URL = "https://tworca-shortsow-na-podstawie-newsa-z-bankiepll.fly.dev"
   FIREBASE_PROJECT_ID = "gen-lang-client-0568813813"
   AUTOPILOT_ALLOWED_EMAILS = "raportfinansowy24@gmail.com"

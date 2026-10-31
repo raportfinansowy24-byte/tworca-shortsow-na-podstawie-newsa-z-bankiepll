@@ -6897,8 +6897,8 @@ interface AutopilotSchedulerState {
 const AUTOPILOT_SCHEDULER_ALLOWED = process.env.AUTOPILOT_SCHEDULER_ENABLED === 'true';
 
 const DEFAULT_SCHEDULER_STATE: AutopilotSchedulerState = {
-  // Fail closed: scheduled generation stays off unless explicitly enabled in Fly.io secrets.
-  enabled: false,
+  // The Fly.io environment gate is the explicit opt-in; once allowed, start without a UI click.
+  enabled: AUTOPILOT_SCHEDULER_ALLOWED,
   dailySlots: ['06:00', '11:00', '16:00', '21:00'],
   category: 'wiadomosci',
   voice: 'pl-PL-MarekNeural',
@@ -6926,8 +6926,8 @@ function loadSchedulerStateFromDisk() {
       schedulerState = {
         ...DEFAULT_SCHEDULER_STATE,
         ...parsed,
-        // A persisted legacy `enabled: true` must never bypass the explicit environment gate.
-        enabled: AUTOPILOT_SCHEDULER_ALLOWED && parsed.enabled === true,
+        // The environment gate is required; a persisted false remains an intentional emergency pause.
+        enabled: AUTOPILOT_SCHEDULER_ALLOWED && parsed.enabled !== false,
         lastRunStatus: parsed.lastRunStatus === 'running' ? 'idle' : (parsed.lastRunStatus || 'idle')
       };
       console.log(`✓ Wczytano stan harmonogramu 4x/dobę z dysku (Wykonań: ${schedulerState.runsCount}, Historia: ${schedulerState.history.length})`);
@@ -7268,6 +7268,8 @@ router.get(['/autopilot/scheduler', '/autopilot/scheduler/status'], async (req, 
     success: true,
     state: {
       ...schedulerState,
+      automationAllowed: AUTOPILOT_SCHEDULER_ALLOWED,
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       history: updatedHistory,
       nextRun,
       candidateArticle,

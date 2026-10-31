@@ -34,13 +34,11 @@ Odpowiedź zawiera `plan` z hookiem, tekstem, CTA, hashtagami, rekomendowanym g�
 
 Jeżeli model nie odpowie lub zwróci niepoprawny JSON, moduł przełącza się na walidowany fallback heurystyczny. Odpowiedź zawiera wtedy `source: "fallback"` oraz ostrzeżenie w `riskFlags`.
 
-## Przepływ redakcyjny
+## Dostępność w aplikacji
 
-1. Wybierz news Bankier.pl w Auto-Pilocie.
-2. Kliknij **Storyboard marki**.
-3. Sprawdź hook, CTA i `riskFlags`.
-4. Uruchom istniejące **Generuj i Zmontuj Wirusowy Short**.
-5. Zachowaj dotychczasową akceptację Telegramem przed publikacją.
+Główny ekran Auto-Pilota jest dashboardem bez ręcznego wyboru artykułu, trybu, głosu, liczby scen, jakości obrazu ani ujęć. Harmonogram wybiera news i uruchamia własny finansowy generator scen. Ten harmonogram **nie wywołuje obecnie** endpointu `/api/creative-director/news`; endpoint i mapper Creative Director pozostają dostępne dla integracji programowych, ale nie są krokiem wymaganym do zwykłego cyklu.
+
+Gotowy render nie jest automatycznie publikowany. Akceptacja Telegramem pozostaje oddzielną bramką, a automatyczne przekazanie do Postiz wymaga osobnej konfiguracji.
 
 Test kontraktu uruchamia się poleceniem:
 
