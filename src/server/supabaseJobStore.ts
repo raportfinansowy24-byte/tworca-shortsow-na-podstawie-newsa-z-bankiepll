@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { normalizeSupabaseProjectUrl } from './supabaseUrl';
 
 export type RenderJobStatus = 'queued' | 'processing' | 'completed' | 'failed' | 'cancelled';
 export type DriveExportStatus = 'uploading' | 'completed' | 'failed';
@@ -109,8 +110,7 @@ function getSupabaseClient(): SupabaseClient | null {
   }
 
   try {
-    const parsedUrl = new URL(url);
-    if (parsedUrl.protocol !== 'https:' || !parsedUrl.hostname) throw new Error('invalid url');
+    normalizeSupabaseProjectUrl(url);
   } catch {
     configurationError = 'invalid-url';
     warnOnce('config-url', '[Supabase] Historia zadań wyłączona: SUPABASE_URL musi być pełnym adresem HTTPS projektu.');
@@ -123,7 +123,7 @@ function getSupabaseClient(): SupabaseClient | null {
     return null;
   }
 
-  client = createClient(url, key, {
+  client = createClient(normalizeSupabaseProjectUrl(url), key, {
     auth: {
       autoRefreshToken: false,
       persistSession: false,

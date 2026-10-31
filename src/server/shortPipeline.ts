@@ -51,6 +51,7 @@ export interface FinanceShortPlan {
   cta: string;
   ctaType: string;
   ctaDestination: string;
+  ctaUrl: string;
   sourceUrl?: string;
   article: FinanceArticleInput;
   facts: FinanceFact[];
@@ -156,7 +157,7 @@ export function buildFinanceShortPlan(articleInput: FinanceArticleInput): Financ
     ? `Indeks rośnie, ale ${loser.label} traci ${Math.abs(loser.value).toFixed(2).replace('.', ',')}%.`
     : `Co naprawdę wydarzyło się dziś na rynku?`;
   const ctaPlan = selectFinanceCta(article);
-  const cta = ctaPlan.text;
+  const cta = ctaPlan.spokenText;
   const hookVariants = [
     hook,
     loser ? `Stop: ${loser.label} traci ${Math.abs(loser.value).toFixed(2).replace('.', ',')}% — sprawdź dlaczego.` : hook,
@@ -180,7 +181,7 @@ export function buildFinanceShortPlan(articleInput: FinanceArticleInput): Financ
     { index: 4, beat: 'contrast', duration: DURATIONS[4], voiceover_text: 'To nie był jednolity ruch całego rynku. Sektory rozjechały się w przeciwnych kierunkach.', caption: 'JEDEN RYNEK. DWA KIERUNKI.', visualMode: 'data_visual', visualTitle: 'SILNE ROZWARSTWIENIE', visualSubtitle: 'Wzrosty kontra spadki', facts: [...positive.slice(0, 2), ...negative.slice(0, 2)], camera: 'split-screen reveal', transition: 'split', assetRequired: false },
     { index: 5, beat: 'meaning', duration: DURATIONS[5], voiceover_text: 'Dlatego sam rekord indeksu nie mówi jeszcze, jak zachowały się konkretne akcje.', caption: 'REKORD INDEKSU TO NIE WSZYSTKO', visualMode: 'data_visual', visualTitle: 'CZYTAJ SZERZEJ NIŻ NAGŁÓWEK', visualSubtitle: 'Sprawdzaj sektory i spółki', facts: facts.slice(0, 4), camera: 'slow parallax', transition: 'soft-cut', assetRequired: false },
     { index: 6, beat: 'takeaway', duration: DURATIONS[6], voiceover_text: 'Najważniejszy wniosek? Patrz na liczby, ale zawsze sprawdzaj, co dzieje się pod powierzchnią indeksu.', caption: 'PATRZ POD POWIERZCHNIĘ', visualMode: 'data_visual', visualTitle: 'WNIOSEK DLA CIEBIE', visualSubtitle: 'Dane przed emocjami', facts: facts.slice(0, 4), camera: 'slow push-in', transition: 'fade-through', assetRequired: false },
-    { index: 7, beat: 'cta', duration: DURATIONS[7], voiceover_text: cta, caption: cta.toUpperCase(), visualMode: 'data_visual', visualTitle: 'PEŁNA ANALIZA', visualSubtitle: 'RaportFinansowy24', facts: [], camera: 'hero hold', transition: 'end-card', assetRequired: false }
+    { index: 7, beat: 'cta', duration: DURATIONS[7], voiceover_text: cta, caption: `${ctaPlan.caption}\nRAPORT-FINANSOWY24.PL`, visualMode: 'data_visual', visualTitle: ctaPlan.caption, visualSubtitle: 'RaportFinansowy24.pl', facts: [], camera: 'hero hold', transition: 'end-card', assetRequired: false }
   ];
   scenes.forEach((scene) => {
     scene.visualSvg = scene.beat === 'cta' ? makeTitleSvg(scene.visualTitle, scene.visualSubtitle) : makeBarsSvg(scene.visualTitle, scene.visualSubtitle, scene.facts);
@@ -200,7 +201,64 @@ export function buildFinanceShortPlan(articleInput: FinanceArticleInput): Financ
     warnings
   };
   const planId = `fsp_${crypto.createHash('sha1').update(`${article.title}|${article.link || ''}`).digest('hex').slice(0, 12)}`;
-  return { planId, title: article.title, hook, hookFormula: 'contrarian_claim', hookVariants, viralStrategy, cta, ctaType: ctaPlan.type, ctaDestination: ctaPlan.destinationPath, sourceUrl: article.link, article, facts, scenes, riskFlags: ['Zweryfikuj liczby i znak zmian względem źródła przed publikacją.'], qualityGate, architecture: ['fact-checker', 'hook-retention', 'viral-short-strategy-2026', 'visual-storyboard', 'financial-data-visualizer', 'asset-curator', 'tts-performance', 'motion-renderer', 'quality-gate', 'supabase-feedback-loop'] };
+  return { planId, title: article.title, hook, hookFormula: 'contrarian_claim', hookVariants, viralStrategy, cta, ctaType: ctaPlan.type, ctaDestination: ctaPlan.destinationPath, ctaUrl: ctaPlan.destinationUrl, sourceUrl: article.link, article, facts, scenes, riskFlags: ['Zweryfikuj liczby i znak zmian względem źródła przed publikacją.'], qualityGate, architecture: ['fact-checker', 'hook-retention', 'viral-short-strategy-2026', 'visual-storyboard', 'financial-data-visualizer', 'asset-curator', 'tts-performance', 'motion-renderer', 'quality-gate', 'supabase-feedback-loop'] };
+}
+
+export interface HookPerformanceSignal {
+  hookText: string;
+  sampleSize: number;
+  averageCompletionRate: number;
+}
+
+export interface HookVariantSelection {
+  index: number;
+  formula: HookFormula;
+  sampleSize: number;
+  averageCompletionRate?: number;
+}
+
+function hookFamily(text: string): HookFormula {
+  const normalized = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pl-PL');
+  if (/\b(top\s*3|top\s*trzy|ranking|trzy najwazniejsze|lista)\b/.test(normalized)) return 'list_tease_ranking';
+  if (/\b(stop|uwaga|blad|pomylka|nie rob|unikaj|sprawdz zanim)\b/.test(normalized)) return 'mistake_warning';
+  return 'contrarian_claim';
+}
+
+/** Select a hook family only when platform-matched historical data has enough observations. */
+export function selectHookVariantFromLearningSignals(
+  plan: FinanceShortPlan,
+  signals: HookPerformanceSignal[],
+  minimumSamples = 5
+): HookVariantSelection {
+  const candidateFormulas: HookFormula[] = ['contrarian_claim', 'mistake_warning', 'list_tease_ranking'];
+  const scores = new Map<HookFormula, { weightedCompletion: number; sampleSize: number }>();
+  for (const signal of signals) {
+    const sampleSize = Math.max(0, Math.floor(Number(signal.sampleSize) || 0));
+    const completion = Number(signal.averageCompletionRate);
+    if (sampleSize === 0 || !Number.isFinite(completion) || completion < 0 || completion > 1) continue;
+    const formula = hookFamily(signal.hookText);
+    const current = scores.get(formula) || { weightedCompletion: 0, sampleSize: 0 };
+    current.weightedCompletion += completion * sampleSize;
+    current.sampleSize += sampleSize;
+    scores.set(formula, current);
+  }
+
+  const eligible = candidateFormulas
+    .map((formula, index) => ({ formula, index, ...scores.get(formula) }))
+    .filter((score) => (score.sampleSize || 0) >= minimumSamples)
+    .sort((a, b) => ((b.weightedCompletion || 0) / (b.sampleSize || 1)) - ((a.weightedCompletion || 0) / (a.sampleSize || 1)));
+  const best = eligible[0];
+  if (!best) return { index: 0, formula: 'contrarian_claim', sampleSize: 0 };
+
+  const matchedIndex = plan.hookVariants.findIndex((hook) => hookFamily(hook) === best.formula);
+  const selectedIndex = matchedIndex >= 0 ? matchedIndex : 0;
+  const selectedFormula = matchedIndex >= 0 ? best.formula : 'contrarian_claim';
+  return {
+    index: selectedIndex,
+    formula: selectedFormula,
+    sampleSize: best.sampleSize || 0,
+    averageCompletionRate: (best.weightedCompletion || 0) / (best.sampleSize || 1)
+  };
 }
 
 export function validateFinanceShortPlan(plan: FinanceShortPlan): QualityGateResult {

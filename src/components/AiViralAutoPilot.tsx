@@ -82,6 +82,10 @@ interface AiViralAutoPilotProps {
   onToast?: (type: 'success' | 'error' | 'info' | 'warning', title: string, message: string) => void;
 }
 
+function getCreativeDirectorSourceKey(article?: { title?: string; link?: string } | null): string {
+  return String(article?.link || article?.title || '').trim().toLocaleLowerCase('pl-PL');
+}
+
 const TOPIC_PRESETS = [
   {
     icon: '📊',
@@ -202,9 +206,12 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
   const [showBankierFeed, setShowBankierFeed] = useState<boolean>(true);
   const [includeBankierContext, setIncludeBankierContext] = useState<boolean>(true);
   const [pairedKeywords, setPairedKeywords] = useState<string[]>([]);
+  const [creativeDirectorSourceKey, setCreativeDirectorSourceKey] = useState('');
 
   const handleSelectBankierArticle = (article: BankierArticle) => {
     setSelectedBankierArticle(article);
+    setCreativeDirectorPlan(null);
+    setCreativeDirectorSourceKey('');
     setTopic(article.title);
     setNiche(`Finanse & Biznes (${article.category || 'Bankier.pl'})`);
     setPairedKeywords([]);
@@ -213,6 +220,8 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
 
   const handleClearBankierArticle = () => {
     setSelectedBankierArticle(null);
+    setCreativeDirectorPlan(null);
+    setCreativeDirectorSourceKey('');
     setPairedKeywords([]);
   };
 
@@ -251,7 +260,8 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
         throw new Error(data?.error || 'Nie udało się przygotować storyboardu marki.');
       }
       setCreativeDirectorPlan(data.plan);
-      onToast?.('success', 'Storyboard marki gotowy', 'Creative Director przygotował hook, sceny, zapytania wizualne i CTA. Render nadal korzysta z istniejącego pipeline’u.');
+      setCreativeDirectorSourceKey(getCreativeDirectorSourceKey(article));
+      onToast?.('success', 'Storyboard marki gotowy', 'Gotowy plan trafi do renderu po uruchomieniu głównego przycisku. Zawiera hook, 8 beatów, wyszukiwania Pexels i zgodne z tematem CTA.');
     } catch (err) {
       onToast?.('error', 'Błąd Creative Director', (err as Error).message);
     } finally {
@@ -1164,6 +1174,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
           niche: `Finanse & Biznes (${article.category || 'Bankier.pl'})`,
           articleContext: `Tytuł artykułu z Bankier.pl: "${article.title}"\nPodsumowanie i fakty: ${article.description}`,
           bankierArticle: article,
+          creativeDirectorPlan: creativeDirectorSourceKey === getCreativeDirectorSourceKey(article) ? creativeDirectorPlan : undefined,
           language: targetLanguage,
           outputResolution: resolution,
           lockSceneDurations: true,
@@ -1443,14 +1454,20 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
     if (activeMode === 'create' && !topic.trim()) return;
     if (activeMode === 'translate' && !translationScriptText.trim()) return;
 
+    const creativePlanArticle = selectedBankierArticle || { title: topic };
+    const activeCreativeDirectorPlan = creativeDirectorPlan &&
+      creativeDirectorSourceKey === getCreativeDirectorSourceKey(creativePlanArticle)
+      ? creativeDirectorPlan
+      : null;
+
     // If verification before render is enabled and user hasn't generated/verified footage yet:
-    if (verifyFootageBeforeRender && (!generatedScript || !generatedScript.scenes || generatedScript.scenes.length === 0)) {
+    if (!activeCreativeDirectorPlan && verifyFootageBeforeRender && (!generatedScript || !generatedScript.scenes || generatedScript.scenes.length === 0)) {
       await handleFetchAndVerifyFootage();
       return;
     }
 
     // If footage is already generated and verified, start rendering immediately!
-    if (generatedScript && generatedScript.scenes && generatedScript.scenes.length > 0) {
+    if (!activeCreativeDirectorPlan && generatedScript && generatedScript.scenes && generatedScript.scenes.length > 0) {
       await handleStartRenderWithVerifiedScenes(generatedScript.scenes);
       return;
     }
@@ -1527,6 +1544,9 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
         onToast?.('success', 'Auto-Pilot uruchomiony!', `Rozpoczęto renderowanie filmu z lektorem i napisami (ID: ${combineData.jobId})`);
         trackJob(combineData.jobId);
       } else {
+        if (activeCreativeDirectorPlan && verifyFootageBeforeRender) {
+          onToast?.('info', 'Storyboard marki aktywny', 'Ten render użyje zapytań wizualnych storyboardu i dopasuje klipy Pexels przed montażem; siatka ręcznego podglądu nie jest otwierana w tym trybie.');
+        }
         const res = await fetch('/api/auto-pilot-shorts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1536,6 +1556,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
             niche,
             articleContext: buildArticleContextString(selectedBankierArticle),
             bankierArticle: selectedBankierArticle,
+            creativeDirectorPlan: activeCreativeDirectorPlan || undefined,
             language: targetLanguage,
             sceneCount,
             outputResolution: resolution,
@@ -3344,6 +3365,12 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScript
                 <p><span className="text-emerald-300 font-semibold">Hook:</span> {creativeDirectorPlan.hook}</p>
                 <p><span className="text-emerald-300 font-semibold">CTA:</span> {creativeDirectorPlan.cta}</p>
                 <p className="text-emerald-100/70">{creativeDirectorPlan.scenes?.length || 0} beatów · {creativeDirectorPlan.brandFilesUsed?.join(', ') || 'domyślny kontekst marki'}</p>
+                <p className="text-emerald-200/80">
+                  {creativeDirectorSourceKey === getCreativeDirectorSourceKey(selectedBankierArticle || { title: topic })
+                    ? 'Storyboard jest podłączony do głównego renderu — kliknij Uruchom Auto-Pilota.'
+                    : 'Storyboard dotyczy poprzedniego tematu; wygeneruj go ponownie przed renderem.'}
+                  {creativeDirectorPlan.ctaUrl && <> CTA prowadzi do <a className="underline" href={creativeDirectorPlan.ctaUrl} target="_blank" rel="noreferrer">{creativeDirectorPlan.ctaDestination || creativeDirectorPlan.ctaUrl}</a>.</>}
+                </p>
                 {creativeDirectorPlan.riskFlags?.length > 0 && (
                   <p className="text-amber-200/80">Weryfikacja redakcyjna: {creativeDirectorPlan.riskFlags.join(' ')}</p>
                 )}

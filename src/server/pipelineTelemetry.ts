@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { FinanceShortPlan, QualityGateResult } from './shortPipeline';
 import { getSupabaseServiceRoleKey } from './supabaseJobStore';
+import { normalizeSupabaseProjectUrl } from './supabaseUrl';
 
 export interface PipelineRunRecord {
   runId: string;
@@ -42,6 +43,7 @@ export interface RetentionMetricRecord {
 }
 
 export interface LearningSignal {
+  platform: string;
   hookText: string;
   sampleSize: number;
   averageCompletionRate: number;
@@ -71,7 +73,7 @@ function getClient(): SupabaseClient | null {
     }
     return null;
   }
-  client = createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false } });
+  client = createClient(normalizeSupabaseProjectUrl(url), key, { auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false } });
   return client;
 }
 
@@ -169,24 +171,47 @@ export async function recordRetentionMetric(metric: RetentionMetricRecord): Prom
   warnError('recordRetentionMetric', error);
 }
 
-export async function getLearningSignals(niche: string, limit = 20): Promise<LearningSignal[]> {
+export async function getLearningSignals(niche: string, limit = 20, platform?: string): Promise<LearningSignal[]> {
   const supabase = getClient();
   if (!supabase) return [];
-  const { data, error } = await supabase
-    .from('pipeline_learning_signals')
-    .select('hook_text,sample_size,average_completion_rate,average_watch_seconds,average_shares')
+  let query = supabase
+    .from('short_retention_metrics')
+    .select('platform,hook_text,average_completion_rate,average_watch_seconds,shares')
     .eq('niche', niche)
-    .order('average_completion_rate', { ascending: false })
-    .limit(Math.min(Math.max(limit, 1), 100));
+    .not('hook_text', 'is', null)
+    .order('captured_at', { ascending: false })
+    .limit(5000);
+  if (platform) query = query.eq('platform', platform);
+  const { data, error } = await query;
   if (error) {
     warnError('getLearningSignals', error);
     return [];
   }
-  return (data || []).map((row: any) => ({
-    hookText: String(row.hook_text || ''),
-    sampleSize: Number(row.sample_size || 0),
-    averageCompletionRate: Number(row.average_completion_rate || 0),
-    averageWatchSeconds: Number(row.average_watch_seconds || 0),
-    averageShares: Number(row.average_shares || 0)
-  }));
+  const groups = new Map<string, LearningSignal & { completionTotal: number; watchTotal: number; watchSamples: number; shareTotal: number }>();
+  for (const row of data || []) {
+    const hookText = String((row as any).hook_text || '').trim();
+    const rowPlatform = String((row as any).platform || 'unknown');
+    const completion = Number((row as any).average_completion_rate);
+    if (!hookText || !Number.isFinite(completion) || completion < 0 || completion > 1) continue;
+    const key = `${rowPlatform}\u0000${hookText}`;
+    const group = groups.get(key) || {
+      platform: rowPlatform, hookText, sampleSize: 0, averageCompletionRate: 0,
+      averageWatchSeconds: 0, averageShares: 0, completionTotal: 0, watchTotal: 0, watchSamples: 0, shareTotal: 0
+    };
+    group.sampleSize += 1;
+    group.completionTotal += completion;
+    const watch = Number((row as any).average_watch_seconds);
+    if (Number.isFinite(watch) && watch >= 0) { group.watchTotal += watch; group.watchSamples += 1; }
+    group.shareTotal += Math.max(0, Number((row as any).shares) || 0);
+    groups.set(key, group);
+  }
+  return [...groups.values()]
+    .map(({ completionTotal, watchTotal, watchSamples, shareTotal, ...signal }) => ({
+      ...signal,
+      averageCompletionRate: completionTotal / signal.sampleSize,
+      averageWatchSeconds: watchSamples ? watchTotal / watchSamples : 0,
+      averageShares: shareTotal / signal.sampleSize
+    }))
+    .sort((a, b) => b.averageCompletionRate - a.averageCompletionRate)
+    .slice(0, Math.min(Math.max(limit, 1), 100));
 }

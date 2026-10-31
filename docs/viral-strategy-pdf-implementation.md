@@ -6,7 +6,7 @@ Pipeline finansowy korzysta z zasad zawartych w `STRATEGIA_VIRAL_SHORTS.pdf`.
 
 Pierwsza scena trwa 2 sekundy i musi działać bez dźwięku. Pipeline wybiera rodzinę hooka `contrarian_claim`, `mistake_warning` albo `list_tease_ranking`. Hook główny oraz warianty zawierają potwierdzoną liczbę lub procent z artykułu i nie mogą przekraczać 14 słów.
 
-Warianty są zapisywane w Supabase jako osobny eksperyment. Fakty nie są zmieniane między wariantami; testowana jest forma otwarcia.
+Warianty są zapisywane w Supabase. Przy co najmniej pięciu metrykach z tej samej platformy system może wybrać najlepiej działającą rodzinę hooka z historii; przy mniejszej próbie pozostaje przy domyślnej tezie kontrastowej. To nie jest równoległy test A/B — nie przypisuj zwycięstwa wariantowi, który nie był rzeczywiście opublikowany i mierzony.
 
 ## Rytm 18 sekund
 
@@ -14,7 +14,7 @@ Materiał jest traktowany jako trzy strefy redakcyjne: `0–2s` hook, `2–14s` 
 
 ## Platformy i metryki
 
-Jeden master 9:16 może być publikowany na TikToku, YouTube Shorts i Instagram Reels. Wyniki trzeba rozdzielać według platformy. Pipeline zapisuje retencję w 1. i 3. sekundzie, średni czas oglądania, completion rate, komentarze, udostępnienia, zapisy i CTR, kiedy dane są dostępne.
+Jeden master 9:16 może być publikowany na TikToku, YouTube Shorts i Instagram Reels. Wyniki trzeba rozdzielać według platformy. Pipeline zapisuje retencję w 1. i 3. sekundzie, średni czas oglądania, completion rate, komentarze, udostępnienia i zapisy. Gdy metryki są importowane, CTA jest krótkie w lektorze, końcowy napis pokazuje domenę, a URL celu CTA trafia do metadanych/opisu publikacji.
 
 Początkowy cel to co najmniej 60% retencji po 3 sekundach i co najmniej 5 komentarzy na 1000 wyświetleń. Są to progi diagnostyczne, nie gwarancje. Zwycięskiego hooka nie należy ogłaszać na podstawie małej próby.
 

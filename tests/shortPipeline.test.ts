@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { buildFinanceShortPlan, validateFinanceShortPlan } from '../src/server/shortPipeline';
+import { buildFinanceShortPlan, selectHookVariantFromLearningSignals, validateFinanceShortPlan } from '../src/server/shortPipeline';
 
 const plan = buildFinanceShortPlan({
   title: 'Dramat na akcjach Cyfrowego Polsatu i Eurocashu. Szeroki rynek pędzi dzięki bankom',
@@ -20,6 +20,23 @@ assert.equal(plan.scenes.every((scene) => typeof scene.visualSvg === 'string' &&
 assert.equal(plan.qualityGate.publishable, true);
 assert.equal(validateFinanceShortPlan(plan).publishable, true);
 assert.match(plan.hook, /Cyfrowy Polsat/);
+assert.equal(plan.scenes[7].voiceover_text, 'Sprawdź spółkę po NIP.');
+assert.match(plan.scenes[7].caption, /RAPORT-FINANSOWY24\.PL/);
+assert.equal(plan.ctaUrl, 'https://raport-finansowy24.pl/firma');
+
+const warningWins = selectHookVariantFromLearningSignals(plan, [
+  { hookText: 'Stop: Cyfrowy Polsat traci 17,67% — sprawdź dlaczego.', sampleSize: 6, averageCompletionRate: 0.74 },
+  { hookText: 'Top 3 ruchy GPW: Cyfrowy Polsat traci 17,67%.', sampleSize: 6, averageCompletionRate: 0.58 },
+  { hookText: 'Indeks rośnie, ale Cyfrowy Polsat traci 17,67%.', sampleSize: 6, averageCompletionRate: 0.62 }
+]);
+assert.equal(warningWins.index, 1);
+assert.equal(warningWins.formula, 'mistake_warning');
+assert.equal(warningWins.sampleSize, 6);
+const insufficientSignal = selectHookVariantFromLearningSignals(plan, [
+  { hookText: 'Stop: Cyfrowy Polsat traci 17,67% — sprawdź dlaczego.', sampleSize: 4, averageCompletionRate: 0.99 }
+]);
+assert.equal(insufficientSignal.index, 0);
+assert.equal(insufficientSignal.sampleSize, 0);
 
 const broken = { ...plan, scenes: plan.scenes.map((scene, index) => index === 3 ? { ...scene, visualSvg: '' } : scene) };
 assert.equal(validateFinanceShortPlan(broken).publishable, false);

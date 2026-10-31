@@ -15,6 +15,7 @@
     "test:offer-matching": "tsx test-finance-offer-matching.ts",
     "test:auth": "tsx tests/apiAuth.test.ts",
     "test:supabase-history": "tsx tests/supabaseJobStore.test.ts",
+    "test:supabase-url": "tsx tests/supabaseUrl.test.ts",
     "test:telegram-review": "tsx tests/telegramReview.test.ts",
     "test:telegram-chat": "tsx tests/telegramChatCommands.test.ts",
     "test:scene-contract": "tsx tests/sceneContract.test.ts",

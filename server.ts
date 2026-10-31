@@ -47,8 +47,8 @@ import { nextTelegramRevisionNumber, normalizeTelegramFeedback } from './src/ser
 import { publishApprovedShortToPostiz } from './src/server/postizPublisher';
 import { constantTimeTokenMatch, createApiAuthMiddleware, createAppSessionToken } from './src/server/apiAuth';
 import { getPexelsSearchCache, hasSupabaseHistoryConfiguration, loadShortJobsFromSupabase, persistShortJobSnapshot, queueShortJobSnapshot, setPexelsSearchCache, upsertShortJobExport, upsertShortJobsBatch, type DriveExportStatus, type ShortJobSnapshot } from './src/server/supabaseJobStore';
-import { buildCreativeDirectorFallback, buildCreativeDirectorPrompt, loadBrandContext, parseCreativeDirectorPlan, type CreativeDirectorArticle } from './src/server/creativeDirector';
-import { buildFinanceShortPlan, validateFinanceShortPlan, type FinanceShortPlan } from './src/server/shortPipeline';
+import { buildCreativeDirectorFallback, buildCreativeDirectorPrompt, loadBrandContext, mapCreativeDirectorPlanToRenderScenes, parseCreativeDirectorPlan, type CreativeDirectorArticle, type CreativeDirectorPlan } from './src/server/creativeDirector';
+import { buildFinanceShortPlan, selectHookVariantFromLearningSignals, validateFinanceShortPlan, type FinanceShortPlan } from './src/server/shortPipeline';
 import { buildAudioMixFilter, buildMotionFilter, generateSceneSoundEffect, motionSoundSpecForBeat } from './src/server/motionSoundRenderer';
 import { getLearningSignals, recordHookVariants, recordPipelineEvent, recordPipelineRun, recordRetentionMetric, updatePipelineRunStatus } from './src/server/pipelineTelemetry';
 
@@ -768,7 +768,7 @@ async function resolveStockOrPexelsVideoDetailed(
   query: string,
   index: number = 0,
   avoidVideoIds?: number[],
-  options?: { context?: string; requirePexels?: boolean }
+  options?: { context?: string; requirePexels?: boolean; targetDurationSeconds?: number }
 ): Promise<ResolvedStockVideo> {
   const pexelsKey = process.env.PEXELS_API_KEY?.trim();
   if (!pexelsKey) {
@@ -776,7 +776,7 @@ async function resolveStockOrPexelsVideoDetailed(
   }
 
   const avoidIds = avoidVideoIds ?? [];
-  const targetDurationSeconds = index < 4 ? 8 : 12;
+  const targetDurationSeconds = options?.targetDurationSeconds ?? (index < 4 ? 8 : 12);
   const searchQueries = getShortGptSearchQueries(query, index, options?.context);
   const candidates: ResolvedStockVideo[] = [];
 
@@ -1636,6 +1636,10 @@ interface SceneInput {
   visualMode?: 'data_visual' | 'matched_clip';
   visualTitle?: string;
   visualSubtitle?: string;
+  visualQuery?: string;
+  camera?: string;
+  visualMood?: string;
+  directorPurpose?: string;
   motionSound?: { motion: string; sound: string; transition: string };
   duration?: number;
   scene_duration?: number;
@@ -1670,6 +1674,7 @@ interface CombineScenesPayload {
   ttsSpeed?: number;
   syncDurationWithVoice?: boolean;
   lockSceneDurations?: boolean;
+  preserveSceneDurations?: boolean;
   captionAnimation?: 'word-by-word' | 'single-word' | 'karaoke' | 'classic';
   highlightColor?: 'yellow' | 'green' | 'lime' | 'cyan' | 'red' | 'white';
   telegramApproval?: boolean;
@@ -2234,7 +2239,15 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
     const sceneCountError = getSceneCountError(expectedSceneCount, rawScenes.length);
     console.info(`[Scene request] source=${payload.source || 'internal'} request_id=${payload.requestId || jobId} route=renderer expected=${expectedSceneCount} actual=${rawScenes.length}`);
     if (sceneCountError) throw new Error(sceneCountError);
-    const renderSceneDurations = sceneDurationsForCount(expectedSceneCount);
+    const renderSceneDurations = payload.preserveSceneDurations
+      ? rawScenes.map((scene) => Number(scene.duration))
+      : sceneDurationsForCount(expectedSceneCount);
+    if (payload.preserveSceneDurations && (
+      renderSceneDurations.some((duration) => !Number.isFinite(duration) || duration <= 0) ||
+      renderSceneDurations.reduce((sum, duration) => sum + duration, 0) > MAX_SHORT_DURATION_SECONDS + 0.001
+    )) {
+      throw new Error(`Nieprawidłowy budżet czasu storyboardu; limit wynosi ${MAX_SHORT_DURATION_SECONDS} sekund.`);
+    }
     const scenes = rawScenes.map((scene, idx) => ({ ...scene, duration: renderSceneDurations[idx] }));
 
     const getSceneSpeech = (scene: any): string => String(
@@ -2460,7 +2473,8 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
       const normalizedScenePath = path.join(jobTempDir, `norm_scene_${sceneNum}.mp4`);
       const scaleFilter = `scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=decrease,pad=${targetWidth}:${targetHeight}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps=${targetFps}`;
       const motionSpec = (scene as any).motionSound || (payload.pipelinePlan ? motionSoundSpecForBeat((scene as any).beat) : null);
-      const motionFilter = motionSpec && isImage
+      const hasCreativeCameraMove = typeof (scene as any).camera === 'string' && (scene as any).camera.trim().length > 0;
+      const motionFilter = motionSpec && (isImage || hasCreativeCameraMove)
         ? buildMotionFilter(motionSpec as any, targetWidth, targetHeight, targetFps, sceneDuration)
         : scaleFilter;
       const videoFilterWithAss = `${motionFilter}${assSubtitleFilter}`;
@@ -3294,6 +3308,11 @@ function normalizeSceneItem(sc: any, idx: number, totalCount: number): SceneInpu
     voiceover_text: (sc.voiceover_text || sc['tekst_głosowy'] || sc['tekst_glosowy'] || rawText).toString().trim(),
     videoUrl,
     duration,
+    motionSound: sc.motionSound && typeof sc.motionSound === 'object' ? sc.motionSound : undefined,
+    visualQuery: typeof sc.visualQuery === 'string' ? sc.visualQuery : undefined,
+    camera: typeof sc.camera === 'string' ? sc.camera : undefined,
+    visualMood: typeof sc.visualMood === 'string' ? sc.visualMood : undefined,
+    directorPurpose: typeof sc.directorPurpose === 'string' ? sc.directorPurpose : undefined,
     captionStyle: {
       position: capStyle.position || sc.position || 'center',
       animation: capStyle.animation || sc.animation || 'single-word',
@@ -4703,19 +4722,26 @@ router.post('/creative-director/news', async (req, res) => {
     const duration = Math.max(10, Math.min(Number(body.duration) || 18, 60));
     const sceneCount = Math.max(4, Math.min(Number(body.sceneCount) || 8, 8));
     const { context: brandContext, filesUsed } = loadBrandContext();
-    const prompt = buildCreativeDirectorPrompt({ article, brandContext, platform, duration, sceneCount, language: String(body.language || 'Polski') });
+    const ctaPlan = selectFinanceCta(article);
+    const prompt = buildCreativeDirectorPrompt({ article, brandContext, platform, duration, sceneCount, ctaText: ctaPlan.spokenText, language: String(body.language || 'Polski') });
     const modelResult = await callGeminiWithCascade({ contents: prompt });
 
     let plan;
     if (modelResult?.text) {
       try {
-        plan = parseCreativeDirectorPlan(modelResult.text, { platform, duration, filesUsed, modelUsed: modelResult.modelUsed });
+        plan = parseCreativeDirectorPlan(modelResult.text, {
+          platform, duration, filesUsed, modelUsed: modelResult.modelUsed, article,
+          ctaText: ctaPlan.spokenText, ctaDestination: ctaPlan.destinationPath, ctaUrl: ctaPlan.destinationUrl
+        });
       } catch (parseError) {
         console.warn('[Creative Director] Nie udało się sparsować odpowiedzi modelu; używam fallbacku:', (parseError as Error).message);
       }
     }
     if (!plan) {
-      plan = buildCreativeDirectorFallback(article, { platform, duration, filesUsed });
+      plan = buildCreativeDirectorFallback(article, {
+        platform, duration, filesUsed, ctaText: ctaPlan.spokenText,
+        ctaDestination: ctaPlan.destinationPath, ctaUrl: ctaPlan.destinationUrl
+      });
     }
 
     return res.json({ success: true, plan, source: plan.modelUsed === 'heuristic-fallback' ? 'fallback' : 'model' });
@@ -4759,8 +4785,9 @@ router.post('/pipeline/retention', async (req, res) => {
 
 router.get('/pipeline/learning-signals', async (req, res) => {
   const niche = String(req.query.niche || 'Finanse').slice(0, 120);
-  const signals = await getLearningSignals(niche, 50);
-  return res.json({ success: true, niche, signals });
+  const platform = typeof req.query.platform === 'string' ? String(req.query.platform).slice(0, 40) : undefined;
+  const signals = await getLearningSignals(niche, 50, platform);
+  return res.json({ success: true, niche, platform: platform || null, signals });
 });
 
 router.post('/generate-viral-script', async (req, res) => {
@@ -4837,13 +4864,14 @@ router.post('/auto-pilot-shorts', async (req, res) => {
     let description = `#shorts #viral #${niche.toLowerCase().replace(/\s+/g, '')}`;
     let scriptData: any = null;
     let pipelineRunId: string | undefined;
-    const useFinancePipeline = body.pipelineVersion === 'finance-v2' || Boolean(body.bankierArticle && typeof body.bankierArticle === 'object');
+    const useCreativeDirectorPlan = Boolean(body.creativeDirectorPlan && typeof body.creativeDirectorPlan === 'object');
+    const useFinancePipeline = !useCreativeDirectorPlan && (body.pipelineVersion === 'finance-v2' || Boolean(body.bankierArticle && typeof body.bankierArticle === 'object'));
 
     // 1. Sprawdź, czy przekazano gotową tablicę scen (wspiera: scenes, sceny, Sceny, items itp.)
     const rawScenesList = extractScenesFromPayload(body);
     let lockSceneDurations = body.lockSceneDurations === true;
 
-    if ((!rawScenesList || rawScenesList.length === 0) && !useFinancePipeline && !process.env.PEXELS_API_KEY?.trim()) {
+    if ((!rawScenesList || rawScenesList.length === 0) && !useFinancePipeline && !useCreativeDirectorPlan && !process.env.PEXELS_API_KEY?.trim()) {
       return res.status(503).json({
         error: 'Auto-Pilot wymaga klucza PEXELS_API_KEY, aby dobrać osiem różnych klipów Pexels.',
         requiredConfig: 'PEXELS_API_KEY',
@@ -4851,7 +4879,76 @@ router.post('/auto-pilot-shorts', async (req, res) => {
       });
     }
 
-    if (rawScenesList && rawScenesList.length > 0) {
+    if (useCreativeDirectorPlan) {
+      if (!process.env.PEXELS_API_KEY?.trim()) {
+        return res.status(503).json({ error: 'Storyboard Creative Director wymaga PEXELS_API_KEY do dopasowania ujęć.', requiredConfig: 'PEXELS_API_KEY', fallbackDisabled: true });
+      }
+      const article = body.bankierArticle && typeof body.bankierArticle === 'object'
+        ? body.bankierArticle
+        : { title: topic || '', description: body.articleContext || '', category: niche };
+      const suppliedPlan = body.creativeDirectorPlan as CreativeDirectorPlan;
+      const submittedTitle = String(article.title || topic || '').trim().toLocaleLowerCase('pl-PL');
+      const storyboardSourceTitle = String(suppliedPlan.sourceTitle || '').trim().toLocaleLowerCase('pl-PL');
+      const submittedUrl = String(article.link || article.url || '').trim();
+      if (storyboardSourceTitle && storyboardSourceTitle !== submittedTitle) {
+        return res.status(409).json({ error: 'Storyboard został przygotowany dla innego artykułu. Wygeneruj go ponownie dla aktualnego newsa.', fallbackDisabled: true });
+      }
+      if (suppliedPlan.sourceUrl && submittedUrl && suppliedPlan.sourceUrl !== submittedUrl) {
+        return res.status(409).json({ error: 'Adres źródłowego artykułu nie zgadza się ze storyboardem. Wygeneruj go ponownie.', fallbackDisabled: true });
+      }
+      if (!suppliedPlan.title || !suppliedPlan.hook || !suppliedPlan.cta || suppliedPlan.scenes?.length !== FINANCE_SHORT_SCENE_COUNT) {
+        return res.status(422).json({ error: 'Storyboard do renderu musi zawierać tytuł, hook, CTA i dokładnie 8 scen.', fallbackDisabled: true });
+      }
+      const ctaPlan = selectFinanceCta({
+        title: String(article.title || topic || ''),
+        description: String(article.description || article.summary || body.articleContext || ''),
+        summary: String(article.summary || ''),
+        category: String(article.category || niche || 'Finanse')
+      });
+      let creativeScenes;
+      try {
+        creativeScenes = mapCreativeDirectorPlanToRenderScenes(suppliedPlan, ctaPlan.spokenText, `${ctaPlan.caption}\nRAPORT-FINANSOWY24.PL`);
+      } catch (error) {
+        return res.status(422).json({ error: (error as Error).message, fallbackDisabled: true });
+      }
+      const visualContext = [article.title, article.description, article.summary, body.articleContext].filter(Boolean).join('\n');
+      const usedPexelsIds: number[] = [];
+      const resolvedScenes: any[] = [];
+      for (let index = 0; index < creativeScenes.length; index++) {
+        const scene = creativeScenes[index];
+        const resolved = await resolveStockOrPexelsVideoDetailed(scene.visualQuery, index, usedPexelsIds, {
+          context: visualContext,
+          requirePexels: true,
+          targetDurationSeconds: scene.duration
+        });
+        if (!resolved.pexelsId || usedPexelsIds.includes(resolved.pexelsId)) {
+          throw new Error(`Nie udało się dopasować unikalnego klipu Pexels do sceny ${index + 1}. Render przerwany.`);
+        }
+        usedPexelsIds.push(resolved.pexelsId);
+        resolvedScenes.push({
+          ...scene,
+          duration: scene.duration,
+          videoUrl: resolved.videoUrl,
+          thumbnailUrl: resolved.thumbnailUrl,
+          source: resolved.source,
+          pexelsId: resolved.pexelsId,
+          photographer: resolved.photographer,
+          photographerUrl: resolved.photographerUrl,
+          searchKeyword: resolved.searchKeyword,
+          captionStyle: { animation: 'word-by-word', highlightColor: index === 0 ? 'yellow' : 'lime', position: 'center', fontSize: 54, outlineWidth: 7 }
+        });
+      }
+      if (!hasUniquePexelsSceneIds(resolvedScenes)) {
+        throw new Error('Storyboard nie uzyskał ośmiu unikalnych klipów Pexels. Render przerwany bez użycia innych źródeł.');
+      }
+      const hashtags = Array.isArray(suppliedPlan.hashtags) ? suppliedPlan.hashtags.slice(0, 8).join(' ') : '#shorts #finanse';
+      scriptData = { ...suppliedPlan, cta: ctaPlan.spokenText, ctaDestination: ctaPlan.destinationPath, ctaUrl: ctaPlan.destinationUrl, scenes: resolvedScenes };
+      title = String(suppliedPlan.title).slice(0, 240);
+      description = `${ctaPlan.text}\n${ctaPlan.destinationUrl}\n${hashtags}`;
+      scriptData.description = description;
+      scenesToRender = resolvedScenes;
+      console.info(`[Creative Director Render] article=${submittedTitle.slice(0, 100)} scenes=${resolvedScenes.length} CTA=${ctaPlan.destinationPath}`);
+    } else if (rawScenesList && rawScenesList.length > 0) {
       const requiresPexels = body.requirePexelsClips === true || rawScenesList.some((scene: any) => scene?.source === 'pexels');
       if (requiresPexels && !hasUniquePexelsSceneIds(rawScenesList)) {
         return res.status(400).json({
@@ -4891,16 +4988,25 @@ router.post('/auto-pilot-shorts', async (req, res) => {
       if (!gate.publishable) {
         return res.status(422).json({ error: 'Quality Gate zablokował render finansowego shorta.', qualityGate: gate, fallbackDisabled: true });
       }
-      const learningSignals = await getLearningSignals(String(article.category || niche || 'Finanse'));
+      const learningPlatform = String(body.platform || 'youtube-shorts').slice(0, 40);
+      const learningSignals = await getLearningSignals(String(article.category || niche || 'Finanse'), 50, learningPlatform);
+      const hookSelection = selectHookVariantFromLearningSignals(financePlan, learningSignals);
+      const selectedHook = financePlan.hookVariants[hookSelection.index] || financePlan.hook;
+      financePlan.hook = selectedHook;
+      financePlan.hookFormula = hookSelection.formula;
+      financePlan.scenes[0].voiceover_text = selectedHook;
+      financePlan.scenes[0].caption = selectedHook.toUpperCase();
       (financePlan as any).learningSignals = learningSignals.slice(0, 5);
+      (financePlan as any).hookSelection = { ...hookSelection, platform: learningPlatform, usedHistoricalData: hookSelection.sampleSize >= 5 };
       pipelineRunId = financePlan.planId;
       void recordPipelineRun({ runId: financePlan.planId, plan: financePlan, source: requestSource, status: 'planned', selectedHookVariant: financePlan.hook });
-      void recordHookVariants(financePlan.planId, financePlan.hookVariants.map((hook, index) => ({ runId: financePlan.planId, variantKey: `hook_${index + 1}`, hookText: hook, selected: index === 0, generatedScore: index === 0 ? financePlan.qualityGate.hookScore : undefined })));
-      void recordPipelineEvent({ runId: financePlan.planId, eventType: 'hook_generated', payload: { hook: financePlan.hook, historicalSignals: learningSignals.slice(0, 5) } });
+      void recordHookVariants(financePlan.planId, financePlan.hookVariants.map((hook, index) => ({ runId: financePlan.planId, variantKey: `hook_${index + 1}`, hookText: hook, selected: index === hookSelection.index, generatedScore: index === hookSelection.index ? financePlan.qualityGate.hookScore : undefined })));
+      void recordPipelineEvent({ runId: financePlan.planId, eventType: 'hook_generated', payload: { hook: financePlan.hook, historicalSignals: learningSignals.slice(0, 5), selection: (financePlan as any).hookSelection } });
       void recordPipelineEvent({ runId: financePlan.planId, eventType: 'quality_gate', payload: gate });
       scriptData = financePlan;
       title = financePlan.title;
-      description = `${financePlan.hook} ${financePlan.cta}`;
+      description = `${financePlan.hook} ${financePlan.cta}\n${financePlan.ctaUrl}`;
+      (financePlan as any).description = description;
       scenesToRender = financePlan.scenes.map((scene) => ({
         ...scene,
         subtitles: scene.caption,
@@ -4943,7 +5049,9 @@ router.post('/auto-pilot-shorts', async (req, res) => {
     if (generatedSceneCountError) {
       return res.status(502).json({ error: generatedSceneCountError, expectedSceneCount: FINANCE_SHORT_SCENE_COUNT, receivedSceneCount: scenesToRender.length });
     }
-    const requiredSceneDurations = sceneDurationsForCount(FINANCE_SHORT_SCENE_COUNT);
+    const requiredSceneDurations = useCreativeDirectorPlan
+      ? scenesToRender.map((scene) => Number(scene.duration))
+      : sceneDurationsForCount(FINANCE_SHORT_SCENE_COUNT);
     scenesToRender = scenesToRender.map((scene, idx) => ({ ...scene, duration: requiredSceneDurations[idx] }));
     lockSceneDurations = true;
 
@@ -4989,6 +5097,7 @@ router.post('/auto-pilot-shorts', async (req, res) => {
       ttsSpeed: effectiveSpeed,
       syncDurationWithVoice: body.syncDurationWithVoice !== false,
       lockSceneDurations,
+      preserveSceneDurations: useCreativeDirectorPlan,
       captionAnimation: effectiveAnimation,
       highlightColor: effectiveHighlight,
       telegramApproval: true,
@@ -5014,8 +5123,26 @@ router.post('/auto-pilot-shorts', async (req, res) => {
       articleCategory: String(body.bankierArticle?.category || body.category || ''),
       scenes: summarizeScenesForHistory(scenesToRender),
       shortMetadata: {
-        description: typeof (scriptData as any)?.description === 'string' ? (scriptData as any).description.slice(0, 1500) : undefined,
+        description: typeof (scriptData as any)?.description === 'string' ? (scriptData as any).description.slice(0, 1500) : String(description || '').slice(0, 1500),
         hook: typeof (scriptData as any)?.hook === 'string' ? (scriptData as any).hook.slice(0, 500) : undefined,
+        ctaText: typeof (scriptData as any)?.cta === 'string' ? (scriptData as any).cta.slice(0, 300) : undefined,
+        ctaDestination: typeof (scriptData as any)?.ctaDestination === 'string' ? (scriptData as any).ctaDestination.slice(0, 200) : undefined,
+        ctaUrl: typeof (scriptData as any)?.ctaUrl === 'string' ? (scriptData as any).ctaUrl.slice(0, 500) : undefined,
+        creativeDirectorBrief: typeof (scriptData as any)?.directorBrief === 'string' ? (scriptData as any).directorBrief.slice(0, 3000) : undefined,
+        creativeDirectorModel: typeof (scriptData as any)?.modelUsed === 'string' ? (scriptData as any).modelUsed.slice(0, 100) : undefined,
+        creativeDirectorHashtags: Array.isArray((scriptData as any)?.hashtags) ? (scriptData as any).hashtags.slice(0, 8) : undefined,
+        creativeDirectorScenes: useCreativeDirectorPlan ? scenesToRender.map((scene: any, index) => ({
+          index: index + 1,
+          duration: scene.duration,
+          purpose: scene.directorPurpose,
+          visualQuery: scene.visualQuery,
+          visualMood: scene.visualMood,
+          camera: scene.camera,
+          motionPreset: scene.motionSound?.motion,
+          voiceover: scene.voiceover_text,
+          caption: scene.subtitles,
+          pexelsId: scene.pexelsId
+        })) : undefined,
         articleDescription: String(body.bankierArticle?.description || body.bankierArticle?.summary || '').slice(0, 6000),
         articleContext: String(body.articleContext || '').slice(0, 6000),
         niche: String(niche || 'Finanse & Biznes').slice(0, 300),

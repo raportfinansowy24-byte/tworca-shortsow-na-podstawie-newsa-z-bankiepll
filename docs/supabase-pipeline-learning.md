@@ -39,6 +39,8 @@ Example payload:
 }
 ```
 
-Historical aggregates are available through `GET /api/pipeline/learning-signals?niche=Giełda%20GPW%20%26%20Spółki`. The view ranks hook texts by average completion rate and exposes sample size, average watch time and average shares. The next creative planning step can use these signals as a baseline for hook candidates and A/B selection; no signal is treated as reliable until it has enough samples for the project’s chosen threshold.
+Historical aggregates are available through `GET /api/pipeline/learning-signals?niche=Giełda%20GPW%20%26%20Spółki&platform=youtube-shorts`. Results are aggregated directly from imported retention rows by platform and exact hook text; sample size, average completion, watch time and shares are returned. The finance-v2 planner maps historical hook texts to the three supported families (`contrarian_claim`, `mistake_warning`, `list_tease_ranking`) and selects a family only after at least five observations. With fewer observations, the default contrarian hook remains selected. This is family-level guidance, not a claim that three live A/B variants have been experimentally tested.
+
+The selected platform defaults to `youtube-shorts` on the Auto-Pilot route. Import platform metrics with the exact same platform ID and niche/category used when rendering; otherwise the learning query intentionally returns no signals. CTA narration uses the short spoken phrase, while the destination URL is stored in job metadata/publication description and the ending caption shows the site domain.
 
 If Supabase is unavailable, rendering continues and telemetry is best-effort only. The renderer never silently downgrades ElevenLabs or media quality because telemetry is unavailable.
