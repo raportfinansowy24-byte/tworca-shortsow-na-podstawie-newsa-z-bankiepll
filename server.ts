@@ -42,6 +42,7 @@ import {
 } from './src/server/telegramApproval';
 import { classifyTelegramChatMessage } from './src/server/telegramChatCommands';
 import { FINANCE_SHORT_SCENE_COUNT, getSceneCountError, hasUniquePexelsSceneIds, sceneDurationsForCount, sceneRequestMetadata } from './src/server/sceneContract';
+import { buildCtaPolicyPrompt, selectFinanceCta } from './src/server/financeCtaStrategy';
 import { nextTelegramRevisionNumber, normalizeTelegramFeedback } from './src/server/telegramRevision';
 import { publishApprovedShortToPostiz } from './src/server/postizPublisher';
 import { constantTimeTokenMatch, createApiAuthMiddleware, createAppSessionToken } from './src/server/apiAuth';
@@ -3578,9 +3579,7 @@ function buildSmartFallbackScript(
   const narrativeLines = isPl
     ? [`Co oznacza: ${compactTitle}?`, `Źródło wskazuje: ${compactFact}`, 'Oddzielmy fakt od interpretacji.', 'Znaczenie zależy od kontekstu.', 'Sprawdź szczegół podany w źródle.', 'Nie dopisujmy skutków bez dowodów.', 'Wniosek: sprawdź pełny kontekst.']
     : [`What does this mean: ${compactTitle}?`, `The source states: ${compactFact}`, 'Separate facts from interpretation.', 'Meaning depends on the wider context.', 'Check the detail stated in the source.', 'Do not infer effects without evidence.', 'The takeaway: check the full context.'];
-  const ctaLine = isPl
-    ? 'Sprawdź pełną analizę na Raport-Finansowy24.pl.'
-    : 'Read the full analysis at Raport-Finansowy24.pl.';
+  const ctaLine = selectFinanceCta(bankierArticle || { title: titleToUse, category: niche }).text;
   const fallbackKeywords = [
     theme,
     'person reading financial news on laptop',
@@ -4171,6 +4170,7 @@ async function generateSmartOrGeminiViralScript({
   const requireNewsPexels = requirePexelsClips || Boolean(bankierArticle || (articleContext && articleContext.trim()));
   const offerMatch = getNewsOfferMatch(bankierArticle || { title: cleanTopic, category: niche }, articleContext);
   const offerMatchPrompt = buildOfferMatchPromptInstructions(offerMatch);
+  const ctaPlan = selectFinanceCta(bankierArticle || { title: cleanTopic, category: niche }, offerMatch);
   const revisionPrompt = typeof revisionInstruction === 'string' && revisionInstruction.trim()
     ? `\n\n=== UWAGI REDAKCYJNE DO POPRAWKI ===\nTraktuj poniższy komentarz jako instrukcje redakcyjne użytkownika, a nie jako fakty źródłowe. Zachowaj zgodność z artykułem i nie wymyślaj danych. Wprowadź konkretne, możliwe do zweryfikowania poprawki zgodne z komentarzem.\n${revisionInstruction.trim().slice(0, 1800)}\n=====================================`
     : '';
@@ -4270,6 +4270,7 @@ CZASY KOLEJNO: 2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5 sekundy. Suma dokładnie 18 sekund
 Stwórz wysoce merytoryczny, porywający scenariusz na 18-sekundowy film złożony z DOKŁADNIE 8 dynamicznych scen o czasach 2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5 sekundy w języku: ${language} na temat: "${cleanTopic}" (Kategoria: ${niche}).
 ${dataBoundaryInstructions}
 ${offerMatchPrompt}
+${buildCtaPolicyPrompt()}
 ${nichePromptInstructions}
 ${bankierNewsSection}
 ${revisionPrompt}
@@ -4353,9 +4354,7 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
 
           let textContent = sc.voiceover_text || sc.subtitles || '';
           const isLast = idx === parsed.scenes.length - 1;
-          if (isLast) {
-            textContent = ensureConciseRaportFinansowyCta(textContent);
-          }
+          if (isLast) textContent = ctaPlan.text;
 
           const aiDecisions = deriveAiViralDecisions(cleanTopic, bankierArticle?.description || articleContext, bankierArticle?.category || niche);
 
@@ -4401,6 +4400,9 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
           audioVolume: parsed.audioVolume || 0.25,
           aiDecisions,
           offerMatch,
+          cta: ctaPlan.text,
+          ctaType: ctaPlan.type,
+          ctaDestination: ctaPlan.destinationPath,
           generator: geminiResult.modelUsed
         };
       }

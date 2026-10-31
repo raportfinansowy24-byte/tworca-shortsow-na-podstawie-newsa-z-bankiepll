@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { motionSoundSpecForBeat, type MotionSoundSpec } from './motionSoundRenderer';
+import { selectFinanceCta } from './financeCtaStrategy';
 
 export type VisualMode = 'data_visual' | 'matched_clip';
 export type StoryBeat = 'hook' | 'market_snapshot' | 'leader' | 'loser' | 'contrast' | 'meaning' | 'takeaway' | 'cta';
@@ -48,6 +49,8 @@ export interface FinanceShortPlan {
   hookVariants: string[];
   viralStrategy: ViralStrategyProfile;
   cta: string;
+  ctaType: string;
+  ctaDestination: string;
   sourceUrl?: string;
   article: FinanceArticleInput;
   facts: FinanceFact[];
@@ -152,7 +155,8 @@ export function buildFinanceShortPlan(articleInput: FinanceArticleInput): Financ
   const hook = loser && leader
     ? `Indeks rośnie, ale ${loser.label} traci ${Math.abs(loser.value).toFixed(2).replace('.', ',')}%.`
     : `Co naprawdę wydarzyło się dziś na rynku?`;
-  const cta = 'Sprawdź pełną analizę na RaportFinansowy24.';
+  const ctaPlan = selectFinanceCta(article);
+  const cta = ctaPlan.text;
   const hookVariants = [
     hook,
     loser ? `Stop: ${loser.label} traci ${Math.abs(loser.value).toFixed(2).replace('.', ',')}% — sprawdź dlaczego.` : hook,
@@ -196,7 +200,7 @@ export function buildFinanceShortPlan(articleInput: FinanceArticleInput): Financ
     warnings
   };
   const planId = `fsp_${crypto.createHash('sha1').update(`${article.title}|${article.link || ''}`).digest('hex').slice(0, 12)}`;
-  return { planId, title: article.title, hook, hookFormula: 'contrarian_claim', hookVariants, viralStrategy, cta, sourceUrl: article.link, article, facts, scenes, riskFlags: ['Zweryfikuj liczby i znak zmian względem źródła przed publikacją.'], qualityGate, architecture: ['fact-checker', 'hook-retention', 'viral-short-strategy-2026', 'visual-storyboard', 'financial-data-visualizer', 'asset-curator', 'tts-performance', 'motion-renderer', 'quality-gate', 'supabase-feedback-loop'] };
+  return { planId, title: article.title, hook, hookFormula: 'contrarian_claim', hookVariants, viralStrategy, cta, ctaType: ctaPlan.type, ctaDestination: ctaPlan.destinationPath, sourceUrl: article.link, article, facts, scenes, riskFlags: ['Zweryfikuj liczby i znak zmian względem źródła przed publikacją.'], qualityGate, architecture: ['fact-checker', 'hook-retention', 'viral-short-strategy-2026', 'visual-storyboard', 'financial-data-visualizer', 'asset-curator', 'tts-performance', 'motion-renderer', 'quality-gate', 'supabase-feedback-loop'] };
 }
 
 export function validateFinanceShortPlan(plan: FinanceShortPlan): QualityGateResult {
