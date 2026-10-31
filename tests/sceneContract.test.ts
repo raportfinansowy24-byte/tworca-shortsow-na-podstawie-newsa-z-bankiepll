@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { getSceneCountError, hasUniquePexelsSceneIds, MAX_SHORT_DURATION_SECONDS, sceneDurationsForCount, sceneDurationsWithNarration, sceneRequestMetadata } from '../src/server/sceneContract';
+import { selectFinanceCta } from '../src/server/financeCtaStrategy';
 
 assert.equal(getSceneCountError(8, 8), null);
 assert.match(getSceneCountError(8, 1) || '', /Oczekiwano 8 scen, otrzymano 1/);
@@ -11,6 +12,22 @@ assert.match(getSceneCountError(9, 9) || '', /expectedSceneCount musi być liczb
 
 assert.deepEqual(sceneDurationsForCount(8), [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5]);
 assert.equal(MAX_SHORT_DURATION_SECONDS, 23);
+assert.equal(selectFinanceCta({ title: 'RPP obniża stopy, co z ratą kredytu?' }).destinationPath, '/loan');
+assert.equal(selectFinanceCta({ title: 'Nowe oprocentowanie lokat i oszczędności' }).destinationPath, '/savings');
+assert.equal(selectFinanceCta({ title: 'Spółka publikuje wyniki finansowe na GPW' }).destinationPath, '/firma');
+assert.equal(selectFinanceCta({ title: 'Bank zmienia opłaty za konto bankowe' }).destinationPath, '/konta');
+for (const article of [
+  { title: 'RPP obniża stopy, co z ratą kredytu?' },
+  { title: 'Nowe oprocentowanie lokat i oszczędności' },
+  { title: 'Spółka publikuje wyniki finansowe na GPW' },
+  { title: 'Bank zmienia opłaty za konto bankowe' }
+]) {
+  const cta = selectFinanceCta(article);
+  assert.ok(cta.spokenText.split(/\\s+/).filter(Boolean).length <= 4);
+  assert.ok(cta.destinationUrl.endsWith(cta.destinationPath));
+  assert.ok(!/raport-finansowy24\\.pl|https?:\\/\\//i.test(cta.spokenText));
+}
+
 const naturalSceneDurations = sceneDurationsWithNarration(
   sceneDurationsForCount(8),
   [5.9, null, null, null, null, null, null, null]
