@@ -3551,15 +3551,15 @@ function buildSmartFallbackScript(
     const words = value.trim().split(/\s+/).filter(Boolean);
     return words.length <= maxWords ? words.join(' ') : `${words.slice(0, maxWords).join(' ')}…`;
   };
-  const compactTitle = compactWords(titleToUse, 3);
+  const compactTitle = compactWords(titleToUse, 2);
   const compactFact = compactWords(
     firstSourceSentence || (isPl ? 'Brak szczegółowych danych w materiale.' : 'No detailed facts in the supplied material.'),
-    3
+    2
   );
   const narrativeLines = isPl
-    ? [`Co oznacza: ${compactTitle}?`, `Źródło wskazuje: ${compactFact}`, 'Oddzielmy fakt od interpretacji.', 'Znaczenie zależy od kontekstu.', 'Sprawdź szczegół podany w źródle.', 'Nie dopisujmy skutków bez dowodów.', 'Wniosek: sprawdź pełny kontekst.']
+    ? [`Co zmienia: ${compactTitle}?`, `Źródło: ${compactFact}`, 'Fakt to nie prognoza.', 'Liczy się kontekst.', 'Sprawdź dane w źródle.', 'Nie dopisuj skutków.', 'Wniosek: sprawdź szczegóły.']
     : [`What does this mean: ${compactTitle}?`, `The source states: ${compactFact}`, 'Separate facts from interpretation.', 'Meaning depends on the wider context.', 'Check the detail stated in the source.', 'Do not infer effects without evidence.', 'The takeaway: check the full context.'];
-  const ctaLine = selectFinanceCta(bankierArticle || { title: titleToUse, category: niche }).text;
+  const ctaLine = selectFinanceCta(bankierArticle || { title: titleToUse, category: niche }).spokenText;
   const fallbackKeywords = [
     theme,
     'person reading financial news on laptop',
@@ -4225,24 +4225,28 @@ WIARYGODNOŚĆ:
 - Bez gwarantowanych zysków, fałszywej pilności i indywidualnych rekomendacji inwestycyjnych.
 - Dobieraj ujęcia do konkretnego tematu newsa; nie stosuj ogólnego finansowego B-rollu, gdy nie pasuje do faktu.
 
-DOKŁADNIE 8 SCEN, ŁĄCZNIE 18 SEKUND:
-1. 0–2.0 s — HOOK: konkretny fakt lub zmiana ze źródła.
-2. 2.0–4.0 s — KONTEKST: czego dotyczy news.
-3. 4.0–6.0 s — PROBLEM: co jest stawką, bez dopisywania skutków.
-4. 6.0–8.0 s — WYJAŚNIENIE: co źródło faktycznie mówi.
-5. 8.0–10.5 s — KONKRET: najważniejszy potwierdzony szczegół.
-6. 10.5–13.0 s — KONSEKWENCJA: ostrożna interpretacja, odróżniona od faktu.
-7. 13.0–15.5 s — WNIOSEK: praktyczna rzecz do sprawdzenia lub zrozumienia.
-8. 15.5–18.0 s — DOMKNIĘCIE + CTA dopasowane do newsa; na ekranie ma być Raport-Finansowy24.pl.
+DOKŁADNIE 8 SCEN. STANDARDOWY UKŁAD TO 18 SEKUND; SCENY MOGĄ ZOSTAĆ WYDŁUŻONE PRZEZ RENDERER, ALE CAŁY FILM NIE MOŻE PRZEKROCZYĆ 23 SEKUND:
+1. HOOK: jeden konkretny fakt ze źródła.
+2. KONTEKST: temat newsa.
+3. PROBLEM: co jest stawką.
+4. WYJAŚNIENIE: co źródło faktycznie mówi.
+5. KONKRET: najważniejszy potwierdzony szczegół.
+6. KONSEKWENCJA: ostrożna interpretacja.
+7. WNIOSEK: praktyczna rzecz do sprawdzenia.
+8. CTA: krótka wypowiedź podana przez backend.
 
-REŻYSERIA:
+REŻYSERIA I LIMIT NARRACJI:
+- Sceny 1–4: MAKSYMALNIE 3 wypowiadane słowa na scenę.
+- Sceny 5–7: MAKSYMALNIE 4 wypowiadane słowa na scenę.
+- Scena 8: MAKSYMALNIE 4 słowa; backend zastąpi ją zatwierdzonym, tematycznym CTA.
+- Łącznie maksymalnie 28 wypowiadanych słów w całym Shortcie. Preferuj 24–26.
+- Nie czytaj adresów URL, domen, ścieżek ani hashtagów lektorem. Link docelowy znajduje się w opisie publikacji.
+- Zachowaj najważniejsze fakty; usuń powtórzenia, wstępy i zbędne łączniki zamiast dodawać słowa.
 - Każda scena ma osobny, unikalny, konkretny prompt Pexels po angielsku, bezpośrednio związany z wypowiedzią.
-- Pisz krótko, naturalnie i rytmicznie po polsku. Sceny 1–4 mają maksymalnie 5 wypowiadanych słów, sceny 5–8 maksymalnie 6. Napisy muszą być czytelne na telefonie.
 - Napisy i lektor w każdej scenie muszą być identyczne.
-- Opis publikacyjny zawiera https://raport-finansowy24.pl.
 - Nie uruchamiaj publikacji, harmonogramu ani webhooków; zwróć dane do istniejącego pipeline'u.
 
-CZASY KOLEJNO: 2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5 sekundy. Suma dokładnie 18 sekund.
+BAZOWE CZASY SCEN: 2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5 sekundy.
 `;
 
   try {
@@ -4308,7 +4312,7 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
       const hasConciseSceneCopy = hasExpectedSceneCount && parsed.scenes.every((scene: any, idx: number) => {
         const spokenText = String(scene?.voiceover_text || scene?.subtitles || '').trim();
         const wordCount = spokenText.split(/\s+/).filter(Boolean).length;
-        const maxWords = sceneDurations[idx] <= 2 ? 5 : 6;
+        const maxWords = idx < 4 ? 3 : 4;
         return wordCount > 0 && wordCount <= maxWords;
       });
       if (hasExpectedSceneCount && hasConciseSceneCopy) {
@@ -4334,7 +4338,7 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
 
           let textContent = sc.voiceover_text || sc.subtitles || '';
           const isLast = idx === parsed.scenes.length - 1;
-          if (isLast) textContent = ctaPlan.text;
+          if (isLast) textContent = ctaPlan.spokenText;
 
           const aiDecisions = deriveAiViralDecisions(cleanTopic, bankierArticle?.description || articleContext, bankierArticle?.category || niche);
 
@@ -4369,6 +4373,9 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
         if (!finalDescription.includes('raport-finansowy24.pl')) {
           finalDescription += ' | Sprawdź na https://raport-finansowy24.pl';
         }
+        if (ctaPlan.destinationPath !== '/' && !finalDescription.includes(ctaPlan.destinationUrl)) {
+          finalDescription += ` | ${ctaPlan.destinationUrl}`;
+        }
 
         return {
           title: parsed.title || cleanTopic,
@@ -4398,6 +4405,14 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
     throw new Error('Generator AI nie zwrócił poprawnego scenariusza; nie tworzę wersji, która mogłaby pominąć komentarz.');
   }
   const fallbackScript = buildSmartFallbackScript(cleanTopic, niche, language, count, articleContext, bankierArticle, effectivePairedKeywords);
+  const fallbackCtaIndex = fallbackScript.scenes.length - 1;
+  if (fallbackCtaIndex >= 0) {
+    fallbackScript.scenes[fallbackCtaIndex] = {
+      ...fallbackScript.scenes[fallbackCtaIndex],
+      subtitles: ctaPlan.spokenText,
+      voiceover_text: ctaPlan.spokenText
+    };
+  }
   const aiDecisions = deriveAiViralDecisions(cleanTopic, bankierArticle?.description || articleContext, bankierArticle?.category || niche);
   const usedPexelsIds: number[] = [];
   const fallbackScenesWithVideo = [];
@@ -4435,11 +4450,20 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
     });
   }
 
+  let fallbackDescription = String(fallbackScript.description || '');
+  if (ctaPlan.destinationPath !== '/' && !fallbackDescription.includes(ctaPlan.destinationUrl)) {
+    fallbackDescription += ` | ${ctaPlan.destinationUrl}`;
+  }
+
   return {
     ...fallbackScript,
+    description: fallbackDescription,
     scenes: fallbackScenesWithVideo,
     aiDecisions,
-    offerMatch
+    offerMatch,
+    cta: ctaPlan.text,
+    ctaType: ctaPlan.type,
+    ctaDestination: ctaPlan.destinationPath
   };
 }
 
