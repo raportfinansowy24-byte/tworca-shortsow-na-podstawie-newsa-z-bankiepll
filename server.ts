@@ -2409,7 +2409,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
       // Extract speech text for TTS and captions
       const speechText = sceneSpeechTexts[index];
 
-      // Używaj czasu przypisanego do sceny; osiem scen składa się na dokładnie 18 sekund.
+      // Każda scena trwa co najmniej tyle, ile wymaga pełny lektor; łączny limit Shorta wynosi 23 sekundy.
       let sceneDuration = plannedSceneDurations[index];
       let captionDuration = sceneDuration;
       const ttsAsset = preparedSceneTts[index];
