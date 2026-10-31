@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { FinanceShortPlan, QualityGateResult } from './shortPipeline';
+import { getSupabaseServiceRoleKey } from './supabaseJobStore';
 
 export interface PipelineRunRecord {
   runId: string;
@@ -62,11 +63,11 @@ let warned = false;
 function getClient(): SupabaseClient | null {
   if (client) return client;
   const url = process.env.SUPABASE_URL?.trim();
-  const key = process.env.SUPABASE_KEY?.trim();
+  const key = getSupabaseServiceRoleKey();
   if (!url || !key) {
     if (!warned) {
       warned = true;
-      console.warn('[Pipeline telemetry] Supabase telemetry disabled: SUPABASE_URL/SUPABASE_KEY missing.');
+      console.warn('[Pipeline telemetry] Supabase telemetry disabled: SUPABASE_URL or a supported service-role key alias missing.');
     }
     return null;
   }
