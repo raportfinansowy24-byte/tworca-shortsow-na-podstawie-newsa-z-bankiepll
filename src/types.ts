@@ -342,7 +342,6 @@ export interface ProfitMonitorState {
 
 export interface AutopilotSchedulerState {
   enabled: boolean;
-  automationAllowed?: boolean;
   timeZone?: string;
   dailySlots: string[];
   category: string;

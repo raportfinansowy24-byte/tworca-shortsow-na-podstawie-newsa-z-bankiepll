@@ -1,5 +1,6 @@
 {
-  "enabled": true,
+  "enabled": false,
+  "schedulerControlVersion": 1,
   "dailySlots": [
     "06:00",
     "11:00",

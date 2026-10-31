@@ -50,7 +50,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onJobStarted
   }, [schedulerState?.lastRunJobId, onJobStarted]);
 
   const handleToggle = async () => {
-    if (!schedulerState?.automationAllowed) return;
+    if (!schedulerState) return;
     setLoading(true);
     try {
       const response = await fetch('/api/autopilot/scheduler/toggle', {

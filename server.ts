@@ -2998,7 +2998,9 @@ router.get('/supervisor/status', async (_req, res) => {
   const envReady = {
     appAuth: Boolean(process.env.APP_AUTH_SECRET && process.env.APP_AUTH_SECRET.length >= 32),
     machineToken: Boolean(process.env.BANKIER_SHORTS_API_TOKEN),
+    openai: Boolean(process.env.OPENAI_API_KEY),
     gemini: Boolean(process.env.GEMINI_API_KEY),
+    primaryModelProvider: process.env.OPENAI_API_KEY ? 'openai' : process.env.GEMINI_API_KEY ? 'gemini' : 'heuristic',
     pexels: Boolean(process.env.PEXELS_API_KEY),
     elevenLabs: Boolean(process.env.ELEVENLABS_API_KEY),
     telegramApproval: Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID && process.env.TELEGRAM_WEBHOOK_SECRET),
@@ -3019,7 +3021,7 @@ router.get('/supervisor/status', async (_req, res) => {
   const missingRequired = [
     !envReady.appAuth ? 'APP_AUTH_SECRET (minimum 32 characters)' : null,
     !envReady.machineToken ? 'BANKIER_SHORTS_API_TOKEN' : null,
-    !envReady.gemini ? 'GEMINI_API_KEY' : null,
+    !(envReady.openai || envReady.gemini) ? 'OPENAI_API_KEY or GEMINI_API_KEY' : null,
     !envReady.pexels ? 'PEXELS_API_KEY' : null,
     !envReady.elevenLabs ? 'ELEVENLABS_API_KEY' : null
   ].filter(Boolean);
@@ -3045,6 +3047,7 @@ router.get('/supervisor/status', async (_req, res) => {
       ...(!website.reachable ? ['Sprawdź domenę RaportFinansowy24: witryna nie zwróciła poprawnego HTTP 2xx.'] : []),
       ...(!mediaRuntime.ffmpegReady ? ['FFmpeg nie jest dostępny; sprawdź obraz wdrożeniowy i logi startowe Fly.io.'] : []),
       ...(!mediaRuntime.fontReady ? ['Brakuje fontu TikTok Sans; sprawdź pobieranie fontu i ścieżkę zasobu.'] : []),
+      ...(envReady.openai && !envReady.gemini ? ['OpenAI jest ustawione jako provider główny; Gemini fallback nie jest skonfigurowany.'] : []),
       ...(failedJobs > 0 ? [`W historii pamięciowej jest ${failedJobs} zadań zakończonych błędem; sprawdź szczegóły zadań.`] : []),
       ...missingRequired.map((name) => 'Uzupełnij sekret w Fly.io: ' + name + '.'),
       ...(!envReady.telegramApproval ? ['Skonfiguruj token bota, chat ID i sekret webhooka Telegrama, jeśli chcesz zatwierdzać shorty przez Telegram.'] : []),
@@ -3370,7 +3373,7 @@ function ensureConciseRaportFinansowyCta(text: string): string {
   return `${lead ? `${lead}. ` : ''}Pełna analiza: ${url}.`;
 }
 
-// Built-in smart viral script engine fallback (activated when Gemini is unavailable or access is restricted)
+// Built-in smart viral script engine fallback (activated when model providers are unavailable or access is restricted)
 function buildSmartFallbackScript(
   topic: string,
   niche: string,
@@ -3628,8 +3631,8 @@ function buildSmartFallbackScript(
   };
 }
 
-// Model routing: prefer OpenAI for script quality when OPENAI_API_KEY is configured;
-// keep Gemini as a zero-downtime fallback until the new provider is enabled in Fly secrets.
+// Prefer OpenAI when OPENAI_API_KEY is configured; cascade through Gemini models on failure.
+// If both providers fail, callers use their validated heuristic fallback.
 const OPENAI_SCRIPT_MODEL = (process.env.OPENAI_SCRIPT_MODEL || 'gpt-6.1-sol').trim();
 const GEMINI_MODEL_CASCADE = [
   'gemini-3.8-flash',
@@ -3637,7 +3640,7 @@ const GEMINI_MODEL_CASCADE = [
   'gemini-3.1-flash-lite'
 ];
 
-async function callGeminiWithCascade(params: {
+async function callModelRouter(params: {
   contents: string;
   config?: any;
 }): Promise<{ text: string; modelUsed: string } | null> {
@@ -3958,7 +3961,7 @@ Format JSON:
   let resultData: any = null;
 
   try {
-    const geminiRes = await callGeminiWithCascade({
+    const modelRes = await callModelRouter({
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -3992,8 +3995,8 @@ Format JSON:
       }
     });
 
-    if (geminiRes && geminiRes.text) {
-      const parsed = JSON.parse(geminiRes.text);
+    if (modelRes && modelRes.text) {
+      const parsed = JSON.parse(modelRes.text);
       if (parsed && Array.isArray(parsed.segments) && parsed.segments.length > 0) {
         resultData = {
           success: true,
@@ -4015,7 +4018,7 @@ Format JSON:
             visualMood: seg.visualMood || 'Dynamiczne ujęcie 9:16',
             reasoning: seg.reasoning || 'Dopasowano do tematu newsa.'
           })),
-          modelUsed: geminiRes.modelUsed,
+          modelUsed: modelRes.modelUsed,
           analyzedAt: new Date().toISOString()
         };
       }
@@ -4131,7 +4134,7 @@ function deriveAiViralDecisions(
   };
 }
 
-// Resilient Script Generator: Automatically transforms Bankier.pl news content into viral hook scripts using Gemini
+// Resilient Script Generator: automatically transforms Bankier.pl news content via the shared model router
 async function generateSmartOrGeminiViralScript({
   topic = 'Rynki kapitałowe a dyscyplina inwestycyjna',
   niche = 'Finanse & Biznes',
@@ -4226,7 +4229,7 @@ Dla każdej sceny w polu "searchKeyword" MUSISZ użyć odpowiadającego jej wyż
 
   const dataBoundaryInstructions = `
 ROZDZIEL DANE WEJŚCIOWE OD PÓL WYJŚCIOWYCH:
-- W sekcji DANE NEWSA ŹRÓDŁOWEGO Z BANKIER.PL pole Tytuł artykułu pochodzi z bankierArticle.title, a Podsumowanie / Fakty z bankierArticle.description (z fallbackiem do bankierArticle.summary). To są dane wejściowe, nie pola wyjściowe Gemini.
+- W sekcji DANE NEWSA ŹRÓDŁOWEGO Z BANKIER.PL pole Tytuł artykułu pochodzi z bankierArticle.title, a Podsumowanie / Fakty z bankierArticle.description (z fallbackiem do bankierArticle.summary). To są dane wejściowe, nie pola wyjściowe modelu.
 - Opis/podsumowanie może być jedynie leadem lub skrótem RSS. Nie zakładaj, że otrzymałeś pełny artykuł, i nie dopowiadaj faktów spoza przekazanego kontekstu.
 - Wymagane wyjściowe pole JSON title wypełnij wartością cleanTopic jako neutralną, krótką nazwą roboczą Shorta; nie twórz tu osobnego tytułu promocyjnego, tytułu pod CTR ani clickbaitu.
 - Wyjściowe pole JSON description jest opisem Shorta z CTA i hashtagami; nie jest wejściowym opisem artykułu i nie potwierdza publikacji.
@@ -4285,7 +4288,7 @@ Dla każdej z ${count} scen musisz podać unikalne, bardzo konkretne angielskie 
 - Dla newsa o RPP, stopach lub kredytach dobieraj sceny do konkretnego fragmentu newsa: kalkulator raty, decyzja banku centralnego, warunki kredytu lub planowanie budżetu — tylko jeśli odpowiadają artykułowi. Nie pokazuj gotówki jako zamiennika informacji o stopach.
 Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5].`;
 
-    const geminiResult = await callGeminiWithCascade({
+    const modelResult = await callModelRouter({
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -4325,8 +4328,8 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
       }
     });
 
-    if (geminiResult && geminiResult.text) {
-      const parsed = JSON.parse(geminiResult.text);
+    if (modelResult && modelResult.text) {
+      const parsed = JSON.parse(modelResult.text);
       const hasExpectedSceneCount = parsed && Array.isArray(parsed.scenes) && parsed.scenes.length === count;
       const hasConciseSceneCopy = hasExpectedSceneCount && parsed.scenes.every((scene: any, idx: number) => {
         const spokenText = String(scene?.voiceover_text || scene?.subtitles || '').trim();
@@ -4409,12 +4412,12 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
           cta: ctaPlan.text,
           ctaType: ctaPlan.type,
           ctaDestination: ctaPlan.destinationPath,
-          generator: geminiResult.modelUsed
+          generator: modelResult.modelUsed
         };
       }
     }
   } catch (err) {
-    console.warn('⚠️ [Gemini Script Catch] Processing error (' + (err as Error).message + '). Generating optimized heuristic viral script.');
+    console.warn('⚠️ [Model Script Catch] Processing error (' + (err as Error).message + '). Generating optimized heuristic viral script.');
     if (revisionInstruction?.trim()) {
       throw new Error(`Nie udało się zastosować komentarza w poprawce: ${(err as Error).message}`);
     }
@@ -4522,7 +4525,7 @@ Wymagania JSON:
    - "duration": ${sceneDuration}
    - "searchKeyword": Angielskie słowa kluczowe pasujące do sensu wypowiedzi`;
 
-    const geminiResult = await callGeminiWithCascade({
+    const modelResult = await callModelRouter({
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -4551,8 +4554,8 @@ Wymagania JSON:
       }
     });
 
-    if (geminiResult && geminiResult.text) {
-      const parsed = JSON.parse(geminiResult.text);
+    if (modelResult && modelResult.text) {
+      const parsed = JSON.parse(modelResult.text);
       const hasExpectedSceneCount = parsed && Array.isArray(parsed.scenes) && parsed.scenes.length === count;
       const hasConciseSceneCopy = hasExpectedSceneCount && parsed.scenes.every((scene: any, idx: number) => {
         const spokenText = String(scene?.voiceover_text || scene?.subtitles || '').trim();
@@ -4615,12 +4618,12 @@ Wymagania JSON:
           scenes: scenesWithVideo,
           backgroundMusicUrl: 'https://assets.mixkit.co/music/preview/mixkit-tech-house-vibes-130.mp3',
           audioVolume: 0.25,
-          generator: geminiResult.modelUsed
+          generator: modelResult.modelUsed
         };
       }
     }
   } catch (err) {
-    console.warn('⚠️ [Gemini Translation Fallback] Gemini translation error (' + (err as Error).message + '). Splitting script text intelligently.');
+    console.warn('⚠️ [Model Translation Fallback] Translation error (' + (err as Error).message + '). Splitting script text intelligently.');
   }
 
   const cleaned = scriptText.replace(/\r?\n/g, ' ').trim();
@@ -4724,7 +4727,7 @@ router.post('/creative-director/news', async (req, res) => {
     const { context: brandContext, filesUsed } = loadBrandContext();
     const ctaPlan = selectFinanceCta(article);
     const prompt = buildCreativeDirectorPrompt({ article, brandContext, platform, duration, sceneCount, ctaText: ctaPlan.spokenText, language: String(body.language || 'Polski') });
-    const modelResult = await callGeminiWithCascade({ contents: prompt });
+    const modelResult = await callModelRouter({ contents: prompt });
 
     let plan;
     if (modelResult?.text) {
@@ -6694,17 +6697,17 @@ let cachedCandidateDecision: {
   timestamp: number;
   article: any;
   viralityScore: ViralityScore;
-  source: 'gemini' | 'heuristic';
+  source: 'openai' | 'gemini' | 'heuristic';
 } | null = null;
 const CANDIDATE_CACHE_TTL = 3 * 60 * 1000; // 3 minuty
 
 // AI selector: chooses source-grounded Bankier.pl news; current visible offer categories are a secondary relevance signal.
-async function selectMostViralBankierArticleWithGemini(
+async function selectMostViralBankierArticle(
   articles: any[]
 ): Promise<{
   selectedArticle: any;
   viralityScore: ViralityScore;
-  selectionSource: 'gemini' | 'heuristic';
+  selectionSource: 'openai' | 'gemini' | 'heuristic';
 }> {
   if (!articles || articles.length === 0) {
     throw new Error('Brak artykułów do analizy wiralowej.');
@@ -6771,7 +6774,7 @@ async function selectMostViralBankierArticleWithGemini(
     };
   };
 
-  // Attempt selection via Gemini AI comparative reasoning
+  // Attempt selection via the shared OpenAI-first/Gemini-fallback model router
   try {
     const articlesPromptList = candidatePool.map((a, idx) => {
       const offerMatch = getNewsOfferMatch(a);
@@ -6802,7 +6805,7 @@ ${articlesPromptList}
 
 Zwróć odpowiedź w czystym formacie JSON zgodnie ze schematem:`;
 
-    const geminiResult = await callGeminiWithCascade({
+    const modelResult = await callModelRouter({
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -6825,8 +6828,8 @@ Zwróć odpowiedź w czystym formacie JSON zgodnie ze schematem:`;
       }
     });
 
-    if (geminiResult && geminiResult.text) {
-      const parsed = JSON.parse(geminiResult.text);
+    if (modelResult && modelResult.text) {
+      const parsed = JSON.parse(modelResult.text);
       const chosenIdx = typeof parsed.selectedArticleIndex === 'number' ? parsed.selectedArticleIndex : -1;
 
       if (chosenIdx >= 0 && chosenIdx < candidatePool.length) {
@@ -6858,17 +6861,17 @@ Zwróć odpowiedź w czystym formacie JSON zgodnie ze schematem:`;
           }
         };
 
-        console.log(`[Gemini Virality Selector] Model ${geminiResult.modelUsed} wyselekcjonował artykuł TOP 1: "${chosenArticle.title}" (Score: ${finalScore.totalScore}/100)`);
+        console.log(`[AI Virality Selector] Model ${modelResult.modelUsed} wyselekcjonował artykuł TOP 1: "${chosenArticle.title}" (Score: ${finalScore.totalScore}/100)`);
 
         return {
           selectedArticle: chosenArticle,
           viralityScore: finalScore,
-          selectionSource: 'gemini'
+          selectionSource: modelResult.modelUsed === OPENAI_SCRIPT_MODEL ? 'openai' : 'gemini'
         };
       }
     }
-  } catch (geminiErr) {
-    console.warn('[Gemini Virality Selector] Błąd wywołania Gemini, przejście na odpornościowy algorytm heurystyczny:', (geminiErr as Error).message);
+  } catch (modelErr) {
+    console.warn('[AI Virality Selector] Błąd routera modeli, przejście na odpornościowy algorytm heurystyczny:', (modelErr as Error).message);
   }
 
   // Resilient fallback
@@ -6877,6 +6880,7 @@ Zwróć odpowiedź w czystym formacie JSON zgodnie ze schematem:`;
 
 interface AutopilotSchedulerState {
   enabled: boolean;
+  schedulerControlVersion?: number;
   dailySlots: string[]; // 4x na dobę: 06:00, 11:00, 16:00, 21:00
   category: string;
   voice: string;
@@ -6894,11 +6898,12 @@ interface AutopilotSchedulerState {
   processedUrls: string[];
 }
 
-const AUTOPILOT_SCHEDULER_ALLOWED = process.env.AUTOPILOT_SCHEDULER_ENABLED === 'true';
+const SCHEDULER_CONTROL_VERSION = 1;
 
 const DEFAULT_SCHEDULER_STATE: AutopilotSchedulerState = {
-  // The Fly.io environment gate is the explicit opt-in; once allowed, start without a UI click.
-  enabled: AUTOPILOT_SCHEDULER_ALLOWED,
+  // The single dashboard toggle is the only way to opt in; fresh installs stay off.
+  enabled: false,
+  schedulerControlVersion: SCHEDULER_CONTROL_VERSION,
   dailySlots: ['06:00', '11:00', '16:00', '21:00'],
   category: 'wiadomosci',
   voice: 'pl-PL-MarekNeural',
@@ -6923,13 +6928,16 @@ function loadSchedulerStateFromDisk() {
     if (fs.existsSync(AUTOPILOT_SCHEDULER_PATH)) {
       const raw = fs.readFileSync(AUTOPILOT_SCHEDULER_PATH, 'utf-8');
       const parsed = JSON.parse(raw);
+      const hasCurrentToggleVersion = parsed.schedulerControlVersion === SCHEDULER_CONTROL_VERSION;
       schedulerState = {
         ...DEFAULT_SCHEDULER_STATE,
         ...parsed,
-        // The environment gate is required; a persisted false remains an intentional emergency pause.
-        enabled: AUTOPILOT_SCHEDULER_ALLOWED && parsed.enabled !== false,
+        // Old persisted `enabled: true` values must not start a schedule during this migration.
+        schedulerControlVersion: SCHEDULER_CONTROL_VERSION,
+        enabled: hasCurrentToggleVersion && parsed.enabled === true,
         lastRunStatus: parsed.lastRunStatus === 'running' ? 'idle' : (parsed.lastRunStatus || 'idle')
       };
+      if (!hasCurrentToggleVersion) saveSchedulerStateToDisk();
       console.log(`✓ Wczytano stan harmonogramu 4x/dobę z dysku (Wykonań: ${schedulerState.runsCount}, Historia: ${schedulerState.history.length})`);
     }
   } catch (err) {
@@ -7005,9 +7013,9 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
       throw new Error('Brak artykułów z portalu Bankier.pl do przetworzenia.');
     }
 
-    // 2. Autonomiczna selekcja najbardziej wirusowego newsa z Bankier.pl przez Gemini AI
+    // 2. Autonomiczna selekcja newsa przez wspólny OpenAI-first/Gemini-fallback model router
     // (Priorytet: maksymalna konwersja do kredytów i kont bankowych, cel 10 000 €/mc)
-    const selection = await selectMostViralBankierArticleWithGemini(articles);
+    const selection = await selectMostViralBankierArticle(articles);
     const candidate = selection.selectedArticle;
     const viralityScore = selection.viralityScore;
 
@@ -7017,7 +7025,7 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
 
     const articleContext = `Tytuł artykułu z Bankier.pl: "${candidate.title}"\nPodsumowanie i treść: ${candidate.description}\nKategoria: ${candidate.category}`;
 
-    // 3. Autonomiczna synteza viralowa z Gemini AI
+    // 3. Autonomiczna synteza viralowa przez router OpenAI-first/Gemini-fallback
     const scriptData = await generateSmartOrGeminiViralScript({
       topic: candidate.title,
       niche: schedulerState.niche || 'Finanse & Biznes',
@@ -7105,7 +7113,7 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
 
     // 5. Zapisz wpis w historii schedulera z prognozą dochodu i algorytmem Virality Score przed renderem
     const projectedEarnings = calculateProjectedVideoEarnings(candidate.title, candidate.category);
-    console.log(`[Autopilot 4x/dobę] Gemini wybrał news: "${candidate.title.slice(0, 45)}..." (Virality: ${viralityScore.totalScore}/100, Źródło: ${selection.selectionSource})`);
+    console.log(`[Autopilot 4x/dobę] AI wybrało news: "${candidate.title.slice(0, 45)}..." (Virality: ${viralityScore.totalScore}/100, Źródło: ${selection.selectionSource})`);
 
     const runRecord: AutopilotRunRecord = {
       id: `run_${Date.now()}`,
@@ -7177,7 +7185,7 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
 
 // Check every 30 seconds for scheduled 4x/daily runs (slots: 06:00, 11:00, 16:00, 21:00)
 setInterval(() => {
-  if (!AUTOPILOT_SCHEDULER_ALLOWED || !schedulerState.enabled) return;
+  if (!schedulerState.enabled) return;
 
   const now = new Date();
   const currentSlot = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
@@ -7200,27 +7208,31 @@ router.get(['/autopilot/scheduler', '/autopilot/scheduler/status'], async (req, 
   let candidateArticle: any = null;
   let candidateViralityScore: ViralityScore | null = null;
 
-  try {
-    const now = Date.now();
-    if (cachedCandidateDecision && (now - cachedCandidateDecision.timestamp < CANDIDATE_CACHE_TTL)) {
-      candidateArticle = cachedCandidateDecision.article;
-      candidateViralityScore = cachedCandidateDecision.viralityScore;
-    } else {
-      const articles = await fetchBankierArticlesInternal(schedulerState.category || 'wiadomosci', false);
-      if (articles && articles.length > 0) {
-        const selection = await selectMostViralBankierArticleWithGemini(articles);
-        candidateArticle = selection.selectedArticle;
-        candidateViralityScore = selection.viralityScore;
-        cachedCandidateDecision = {
-          timestamp: now,
-          article: candidateArticle,
-          viralityScore: candidateViralityScore,
-          source: selection.selectionSource
-        };
+  if (schedulerState.enabled) {
+    try {
+      const now = Date.now();
+      if (cachedCandidateDecision && (now - cachedCandidateDecision.timestamp < CANDIDATE_CACHE_TTL)) {
+        candidateArticle = cachedCandidateDecision.article;
+        candidateViralityScore = cachedCandidateDecision.viralityScore;
+      } else {
+        const articles = await fetchBankierArticlesInternal(schedulerState.category || 'wiadomosci', false);
+        if (articles && articles.length > 0) {
+          const selection = await selectMostViralBankierArticle(articles);
+          candidateArticle = selection.selectedArticle;
+          candidateViralityScore = selection.viralityScore;
+          cachedCandidateDecision = {
+            timestamp: now,
+            article: candidateArticle,
+            viralityScore: candidateViralityScore,
+            source: selection.selectionSource
+          };
+        }
       }
+    } catch (err) {
+      console.warn('[Autopilot Scheduler] Błąd selekcji kandydata:', (err as Error).message);
     }
-  } catch (err) {
-    console.warn('[Autopilot Scheduler] Błąd selekcji kandydata:', (err as Error).message);
+  } else {
+    cachedCandidateDecision = null;
   }
 
   // Update history items with latest job store data and guarantee projectedEarnings and viralityScore calculation
@@ -7268,7 +7280,6 @@ router.get(['/autopilot/scheduler', '/autopilot/scheduler/status'], async (req, 
     success: true,
     state: {
       ...schedulerState,
-      automationAllowed: AUTOPILOT_SCHEDULER_ALLOWED,
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       history: updatedHistory,
       nextRun,
@@ -7283,7 +7294,7 @@ router.post('/autopilot/select-viral-news', async (req, res) => {
   try {
     const { category = schedulerState.category || 'wiadomosci', forceRefresh = false } = req.body || {};
     const articles = await fetchBankierArticlesInternal(category, forceRefresh);
-    const selection = await selectMostViralBankierArticleWithGemini(articles);
+    const selection = await selectMostViralBankierArticle(articles);
     res.json({
       success: true,
       selection
@@ -7309,16 +7320,9 @@ router.post('/autopilot/scheduler/run-now', async (req, res) => {
 router.post('/autopilot/scheduler/toggle', (req, res) => {
   const { enabled } = req.body || {};
   const requestedEnabled = typeof enabled === 'boolean' ? enabled : !schedulerState.enabled;
-  if (requestedEnabled && !AUTOPILOT_SCHEDULER_ALLOWED) {
-    schedulerState.enabled = false;
-    saveSchedulerStateToDisk();
-    return res.status(409).json({
-      success: false,
-      enabled: false,
-      error: 'Automatyczne generowanie jest zablokowane. Włącz je świadomie przez AUTOPILOT_SCHEDULER_ENABLED=true w konfiguracji Fly.io.'
-    });
-  }
-  schedulerState.enabled = requestedEnabled && AUTOPILOT_SCHEDULER_ALLOWED;
+  schedulerState.schedulerControlVersion = SCHEDULER_CONTROL_VERSION;
+  schedulerState.enabled = requestedEnabled;
+  if (!requestedEnabled) cachedCandidateDecision = null;
   saveSchedulerStateToDisk();
   return res.json({ success: true, enabled: schedulerState.enabled });
 });

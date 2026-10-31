@@ -33,7 +33,6 @@ function statusLabel(status?: string): string {
 
 export const AutonomousShortsDashboard: React.FC<AutonomousShortsDashboardProps> = ({ state, loading, error, onToggle }) => {
   const enabled = Boolean(state?.enabled);
-  const allowed = Boolean(state?.automationAllowed);
   const history = state?.history || [];
   const slots = state?.dailySlots?.length ? state.dailySlots : ['06:00', '11:00', '16:00', '21:00'];
 
@@ -50,16 +49,18 @@ export const AutonomousShortsDashboard: React.FC<AutonomousShortsDashboardProps>
               System sam wybiera kwalifikujący się news z Bankier.pl, tworzy polski scenariusz, dobiera materiały i renderuje pionowy short. Nie musisz wskazywać tematu, hooka, storyboardu, głosu ani ujęć.
             </p>
           </div>
-          {state && allowed && (
+          {state && (
             <button
               type="button"
               onClick={onToggle}
               disabled={loading}
               className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-600 bg-slate-950/70 px-4 py-2.5 text-sm font-semibold text-slate-100 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
-              aria-label={enabled ? 'Wstrzymaj automatyczne generowanie' : 'Wznów automatyczne generowanie'}
+              role="switch"
+              aria-checked={enabled}
+              aria-label="Harmonogram czterech shortów dziennie"
             >
               {loading ? <RefreshCw className="h-4 w-4 animate-spin" /> : enabled ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-              {enabled ? 'Pauza awaryjna' : 'Wznów automat'}
+              {enabled ? 'Wyłącz automat' : 'Włącz 4× dziennie'}
             </button>
           )}
         </div>
@@ -71,25 +72,13 @@ export const AutonomousShortsDashboard: React.FC<AutonomousShortsDashboardProps>
         </section>
       ) : (
         <>
-          {!allowed && (
-            <section className="flex gap-3 rounded-2xl border border-amber-500/30 bg-amber-950/20 p-4 text-sm text-amber-100" role="status">
-              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" />
-              <div>
-                <p className="font-semibold">Automatyczne uruchamianie jest zablokowane konfiguracją serwera.</p>
-                <p className="mt-1 text-xs leading-relaxed text-amber-100/80">
-                  Aby harmonogram działał bez klikania, ustaw w sekretach Fly.io <code className="rounded bg-black/30 px-1.5 py-0.5">AUTOPILOT_SCHEDULER_ENABLED=true</code>. Po wdrożeniu panel pokaże aktywny status; poniższe godziny to domyślne sloty czasu lokalnego procesu.
-                </p>
-              </div>
-            </section>
-          )}
-
           <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Status automatu</p>
               <p className={`mt-2 text-lg font-bold ${enabled ? 'text-emerald-300' : 'text-slate-300'}`}>
-                {enabled ? 'Aktywny' : allowed ? 'Wstrzymany' : 'Nieaktywny'}
+                {enabled ? 'Aktywny' : 'Wyłączony'}
               </p>
-              <p className="mt-1 text-xs text-slate-500">{enabled ? 'Serwer sam uruchamia zaplanowane cykle.' : 'Nie wystartuje kolejny cykl, dopóki automat nie zostanie wznowiony.'}</p>
+              <p className="mt-1 text-xs text-slate-500">{enabled ? 'Serwer sam uruchamia zaplanowane cykle.' : 'Nie będzie generowania ani selekcji newsów, dopóki automat pozostaje wyłączony.'}</p>
             </div>
             <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Następny przebieg</p>
@@ -127,11 +116,11 @@ export const AutonomousShortsDashboard: React.FC<AutonomousShortsDashboardProps>
             <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="font-bold text-white">News wybierany automatycznie</h2>
-                <p className="text-xs text-slate-400">Kandydat do kolejnego shorta; nie wymaga ręcznego zaznaczenia.</p>
+              <p className="text-xs text-slate-400">{enabled ? 'Kandydat do kolejnego shorta; nie wymaga ręcznego zaznaczenia.' : 'News zostanie dobrany automatycznie po włączeniu harmonogramu.'}</p>
               </div>
               {state.candidateViralityScore && <span className="w-fit rounded-full border border-pink-500/30 bg-pink-500/10 px-3 py-1 text-xs font-bold text-pink-200">Ocena algorytmu: {state.candidateViralityScore.totalScore}/100</span>}
             </div>
-            <p className="font-semibold text-slate-100">{state.candidateArticle?.title || 'Czekam na dostępny artykuł z Bankier.pl.'}</p>
+            <p className="font-semibold text-slate-100">{state.candidateArticle?.title || (enabled ? 'Czekam na dostępny artykuł z Bankier.pl.' : 'Harmonogram jest wyłączony.')}</p>
             {state.candidateArticle?.description && <p className="mt-2 line-clamp-3 text-sm text-slate-400">{state.candidateArticle.description}</p>}
             {state.candidateArticle?.link && <a className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-300 hover:text-indigo-200" href={state.candidateArticle.link} target="_blank" rel="noreferrer">Źródło: Bankier.pl <ExternalLink className="h-3 w-3" /></a>}
           </section>
