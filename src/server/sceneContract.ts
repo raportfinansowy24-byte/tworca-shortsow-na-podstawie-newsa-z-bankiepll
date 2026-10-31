@@ -1,6 +1,6 @@
 export const FINANCE_SHORT_SCENE_COUNT = 8;
 export const MAX_SCENE_COUNT = 8;
-export const MAX_SHORT_DURATION_SECONDS = 30;
+export const MAX_SHORT_DURATION_SECONDS = 23;
 export const SCENE_NARRATION_PADDING_SECONDS = 0.12;
 
 export function getSceneCountError(expectedSceneCount: unknown, actualSceneCount: number): string | null {
