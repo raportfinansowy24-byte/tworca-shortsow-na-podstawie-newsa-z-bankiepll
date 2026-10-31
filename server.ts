@@ -2283,14 +2283,17 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
     type PreparedSceneTts = { path: string; duration: number; wordTimings: CaptionWordTiming[] };
     const preparedSceneTts: Array<PreparedSceneTts | null> = new Array(scenes.length).fill(null);
 
-    // Synthesize every scene with identical voice/model/settings. Preserve the fixed 18-second
-    // timeline: reject overlong narration instead of clipping speech or extending the Short.
+    // Generate every scene with the same ElevenLabs voice and requested speed.
+    // Scene video duration is then expanded to contain the full unsped narration.
     if (ttsEnabled) {
-      // Validate each scene against its assigned duration using actual ElevenLabs audio length.
       if (sceneSpeechTexts.some((text) => !text)) {
         throw new Error(`Każda z ${scenes.length} scen musi zawierać tekst lektora.`);
       }
-      updateJobProgress(jobId, { step: `Generowanie jednego głosu ElevenLabs dla ${scenes.length} scen`, progress: 12 }, `Jeden lektor ElevenLabs, model i tempo dla całego Shorta (${ttsSpeed.toFixed(2)}x).`);
+      updateJobProgress(
+        jobId,
+        { step: `Generowanie jednego głosu ElevenLabs dla ${scenes.length} scen`, progress: 12 },
+        `Jeden lektor ElevenLabs, model i tempo dla całego Shorta (${ttsSpeed.toFixed(2)}x).`
+      );
       for (let index = 0; index < scenes.length; index++) {
         if (abortController.signal.aborted) throw new Error('Zadanie zostało anulowane przez użytkownika.');
         const speechText = sceneSpeechTexts[index];
@@ -2310,7 +2313,10 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
         if (duration <= 0 || !fs.existsSync(ttsPath)) {
           throw new Error(`Nie udało się wygenerować lektora dla sceny ${index + 1}.`);
         }
-     }
+        preparedSceneTts[index] = { path: ttsPath, duration, wordTimings };
+      }
+    }
+
     const plannedSceneDurations = sceneDurationsWithNarration(
       scenes.map((scene, index) =>
         Number(scene.duration) || [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5][index] || 2.25
@@ -2320,12 +2326,6 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
     console.info(
       `[Narration budget] Scene durations: ${plannedSceneDurations.map((duration) => duration.toFixed(2)).join(', ')}s; total=${plannedSceneDurations.reduce((sum, duration) => sum + duration, 0).toFixed(2)}s; narration speed unchanged.`
     );
-dup;
-            wt.end /= uniformTtsSpeedup;
-          });
-        }
-      }
-    }
 
     // Process each scene
     for (let index = 0; index < scenes.length; index++) {
