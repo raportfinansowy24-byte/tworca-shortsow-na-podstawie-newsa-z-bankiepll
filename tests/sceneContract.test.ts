@@ -23,9 +23,10 @@ for (const article of [
   { title: 'Bank zmienia opłaty za konto bankowe' }
 ]) {
   const cta = selectFinanceCta(article);
-  assert.ok(cta.spokenText.split(/\\s+/).filter(Boolean).length <= 4);
+  assert.ok(cta.spokenText.trim().split(' ').filter(Boolean).length <= 4);
   assert.ok(cta.destinationUrl.endsWith(cta.destinationPath));
-  assert.ok(!/raport-finansowy24\\.pl|https?:\\/\\//i.test(cta.spokenText));
+  assert.equal(cta.spokenText.includes('raport-finansowy24.pl'), false);
+  assert.equal(cta.spokenText.includes('http'), false);
 }
 
 const naturalSceneDurations = sceneDurationsWithNarration(
