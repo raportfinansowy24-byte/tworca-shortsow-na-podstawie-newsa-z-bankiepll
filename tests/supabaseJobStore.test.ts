@@ -1,5 +1,27 @@
 import assert from 'node:assert/strict';
-import { rowToShortJobSnapshot, toSupabaseJobRow, type ShortJobSnapshot } from '../src/server/supabaseJobStore';
+import { getSupabaseServiceRoleKey, hasSupabaseHistoryConfiguration, rowToShortJobSnapshot, toSupabaseJobRow, type ShortJobSnapshot } from '../src/server/supabaseJobStore';
+
+
+assert.equal(
+  getSupabaseServiceRoleKey({ SUPABASE_SERVICE_ROLE_KEY: '  sb_secret_new_key  ' }),
+  'sb_secret_new_key'
+);
+assert.equal(
+  getSupabaseServiceRoleKey({ SUPABASE_SECRET_KEY: 'sb_secret_alias' }),
+  'sb_secret_alias'
+);
+assert.equal(
+  getSupabaseServiceRoleKey({ SUPABASE_KEY: 'legacy-key', SUPABASE_SERVICE_ROLE_KEY: 'preferred-key' }),
+  'legacy-key'
+);
+assert.equal(
+  hasSupabaseHistoryConfiguration({ SUPABASE_URL: ' https://project.supabase.co ', SUPABASE_SERVICE_ROLE_KEY: 'sb_secret_x' }),
+  true
+);
+assert.equal(
+  hasSupabaseHistoryConfiguration({ SUPABASE_URL: 'https://project.supabase.co', SUPABASE_SERVICE_ROLE_KEY: ' ' }),
+  false
+);
 
 const snapshot: ShortJobSnapshot = {
   id: 'job_auto_12345_ab12c',
