@@ -10,7 +10,7 @@ assert.match(getSceneCountError(0, 0) || '', /expectedSceneCount musi być liczb
 assert.match(getSceneCountError(9, 9) || '', /expectedSceneCount musi być liczbą całkowitą/);
 
 assert.deepEqual(sceneDurationsForCount(8), [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5]);
-assert.equal(MAX_SHORT_DURATION_SECONDS, 30);
+assert.equal(MAX_SHORT_DURATION_SECONDS, 23);
 const naturalSceneDurations = sceneDurationsWithNarration(
   sceneDurationsForCount(8),
   [5.9, null, null, null, null, null, null, null]
@@ -19,7 +19,7 @@ assert.ok(Math.abs(naturalSceneDurations[0] - 6.02) < 0.001);
 assert.ok(naturalSceneDurations.reduce((sum, duration) => sum + duration, 0) < MAX_SHORT_DURATION_SECONDS);
 assert.throws(
   () => sceneDurationsWithNarration(sceneDurationsForCount(8), Array(8).fill(5.9)),
-  /Maksymalny czas Shorta to 30 s/
+  /Maksymalny czas Shorta to 23 s/
 );
 
 assert.deepEqual(sceneDurationsForCount(4), [4.5, 4.5, 4.5, 4.5]);
