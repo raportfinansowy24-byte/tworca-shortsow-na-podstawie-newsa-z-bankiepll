@@ -46,7 +46,7 @@ import { buildCtaPolicyPrompt, selectFinanceCta } from './src/server/financeCtaS
 import { nextTelegramRevisionNumber, normalizeTelegramFeedback } from './src/server/telegramRevision';
 import { publishApprovedShortToPostiz } from './src/server/postizPublisher';
 import { constantTimeTokenMatch, createApiAuthMiddleware, createAppSessionToken } from './src/server/apiAuth';
-import { getPexelsSearchCache, loadShortJobsFromSupabase, persistShortJobSnapshot, queueShortJobSnapshot, setPexelsSearchCache, upsertShortJobExport, upsertShortJobsBatch, type DriveExportStatus, type ShortJobSnapshot } from './src/server/supabaseJobStore';
+import { getPexelsSearchCache, hasSupabaseHistoryConfiguration, loadShortJobsFromSupabase, persistShortJobSnapshot, queueShortJobSnapshot, setPexelsSearchCache, upsertShortJobExport, upsertShortJobsBatch, type DriveExportStatus, type ShortJobSnapshot } from './src/server/supabaseJobStore';
 import { buildCreativeDirectorFallback, buildCreativeDirectorPrompt, loadBrandContext, parseCreativeDirectorPlan, type CreativeDirectorArticle } from './src/server/creativeDirector';
 import { buildFinanceShortPlan, validateFinanceShortPlan, type FinanceShortPlan } from './src/server/shortPipeline';
 import { buildAudioMixFilter, buildMotionFilter, generateSceneSoundEffect, motionSoundSpecForBeat } from './src/server/motionSoundRenderer';
@@ -2988,7 +2988,7 @@ router.get('/supervisor/status', async (_req, res) => {
     pexels: Boolean(process.env.PEXELS_API_KEY),
     elevenLabs: Boolean(process.env.ELEVENLABS_API_KEY),
     telegramApproval: Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID && process.env.TELEGRAM_WEBHOOK_SECRET),
-    supabaseHistory: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_KEY),
+    supabaseHistory: hasSupabaseHistoryConfiguration(),
     postiz: Boolean(process.env.POSTIZ_API_KEY && process.env.POSTIZ_INTEGRATIONS),
     postizAutoPublishEnabled: process.env.POSTIZ_AUTO_PUBLISH === 'true'
   };
