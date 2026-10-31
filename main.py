@@ -1,5 +1,4 @@
 import os
-import sys
 import json
 import logging
 import tempfile
@@ -9,6 +8,101 @@ import subprocess
 import functions_framework
 from google.cloud import texttospeech
 from google.cloud import storage
+
+import re
+import uuid
+import hmac
+import ipaddress
+import socket
+from urllib.parse import urlparse
+
+MAX_VIDEO_BYTES = 50 * 1024 * 1024
+MAX_TEXT_CHARS = 300
+SCENE_SECONDS = 6
+API_TOKEN = os.environ.get("API_TOKEN")
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+_opener = urllib.request.build_opener(_NoRedirect)
+
+
+def check_auth(request) -> bool:
+    if not API_TOKEN:
+        return False
+    header = request.headers.get("Authorization", "")
+    return hmac.compare_digest(header, f"Bearer {API_TOKEN}")
+
+
+def validate_video_url(url: str) -> None:
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise ValueError("Dozwolone są tylko adresy http/https.")
+    try:
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        infos = socket.getaddrinfo(parsed.hostname, port, type=socket.SOCK_STREAM)
+    except (socket.gaierror, ValueError):
+        raise ValueError("Nie można rozwiązać nazwy hosta.")
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if not ip.is_global:
+            raise ValueError("Adres wideo wskazuje na zasób wewnętrzny.")
+
+
+def download_video(url: str, dest: str) -> None:
+    validate_video_url(url)
+    request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with _opener.open(request, timeout=30) as response:
+        if response.status != 200:
+            raise ValueError("Serwer źródłowy nie zwrócił pliku wideo.")
+        content_type = response.headers.get("Content-Type", "").split(";", 1)[0].lower()
+        if content_type and not (
+            content_type.startswith("video/") or content_type == "application/octet-stream"
+        ):
+            raise ValueError("Źródło nie zwróciło pliku wideo.")
+        length = response.headers.get("Content-Length")
+        if length:
+            try:
+                if int(length) > MAX_VIDEO_BYTES:
+                    raise ValueError("Plik wideo jest zbyt duży.")
+            except ValueError as error:
+                if str(error) == "Plik wideo jest zbyt duży.":
+                    raise
+                raise ValueError("Nieprawidłowy rozmiar pliku źródłowego.")
+        total = 0
+        with open(dest, "wb") as output:
+            while chunk := response.read(1024 * 1024):
+                total += len(chunk)
+                if total > MAX_VIDEO_BYTES:
+                    raise ValueError("Plik wideo przekracza limit rozmiaru.")
+                output.write(chunk)
+    if total == 0:
+        raise ValueError("Pobrany plik wideo jest pusty.")
+
+
+def safe_filename(name) -> str:
+    if not isinstance(name, str) or not name.strip():
+        name = "viral_short"
+    base = os.path.basename(name.strip())
+    base = re.sub(r"[^A-Za-z0-9._-]", "_", base)[:100].strip("._") or "viral_short"
+    if base.lower().endswith(".mp4"):
+        base = base[:-4]
+    return base + ".mp4"
+
+
+def audio_duration(path: str) -> float:
+    result = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "csv=p=0", path],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return float(result.stdout.strip())
+
 
 # Configure logging to stdout for Cloud Logging
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -41,6 +135,13 @@ def concatenate_videos(request):
     Processes scenes with Google Text-to-Speech (Polish), overlays styled subtitles, normalizes video specs,
     concatenates, and uploads the result to Google Cloud Storage.
     """
+    if not check_auth(request):
+        return (
+            json.dumps({"status": "error", "stage": "auth", "error": "Brak autoryzacji."}),
+            401,
+            {"Content-Type": "application/json"}
+        )
+
     print("[START]")
     print("[VALIDATION]")
 
@@ -101,16 +202,22 @@ def concatenate_videos(request):
                 400,
                 {"Content-Type": "application/json"}
             )
+        if len(text) > MAX_TEXT_CHARS:
+            err_msg = f"Scena {idx}: tekst przekracza {MAX_TEXT_CHARS} znaków."
+            return (
+                json.dumps({"status": "error", "stage": "validation", "error": err_msg, "scene": idx}),
+                400,
+                {"Content-Type": "application/json"}
+            )
 
-    output_filename = request_json.get("filename", "viral_short.mp4")
-    if not output_filename.endswith(".mp4"):
-        output_filename += ".mp4"
+    output_filename = safe_filename(request_json.get("filename"))
 
     font_path = get_font_path()
 
     # Temporary working directory for downloading and processing assets
     with tempfile.TemporaryDirectory() as tmp_dir:
         processed_scene_files = []
+        warnings = []
 
         # Initialize TTS client if available
         tts_client = None
@@ -123,7 +230,7 @@ def concatenate_videos(request):
         for i, sc in enumerate(scenes, start=1):
             video_url = (sc.get("video_url") or sc.get("videoUrl") or sc.get("url") or "").strip()
             raw_text = (sc.get("text") or sc.get("voiceover_text") or sc.get("subtitles") or "").strip()
-            voice_name = sc.get("voice", "pl-PL-Wavenet-A").strip()
+            voice_name = (sc.get("voice") or "pl-PL-Wavenet-A").strip()
 
             raw_video_path = os.path.join(tmp_dir, f"raw_scene_{i}.mp4")
             tts_audio_path = os.path.join(tmp_dir, f"tts_scene_{i}.mp3")
@@ -133,12 +240,7 @@ def concatenate_videos(request):
             # A. Download raw video
             print(f"[DOWNLOAD] Scene {i}")
             try:
-                req = urllib.request.Request(
-                    video_url,
-                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-                )
-                with urllib.request.urlopen(req, timeout=30) as resp, open(raw_video_path, "wb") as out_f:
-                    out_f.write(resp.read())
+                download_video(video_url, raw_video_path)
             except Exception as e:
                 err_msg = f"Nie udało się pobrać pliku wideo dla sceny {i}: {str(e)}"
                 print(f"[ERROR] {err_msg}")
@@ -173,11 +275,15 @@ def concatenate_videos(request):
                     )
                     with open(tts_audio_path, "wb") as out_a:
                         out_a.write(response.audio_content)
+                    duration = audio_duration(tts_audio_path)
+                    if duration > SCENE_SECONDS:
+                        warnings.append(f"Scena {i}: lektor trwa {duration:.1f}s, ucięto do {SCENE_SECONDS}s")
                 else:
+                    warnings.append(f"Scena {i}: brak TTS, użyto ciszy")
                     # Fallback silent audio generator via FFmpeg if TTS client fails initialization
                     cmd_silent = [
                         "ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
-                        "-t", "6", "-c:a", "libmp3lame", tts_audio_path
+                        "-t", str(SCENE_SECONDS), "-c:a", "libmp3lame", tts_audio_path
                     ]
                     subprocess.run(cmd_silent, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             except Exception as e:
@@ -207,15 +313,15 @@ def concatenate_videos(request):
             # 1. Video: loop if short, scale & crop to 1080x1920 (9:16), set fps to 30, trim to 6.0s, apply drawtext
             # 2. Audio: pad/trim TTS audio to exactly 6.0s stereo 44.1kHz
             filter_complex = (
-                f"[0:v]loop=loop=-1:size=32767:start=0,"
-                f"scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,fps=30,setsar=1,"
-                f"trim=duration=6,setpts=PTS-STARTPTS,{drawtext_filter}[vout];"
-                f"[1:a]apad=whole_dur=6,atrim=duration=6,asetpts=PTS-STARTPTS,aformat=sample_rates=44100:channel_layouts=stereo[aout]"
+                f"[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,fps=30,setsar=1,"
+                f"trim=duration={SCENE_SECONDS},setpts=PTS-STARTPTS,{drawtext_filter}[vout];"
+                f"[1:a]apad=whole_dur={SCENE_SECONDS},atrim=duration={SCENE_SECONDS},asetpts=PTS-STARTPTS,"
+                f"aformat=sample_rates=44100:channel_layouts=stereo[aout]"
             )
 
             cmd_scene = [
                 "ffmpeg", "-y",
-                "-i", raw_video_path,
+                "-stream_loop", "-1", "-i", raw_video_path,
                 "-i", tts_audio_path,
                 "-filter_complex", filter_complex,
                 "-map", "[vout]",
@@ -233,14 +339,13 @@ def concatenate_videos(request):
                 proc = subprocess.run(cmd_scene, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
             except subprocess.CalledProcessError as cpe:
                 err_msg = f"FFmpeg error processing scene {i}: {cpe.stderr[-500:] if cpe.stderr else str(cpe)}"
-                print(f"[ERROR] Stage FFMPEG Scene {i} failed:\nCommand: {' '.join(cmd_scene)}\nStderr: {cpe.stderr}")
+                print(f"[ERROR] {cmd_scene}")
                 return (
                     json.dumps({
                         "status": "error",
                         "stage": "ffmpeg",
                         "scene": i,
-                        "error": err_msg,
-                        "command": " ".join(cmd_scene)
+                        "error": "Błąd przetwarzania sceny w FFmpeg."
                     }),
                     500,
                     {"Content-Type": "application/json"}
@@ -276,52 +381,52 @@ def concatenate_videos(request):
             subprocess.run(cmd_concat, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
         except subprocess.CalledProcessError as cpe:
             err_msg = f"FFmpeg concat failed: {cpe.stderr[-500:] if cpe.stderr else str(cpe)}"
-            print(f"[ERROR] Stage CONCAT failed:\nCommand: {' '.join(cmd_concat)}\nStderr: {cpe.stderr}")
+            print(f"[ERROR] {cmd_concat}")
             return (
                 json.dumps({
                     "status": "error",
                     "stage": "ffmpeg",
-                    "error": err_msg,
-                    "command": " ".join(cmd_concat)
+                    "error": "Błąd łączenia scen w FFmpeg."
                 }),
                 500,
                 {"Content-Type": "application/json"}
             )
 
-        # 4. Upload final video to Google Cloud Storage
+        # 4. Upload
         print("[UPLOAD]")
         bucket_name = os.environ.get("BUCKET_NAME")
-        public_url = None
+        if not bucket_name:
+            return (
+                json.dumps({"status": "error", "stage": "upload", "error": "Brak BUCKET_NAME w konfiguracji."}),
+                500,
+                {"Content-Type": "application/json"}
+            )
 
-        if bucket_name:
-            try:
-                storage_client = storage.Client()
-                bucket = storage_client.bucket(bucket_name)
-                blob = bucket.blob(output_filename)
-                blob.upload_from_filename(final_mp4_path, content_type="video/mp4")
-                try:
-                    blob.make_public()
-                except Exception as pe:
-                    print(f"[INFO] Nie można ustawić publicznego dostępu do bloba (może obowiązywać Uniform Bucket Level Access): {pe}")
+        unique_name = f"{uuid.uuid4().hex[:8]}_{output_filename}"
+        try:
+            blob = storage.Client().bucket(bucket_name).blob(unique_name)
+            blob.upload_from_filename(final_mp4_path, content_type="video/mp4")
+        except Exception as upload_error:
+            print(f"[ERROR] Upload: {upload_error}")
+            return (
+                json.dumps({"status": "error", "stage": "upload", "error": "Błąd przesyłania pliku do magazynu."}),
+                500,
+                {"Content-Type": "application/json"}
+            )
 
-                public_url = blob.public_url or f"https://storage.googleapis.com/{bucket_name}/{output_filename}"
-            except Exception as se:
-                print(f"[WARNING] Błąd podczas przesyłania do Google Cloud Storage: {se}")
-                public_url = f"https://storage.googleapis.com/{bucket_name}/{output_filename}"
-        else:
-            print("[INFO] BUCKET_NAME nie ustawiono w środowisku. Generowanie przykładowego URL wyjściowego.")
-            public_url = f"https://storage.googleapis.com/default-bucket/{output_filename}"
+        public_url = f"https://storage.googleapis.com/{bucket_name}/{unique_name}"
 
-        # 5. Success return
+        # 5. Success
         print("[COMPLETE]")
         return (
             json.dumps({
                 "status": "success",
                 "url": public_url,
-                "filename": output_filename,
-                "duration": 18,
+                "filename": unique_name,
+                "duration": SCENE_SECONDS * 3,
                 "scenes_processed": 3,
-                "resolution": "1080x1920"
+                "resolution": "1080x1920",
+                "warnings": warnings,
             }),
             200,
             {"Content-Type": "application/json"}
