@@ -9,6 +9,7 @@ export type FinanceCtaType =
 export interface FinanceCtaPlan {
   type: FinanceCtaType;
   text: string;
+  spokenText: string;
   caption: string;
   destinationPath: string;
   destinationUrl: string;
@@ -69,6 +70,7 @@ export function selectFinanceCta(
     return {
       type: 'verified_partner_offer',
       text: `Sprawdź zweryfikowaną ofertę partnera na ${destinationPath.replace(/^\//, '') || 'RaportFinansowy24'}.`,
+      spokenText: 'Sprawdź ofertę partnera.',
       caption: 'SPRAWDŹ ZWERYFIKOWANĄ OFERTĘ',
       destinationPath,
       destinationUrl: `${BASE_URL}${destinationPath}`,
@@ -81,6 +83,7 @@ export function selectFinanceCta(
     return {
       type: 'company_analysis',
       text: 'Sprawdź analizę spółki po NIP lub KRS na raport-finansowy24.pl/firma.',
+      spokenText: 'Sprawdź spółkę po NIP.',
       caption: 'SPRAWDŹ ANALIZĘ SPÓŁKI',
       destinationPath: '/firma',
       destinationUrl: `${BASE_URL}/firma`,
@@ -93,6 +96,7 @@ export function selectFinanceCta(
     return {
       type: 'savings_calculator',
       text: 'Sprawdź, ile mogą urosnąć Twoje oszczędności na raport-finansowy24.pl/savings.',
+      spokenText: 'Policz zysk z lokaty.',
       caption: 'POLICZ ZYSK Z OSZCZĘDNOŚCI',
       destinationPath: '/savings',
       destinationUrl: `${BASE_URL}/savings`,
@@ -105,6 +109,7 @@ export function selectFinanceCta(
     return {
       type: 'bank_accounts',
       text: 'Porównaj aktualne konta i warunki na raport-finansowy24.pl/konta.',
+      spokenText: 'Porównaj konta bankowe.',
       caption: 'PORÓWNAJ AKTUALNE KONTA',
       destinationPath: '/konta',
       destinationUrl: `${BASE_URL}/konta`,
@@ -117,6 +122,7 @@ export function selectFinanceCta(
     return {
       type: 'loan_calculator',
       text: 'Sprawdź wpływ tej zmiany na ratę w kalkulatorze: raport-finansowy24.pl/loan.',
+      spokenText: 'Policz ratę kredytu.',
       caption: 'SPRAWDŹ WPŁYW NA RATĘ',
       destinationPath: '/loan',
       destinationUrl: `${BASE_URL}/loan`,
@@ -128,6 +134,7 @@ export function selectFinanceCta(
   return {
     type: 'editorial_analysis',
     text: 'Sprawdź pełny kontekst i źródła na raport-finansowy24.pl.',
+    spokenText: 'Sprawdź pełny kontekst.',
     caption: 'SPRAWDŹ PEŁNY KONTEKST',
     destinationPath: '/',
     destinationUrl: BASE_URL,
@@ -139,13 +146,14 @@ export function selectFinanceCta(
 export function buildCtaPolicyPrompt(): string {
   return `
 === POLITYKA CTA — WYBIERZ JEDNO CTA ZGODNIE Z NEWSEM ===
-- Stopy procentowe, RPP, NBP, raty, kredyty lub hipoteka: "Sprawdź wpływ tej zmiany na ratę w kalkulatorze: raport-finansowy24.pl/loan."
-- Bank, konto lub opłaty za konto: "Porównaj aktualne konta i warunki na raport-finansowy24.pl/konta."
-- Spółka, GPW, akcje, wyniki firmy, NIP lub KRS: "Sprawdź analizę spółki po NIP lub KRS na raport-finansowy24.pl/firma."
-- Lokaty, oszczędności, depozyty lub odsetki: "Sprawdź, ile mogą urosnąć Twoje oszczędności na raport-finansowy24.pl/savings."
-- Promocja, bonus lub premia: użyj CTA do konkretnej oferty partnerskiej WYŁĄCZNIE, jeśli przekazany katalog oznacza ją jako aktualną i zweryfikowaną. W przeciwnym razie użyj: "Sprawdź pełny kontekst i źródła na raport-finansowy24.pl."
-- Nie używaj ogólnego "obserwuj po więcej", jeśli można przypisać jeden z powyższych celów.
+- Stopy procentowe, RPP, NBP, raty, kredyty lub hipoteka: tekst mówiony "Policz ratę kredytu."; docelowa strona: https://raport-finansowy24.pl/loan.
+- Konto lub opłaty bankowe: tekst mówiony "Porównaj konta bankowe."; docelowa strona: https://raport-finansowy24.pl/konta.
+- Spółka, GPW, akcje, wyniki firmy, NIP lub KRS: tekst mówiony "Sprawdź spółkę po NIP."; docelowa strona: https://raport-finansowy24.pl/firma.
+- Lokaty, oszczędności, depozyty lub odsetki: tekst mówiony "Policz zysk z lokaty."; docelowa strona: https://raport-finansowy24.pl/savings.
+- Promocja, bonus lub premia: CTA do oferty partnerskiej WYŁĄCZNIE przy aktualnej, zweryfikowanej ofercie z katalogu. W innym przypadku tekst mówiony "Sprawdź pełny kontekst."
+- URL i ścieżkę strony umieść w opisie publikacji/metadanych, NIGDY w tekście lektora.
+- Nie używaj ogólnego "obserwuj po więcej", jeśli można przypisać powyższy cel.
 - Nie wymyślaj parametrów oferty, procentów, bonusów, przyznawalności ani pilności.
-- CTA ma być w ostatniej scenie, mieć jedno działanie i mieścić się w limicie słów.
+- CTA ma być ostatnią, krótką wypowiedzią; maksymalnie 4 słowa.
 ===============================================`;
 }
