@@ -2,8 +2,8 @@
 
 ## Stan przed pierwszym wdrożeniem
 
-- Docelowa aplikacja Fly `tworca-shortsow-na-podstawie-newsa-z-bankiepll` istnieje, ale nie miała jeszcze maszyny ani wolumenu.
-- Konfiguracja używa jednej maszyny `shared-cpu-8x` (2 GB), regionu Frankfurt (`fra`) i trwałego wolumenu 10 GB pod `/app/exports`.
+- Docelowa aplikacja Fly `tworca-shortsow-na-podstawie-newsa-z-bankiepll` istnieje i działa w regionie Frankfurt (`fra`).
+- Konfiguracja używa jednej maszyny `shared-cpu-8x` (2 GB), trwałego wolumenu 10 GB pod `/app/exports` oraz prywatnego wolumenu 1 GB pod `/app/cache` dla cache Pexels.
 - Szacunkowy koszt z konfiguracji: około **17,06 USD/miesiąc** przy 730 godzinach pracy (maszyna i wolumen), plus transfer i ewentualne podatki. Maszyna jest skonfigurowana jako stale uruchomiona, aby render i webhook nie zależały od wybudzania.
 - Sekrety `BANKIER_SHORTS_API_TOKEN`, `ELEVENLABS_API_KEY`, `GEMINI_API_KEY` i pozostałe wcześniej przygotowane sekrety są w Fly jako **staged**; zostaną udostępnione maszynie podczas deployu. Nie zapisuj ich w repozytorium, `fly.toml`, promptach ani czacie.
 
@@ -22,6 +22,7 @@
 3. Sprawdź autoryzację tokenem automatyzacji bez wypisywania tokenu w logach.
 4. Nie uruchamiaj renderu produkcyjnego jako testu, dopóki nie są gotowe usługi AI/TTS i wymagana konfiguracja akceptacji Telegram.
 5. Pełny test Telegrama wykonaj dopiero po ustawieniu sekretów bota, włączeniu webhooka dla dedykowanego bota i dostępie do prywatnego czatu.
+6. Cache Pexels powinien być zapisywany w `/app/cache/pexels-search-cache.json`; katalog nie jest wystawiany publicznie.
 
 ## Uwaga o harmonogramie
 

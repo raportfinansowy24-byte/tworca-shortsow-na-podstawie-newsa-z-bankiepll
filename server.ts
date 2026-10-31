@@ -188,7 +188,8 @@ function getPexelsCacheMaxEntries(): number {
 }
 
 function getPexelsSearchCachePath(): string {
-  return path.join(process.cwd(), 'temp', 'pexels-search-cache.json');
+  const cacheDir = process.env.PEXELS_CACHE_DIR?.trim() || path.join(process.cwd(), 'temp');
+  return path.join(cacheDir, 'pexels-search-cache.json');
 }
 
 function loadPexelsSearchCache(): void {
