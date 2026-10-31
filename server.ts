@@ -158,6 +158,7 @@ export interface ResolvedStockVideo {
   videoUrl: string;
   thumbnailUrl: string;
   searchKeyword?: string;
+  selectionScore?: number;
   source: 'pexels';
   pexelsId?: number;
   width?: number;
@@ -165,6 +166,105 @@ export interface ResolvedStockVideo {
   duration?: number;
   photographer?: string;
   photographerUrl?: string;
+}
+
+type PexelsSearchCacheEntry = {
+  expiresAt: number;
+  data: any;
+};
+
+const pexelsSearchCache = new Map<string, PexelsSearchCacheEntry>();
+const pexelsSearchInFlight = new Map<string, Promise<any>>();
+let pexelsSearchCacheLoaded = false;
+
+function getPexelsCacheTtlMs(): number {
+  const configured = Number(process.env.PEXELS_CACHE_TTL_SECONDS || 21600);
+  return Math.max(60, Number.isFinite(configured) ? configured : 21600) * 1000;
+}
+
+function getPexelsCacheMaxEntries(): number {
+  const configured = Number(process.env.PEXELS_CACHE_MAX_ENTRIES || 300);
+  return Math.max(20, Number.isFinite(configured) ? Math.floor(configured) : 300);
+}
+
+function getPexelsSearchCachePath(): string {
+  return path.join(process.cwd(), 'temp', 'pexels-search-cache.json');
+}
+
+function loadPexelsSearchCache(): void {
+  if (pexelsSearchCacheLoaded) return;
+  pexelsSearchCacheLoaded = true;
+  try {
+    const cachePath = getPexelsSearchCachePath();
+    if (!fs.existsSync(cachePath)) return;
+    const parsed = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
+    if (!parsed || typeof parsed !== 'object') return;
+    const now = Date.now();
+    for (const [key, entry] of Object.entries(parsed)) {
+      const typed = entry as PexelsSearchCacheEntry;
+      if (typed && typed.expiresAt > now && typed.data) pexelsSearchCache.set(key, typed);
+    }
+  } catch (error) {
+    console.warn('[Pexels Cache] Nie udało się wczytać cache, startuję z pustym cache:', (error as Error).message);
+  }
+}
+
+function persistPexelsSearchCache(): void {
+  try {
+    const cachePath = getPexelsSearchCachePath();
+    fs.mkdirSync(path.dirname(cachePath), { recursive: true });
+    const tempPath = `${cachePath}.tmp`;
+    fs.writeFileSync(tempPath, JSON.stringify(Object.fromEntries(pexelsSearchCache)), 'utf8');
+    fs.renameSync(tempPath, cachePath);
+  } catch (error) {
+    console.warn('[Pexels Cache] Nie udało się zapisać cache:', (error as Error).message);
+  }
+}
+
+function trimPexelsSearchCache(): void {
+  const maxEntries = getPexelsCacheMaxEntries();
+  while (pexelsSearchCache.size > maxEntries) {
+    const oldestKey = pexelsSearchCache.keys().next().value;
+    if (!oldestKey) break;
+    pexelsSearchCache.delete(oldestKey);
+  }
+}
+
+async function fetchPexelsSearchData(searchUrl: string, headers: Record<string, string>): Promise<any> {
+  loadPexelsSearchCache();
+  const now = Date.now();
+  const cached = pexelsSearchCache.get(searchUrl);
+  if (cached && cached.expiresAt > now) {
+    console.log(`[Pexels Cache] HIT ${searchUrl}`);
+    return cached.data;
+  }
+  if (cached) pexelsSearchCache.delete(searchUrl);
+
+  const pending = pexelsSearchInFlight.get(searchUrl);
+  if (pending) {
+    console.log(`[Pexels Cache] IN-FLIGHT ${searchUrl}`);
+    return pending;
+  }
+
+  const request = (async () => {
+    const response = await fetch(searchUrl, { headers });
+    if (!response.ok) {
+      throw new Error(`Pexels API HTTP ${response.status}: ${response.statusText}`);
+    }
+    const data = await response.json();
+    pexelsSearchCache.set(searchUrl, { expiresAt: Date.now() + getPexelsCacheTtlMs(), data });
+    trimPexelsSearchCache();
+    persistPexelsSearchCache();
+    console.log(`[Pexels Cache] SET ${searchUrl}`);
+    return data;
+  })();
+
+  pexelsSearchInFlight.set(searchUrl, request);
+  try {
+    return await request;
+  } finally {
+    pexelsSearchInFlight.delete(searchUrl);
+  }
 }
 
 // Negative keywords that signal static, slow, or irrelevant footage
@@ -450,7 +550,7 @@ function translateAndEnrichViralKeyword(
 // Dynamically search vertical portrait (9:16) stock video from Pexels API with viral candidate scoring & deduplication
 async function searchPexelsVideoDetailed(
   query: string,
-  options?: { sceneIndex?: number; avoidVideoIds?: number[]; avoidUrls?: string[]; context?: string; requireTopicMatch?: boolean }
+  options?: { sceneIndex?: number; avoidVideoIds?: number[]; avoidUrls?: string[]; context?: string; requireTopicMatch?: boolean; targetDurationSeconds?: number }
 ): Promise<ResolvedStockVideo | null> {
   const pexelsKey = process.env.PEXELS_API_KEY;
   if (!pexelsKey || !pexelsKey.trim()) return null;
@@ -464,19 +564,16 @@ async function searchPexelsVideoDetailed(
     const searchUrl = `https://api.pexels.com/v1/videos/search?query=${encodeURIComponent(enrichedQuery)}&orientation=portrait&per_page=25`;
     console.log(`[Pexels API] Szukanie ultra-dynamicznego ujęcia 9:16 dla hasła: "${enrichedQuery}" (Scena #${sceneIndex + 1})...`);
 
-    const res = await fetch(searchUrl, {
-      headers: {
+    let data: any;
+    try {
+      data = await fetchPexelsSearchData(searchUrl, {
         Authorization: pexelsKey.trim(),
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
-      }
-    });
-
-    if (!res.ok) {
-      console.warn(`[Pexels API] Błąd HTTP ${res.status}: ${res.statusText}`);
+      });
+    } catch (error) {
+      console.warn(`[Pexels API] Błąd wyszukiwania: ${(error as Error).message}`);
       return null;
     }
-
-    const data: any = await res.json();
     if (data.videos && Array.isArray(data.videos) && data.videos.length > 0) {
       // Score and select the most dynamic, high-impact vertical video
       const candidates: Array<{ video: any; verticalMp4: any; score: number }> = [];
@@ -510,6 +607,11 @@ async function searchPexelsVideoDetailed(
             if (video.duration >= 8 && video.duration <= 30) score += 20;
             // Prefer 1080p / 2160p Full HD
             if (verticalMp4.height >= 1920) score += 20;
+            // ShortGPT-style preference: a source clip with useful headroom
+            // is easier to trim across a timed scene.
+            const targetDuration = options?.targetDurationSeconds ?? 15;
+            const durationDistance = Math.abs(Number(video.duration || 0) - targetDuration);
+            score += Math.max(0, 12 - Math.min(12, durationDistance));
 
             candidates.push({ video, verticalMp4, score });
           }
@@ -532,6 +634,7 @@ async function searchPexelsVideoDetailed(
           photographer: picked.video.user?.name,
           photographerUrl: picked.video.user?.url,
           searchKeyword: enrichedQuery,
+          selectionScore: picked.score,
           source: 'pexels'
         };
       }
@@ -541,6 +644,17 @@ async function searchPexelsVideoDetailed(
     console.warn(`[Pexels API Błąd]`, (err as Error).message);
   }
   return null;
+}
+
+// ShortGPT generates several search phrases per timed segment and only then
+// chooses the strongest result. Keep that idea while retaining our
+// finance-specific relevance and forbidden-topic filters.
+function getShortGptSearchQueries(query: string, sceneIndex: number, context?: string): string[] {
+  const alternatives = context ? getCategorySceneAlternatives(context, sceneIndex) : [];
+  const raw = [translateAndEnrichViralKeyword(query, sceneIndex, 8, context), query, ...alternatives]
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return [...new Set(raw)].slice(0, 5);
 }
 
 // Refresh Pexels video-file links by video ID after a CDN denies an older link.
@@ -607,15 +721,16 @@ async function searchPexelsMultiple(
 
   try {
     const searchUrl = `https://api.pexels.com/v1/videos/search?query=${encodeURIComponent(enrichedQuery)}&orientation=portrait&per_page=${Math.max(perPage, 14)}`;
-    const res = await fetch(searchUrl, {
-      headers: {
+    let data: any;
+    try {
+      data = await fetchPexelsSearchData(searchUrl, {
         Authorization: pexelsKey.trim(),
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
-      }
-    });
-
-    if (!res.ok) return [];
-    const data: any = await res.json();
+      });
+    } catch (error) {
+      console.warn('[searchPexelsMultiple Błąd API]', (error as Error).message);
+      return [];
+    }
     if (!data.videos || !Array.isArray(data.videos)) return [];
 
     const candidates: Array<{ video: any; verticalMp4: any; score: number }> = [];
@@ -688,35 +803,39 @@ async function resolveStockOrPexelsVideoDetailed(
   }
 
   const avoidIds = avoidVideoIds ?? [];
-  const pexelsResult = await searchPexelsVideoDetailed(query, {
-    sceneIndex: index,
-    avoidVideoIds: avoidIds,
-    context: options?.context,
-    requireTopicMatch: options?.requirePexels
-  });
-  if (pexelsResult) return pexelsResult;
+  const targetDurationSeconds = index < 4 ? 8 : 12;
+  const searchQueries = getShortGptSearchQueries(query, index, options?.context);
+  const candidates: ResolvedStockVideo[] = [];
 
-  const altKeywords = options?.context ? getCategorySceneAlternatives(options.context, index) : [];
-  for (const altQuery of altKeywords) {
-    if (!altQuery || altQuery === query) continue;
-    console.log(`[Pexels Fallback] Próba alternatywnego zapytania Pexels: "${altQuery}" dla sceny #${index + 1}...`);
-    const altResult = await searchPexelsVideoDetailed(altQuery, {
+  for (const candidateQuery of searchQueries) {
+    console.log(`[Pexels Search] Zapytanie ${candidateQuery === searchQueries[0] ? 'główne' : 'alternatywne'}: "${candidateQuery}" dla sceny #${index + 1}...`);
+    const result = await searchPexelsVideoDetailed(candidateQuery, {
       sceneIndex: index,
       avoidVideoIds: avoidIds,
       context: options?.context,
-      requireTopicMatch: false
+      requireTopicMatch: options?.requirePexels,
+      targetDurationSeconds
     });
-    if (altResult) return altResult;
+    if (result) candidates.push(result);
   }
 
-  console.log(`[Pexels Fallback] Próba rozszerzonego zapytania Pexels dla: "${query}"...`);
-  const relaxedResult = await searchPexelsVideoDetailed(query, {
-    sceneIndex: index,
-    avoidVideoIds: avoidIds,
-    context: options?.context,
-    requireTopicMatch: false
-  });
-  if (relaxedResult) return relaxedResult;
+  if (candidates.length > 0) {
+    candidates.sort((a, b) => (b.selectionScore ?? -Infinity) - (a.selectionScore ?? -Infinity));
+    return candidates[0];
+  }
+
+  // Last-resort relaxed pass mirrors ShortGPT's fallback behaviour, but stays
+  // strictly inside Pexels and keeps the existing hard-error policy.
+  for (const candidateQuery of searchQueries) {
+    const relaxedResult = await searchPexelsVideoDetailed(candidateQuery, {
+      sceneIndex: index,
+      avoidVideoIds: avoidIds,
+      context: undefined,
+      requireTopicMatch: false,
+      targetDurationSeconds
+    });
+    if (relaxedResult) return relaxedResult;
+  }
 
   throw new Error(`Nie znaleziono odpowiedniego klipu Pexels dla sceny ${index + 1}: "${query}". Render został zatrzymany bez użycia obcego źródła.`);
 }
