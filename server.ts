@@ -41,7 +41,7 @@ import {
   updateTelegramApprovalMessage
 } from './src/server/telegramApproval';
 import { classifyTelegramChatMessage } from './src/server/telegramChatCommands';
-import { FINANCE_SHORT_SCENE_COUNT, getSceneCountError, hasUniquePexelsSceneIds, sceneDurationsForCount, sceneRequestMetadata } from './src/server/sceneContract';
+import { FINANCE_SHORT_SCENE_COUNT, getSceneCountError, hasUniquePexelsSceneIds, MAX_SHORT_DURATION_SECONDS, sceneDurationsForCount, sceneDurationsWithNarration, sceneRequestMetadata } from './src/server/sceneContract';
 import { buildCtaPolicyPrompt, selectFinanceCta } from './src/server/financeCtaStrategy';
 import { nextTelegramRevisionNumber, normalizeTelegramFeedback } from './src/server/telegramRevision';
 import { publishApprovedShortToPostiz } from './src/server/postizPublisher';
@@ -2256,7 +2256,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
 
     updateJobProgress(
       jobId,
-      { step: `Przygotowanie lektora i ${scenes.length} scen (zablokowany standard 18s)`, progress: 10 },
+      { step: `Przygotowanie lektora i ${scenes.length} scen (dynamiczny budżet do ${MAX_SHORT_DURATION_SECONDS}s)`, progress: 10 },
       `Rozpoczynanie syntezy jednego głosu ElevenLabs dla całego Shorta...`
     );
 
@@ -2310,37 +2310,17 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
         if (duration <= 0 || !fs.existsSync(ttsPath)) {
           throw new Error(`Nie udało się wygenerować lektora dla sceny ${index + 1}.`);
         }
-        preparedSceneTts[index] = { path: ttsPath, duration, wordTimings };
-      }
-
-      // Never accelerate only selected scenes: that creates visibly different
-      // narration tempo and can sound like a different speaker. Calculate one
-      // common ratio from the slowest scene and apply it to every scene.
-      const sceneBudgets = scenes.map((scene, index) => Math.max(
-        Number(scene.duration) || [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5][index] || 2.25,
-        22.0 / Math.max(1, scenes.length)
-      ));
-      const requiredUniformRatio = preparedSceneTts.reduce((maxRatio, prepared, index) => {
-        if (!prepared) return maxRatio;
-        return Math.max(maxRatio, prepared.duration / sceneBudgets[index]);
-      }, 1);
-      const uniformTtsSpeedup = Math.max(1, requiredUniformRatio);
-      if (uniformTtsSpeedup > 2.0 + 0.01) {
-        throw new Error(`Narracja nie mieści się w czasie scen przy jednym tempie (wymagane ${uniformTtsSpeedup.toFixed(2)}x). Skróć tekst scen lub zwiększ ich budżet czasu.`);
-      }
-      if (uniformTtsSpeedup > 1.01) {
-        console.log(`[TTS Speedup] Wspólne tempo ${uniformTtsSpeedup.toFixed(2)}x dla wszystkich ${scenes.length} scen (voice ID: ${lockedTtsVoiceId}).`);
-        for (let index = 0; index < preparedSceneTts.length; index++) {
-          const prepared = preparedSceneTts[index];
-          if (!prepared) continue;
-          const speedupPath = path.join(jobTempDir, `scene_tts_uniform_speedup_${index + 1}.mp3`);
-          await execPromise(`ffmpeg -y -i "${prepared.path}" -filter:a "atempo=${uniformTtsSpeedup.toFixed(3)}" "${speedupPath}"`);
-          if (!fs.existsSync(speedupPath)) throw new Error(`Nie udało się ujednolicić tempa audio dla sceny ${index + 1}.`);
-          await fs.promises.copyFile(speedupPath, prepared.path);
-          try { await fs.promises.unlink(speedupPath); } catch {}
-          prepared.duration = await getAudioDuration(prepared.path);
-          prepared.wordTimings.forEach((wt) => {
-            wt.start /= uniformTtsSpeedup;
+     }
+    const plannedSceneDurations = sceneDurationsWithNarration(
+      scenes.map((scene, index) =>
+        Number(scene.duration) || [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5][index] || 2.25
+      ),
+      preparedSceneTts.map((prepared) => prepared?.duration ?? null)
+    );
+    console.info(
+      `[Narration budget] Scene durations: ${plannedSceneDurations.map((duration) => duration.toFixed(2)).join(', ')}s; total=${plannedSceneDurations.reduce((sum, duration) => sum + duration, 0).toFixed(2)}s; narration speed unchanged.`
+    );
+dup;
             wt.end /= uniformTtsSpeedup;
           });
         }
@@ -2430,7 +2410,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
       const speechText = sceneSpeechTexts[index];
 
       // Używaj czasu przypisanego do sceny; osiem scen składa się na dokładnie 18 sekund.
-      let sceneDuration = Number(scene.duration) || [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5][index] || 2.25;
+      let sceneDuration = plannedSceneDurations[index];
       let captionDuration = sceneDuration;
       const ttsAsset = preparedSceneTts[index];
       const sceneWordTimings = ttsAsset?.wordTimings || [];
@@ -2439,7 +2419,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
       const sceneTtsPath = ttsAsset?.path || path.join(jobTempDir, `scene_tts_${sceneNum}.mp3`);
       if (ttsEnabled && speechText.length > 0) {
         if (!hasTtsAudio || !ttsAsset) throw new Error(`Brakuje przygotowanego audio ElevenLabs dla sceny ${sceneNum}.`);
-        // Preflight validation guarantees narration fits this fixed scene budget.
+        // The planned duration includes the full natural narration plus a short audio tail.
         captionDuration = ttsAsset.duration;
       }
 
