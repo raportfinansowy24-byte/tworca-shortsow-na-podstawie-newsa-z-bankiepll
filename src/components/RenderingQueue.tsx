@@ -169,6 +169,27 @@ export const RenderingQueue: React.FC<RenderingQueueProps> = ({
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  const handleCopyLogs = async (job: JobStatusResponse) => {
+    const copyId = `logs-${job.id}`;
+    const logText = [
+      `Job ID: ${job.id}`,
+      `Status: ${job.status}`,
+      `Etap: ${job.step || '—'}`,
+      ...(job.error ? [`Błąd: ${job.error}`] : []),
+      '',
+      ...(job.logs || [])
+    ].join('\n');
+
+    try {
+      await navigator.clipboard.writeText(logText);
+      setCopiedId(copyId);
+      onToast?.('success', 'Logi skopiowane', `Skopiowano ${job.logs?.length || 0} wpisów dla zadania ${job.id}.`);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch (error) {
+      onToast?.('error', 'Nie udało się skopiować logów', (error as Error).message || 'Schowek jest niedostępny w tej przeglądarce.');
+    }
+  };
+
   const handleDownloadVideo = async (filename: string) => {
     try {
       if (onToast) onToast('info', 'Pobieranie wideo', `Pobieranie pliku ${filename}...`);
@@ -604,14 +625,26 @@ export const RenderingQueue: React.FC<RenderingQueueProps> = ({
                   {/* Expandable Logs Section */}
                   {job.logs && job.logs.length > 0 && (
                     <div className="mt-3 border-t border-slate-800/60 pt-2">
-                      <button
-                        onClick={() => toggleLogs(job.id)}
-                        className="text-[11px] text-slate-400 hover:text-slate-200 font-mono flex items-center gap-1 transition"
-                      >
-                        <Terminal className="w-3.5 h-3.5 text-indigo-400" />
-                        <span>Logi konsoli FFmpeg ({job.logs.length})</span>
-                        {isLogsOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                      </button>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <button
+                          onClick={() => toggleLogs(job.id)}
+                          className="text-[11px] text-slate-400 hover:text-slate-200 font-mono flex items-center gap-1 transition"
+                        >
+                          <Terminal className="w-3.5 h-3.5 text-indigo-400" />
+                          <span>Logi konsoli FFmpeg ({job.logs.length})</span>
+                          {isLogsOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleCopyLogs(job)}
+                          className="inline-flex items-center gap-1 rounded-md border border-slate-700 px-2 py-1 text-[11px] font-medium text-slate-300 transition hover:border-indigo-500/60 hover:text-white"
+                          title="Kopiuj wszystkie zapisane logi tego zadania"
+                          aria-label={`Kopiuj logi zadania ${job.id}`}
+                        >
+                          {copiedId === `logs-${job.id}` ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                          {copiedId === `logs-${job.id}` ? 'Skopiowano' : 'Kopiuj logi'}
+                        </button>
+                      </div>
 
                       {isLogsOpen && (
                         <div className="mt-2 p-3 bg-slate-950 border border-slate-800 rounded-xl font-mono text-[11px] text-slate-300 space-y-1 max-h-48 overflow-y-auto select-text">
