@@ -51,6 +51,7 @@ import { buildCreativeDirectorFallback, buildCreativeDirectorPrompt, loadBrandCo
 import { buildFinanceShortPlan, selectHookVariantFromLearningSignals, validateFinanceShortPlan, type FinanceShortPlan } from './src/server/shortPipeline';
 import { buildAudioMixFilter, buildMotionFilter, generateSceneSoundEffect, motionSoundSpecForBeat } from './src/server/motionSoundRenderer';
 import { getLearningSignals, recordHookVariants, recordPipelineEvent, recordPipelineRun, recordRetentionMetric, updatePipelineRunStatus } from './src/server/pipelineTelemetry';
+import { buildShortsEditorQaRevisionInstruction, evaluateRenderedShort, evaluateShortStoryboard } from './src/server/shortsEditorQa';
 
 const execPromise = promisify(exec);
 
@@ -2250,6 +2251,21 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
     }
     const scenes = rawScenes.map((scene, idx) => ({ ...scene, duration: renderSceneDurations[idx] }));
 
+    const renderPreflightQa = evaluateShortStoryboard(scenes, {
+      expectedSceneCount,
+      maxDurationSeconds: MAX_SHORT_DURATION_SECONDS,
+      requireCta: ['scheduler', 'test-render'].includes(payload.source || '')
+    });
+    const existingEditorQa = job.shortMetadata?.editorQa && typeof job.shortMetadata.editorQa === 'object'
+      ? job.shortMetadata.editorQa as Record<string, unknown>
+      : {};
+    updateJobProgress(jobId, {
+      shortMetadata: { ...job.shortMetadata, editorQa: { ...existingEditorQa, renderPreflight: renderPreflightQa } }
+    }, `[Shorts Editor QA] Kontrola przed renderem: ${renderPreflightQa.status} (${renderPreflightQa.score}/100).${renderPreflightQa.findings.length ? ` ${renderPreflightQa.findings.map((finding) => finding.message).join(' ')}` : ''}`);
+    if (renderPreflightQa.status === 'blocked') {
+      throw new Error(`Shorts Editor QA zablokowało render: ${renderPreflightQa.findings.filter((finding) => finding.severity === 'blocker').map((finding) => finding.message).join(' | ')}`);
+    }
+
     const getSceneSpeech = (scene: any): string => String(
       scene.voiceover_text || scene.subtitles || scene.caption || scene.text ||
       scene.tekst_głosowy || scene.voiceover || ''
@@ -2710,8 +2726,41 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
       fs.copyFileSync(mergedVideoPath, finalOutputPath);
     }
 
-    // Measure Output
+    // Measure output and verify the actual MP4 before marking the job completed.
     const stats = fs.statSync(finalOutputPath);
+    const { stdout: ffprobeOutput } = await execPromise(
+      `ffprobe -v error -show_entries stream=codec_type,width,height -show_entries format=duration,size -of json "${finalOutputPath}"`
+    );
+    const ffprobeData = JSON.parse(ffprobeOutput) as {
+      streams?: Array<{ codec_type?: string; width?: number; height?: number }>;
+      format?: { duration?: string; size?: string };
+    };
+    const videoStream = ffprobeData.streams?.find((stream) => stream.codec_type === 'video');
+    const hasAudioStream = Boolean(ffprobeData.streams?.some((stream) => stream.codec_type === 'audio'));
+    const renderedQa = evaluateRenderedShort({
+      hasVideo: Boolean(videoStream),
+      hasAudio: hasAudioStream,
+      width: Number(videoStream?.width),
+      height: Number(videoStream?.height),
+      durationSeconds: Number(ffprobeData.format?.duration),
+      sizeBytes: stats.size,
+      requireAudio: ttsEnabled,
+      maxDurationSeconds: MAX_SHORT_DURATION_SECONDS,
+      expectedDurationSeconds: scenes.length === FINANCE_SHORT_SCENE_COUNT ? 18 : undefined
+    });
+    const jobBeforeQaUpdate = jobsStore.get(jobId);
+    const previousEditorQa = jobBeforeQaUpdate?.shortMetadata?.editorQa && typeof jobBeforeQaUpdate.shortMetadata.editorQa === 'object'
+      ? jobBeforeQaUpdate.shortMetadata.editorQa as Record<string, unknown>
+      : {};
+    updateJobProgress(jobId, {
+      shortMetadata: {
+        ...jobBeforeQaUpdate?.shortMetadata,
+        editorQa: { ...previousEditorQa, postRender: renderedQa }
+      }
+    }, `[Shorts Editor QA] Kontrola gotowego MP4: ${renderedQa.status} (${renderedQa.score}/100).${renderedQa.findings.length ? ` ${renderedQa.findings.map((finding) => finding.message).join(' ')}` : ''}`);
+    if (renderedQa.status === 'blocked') {
+      throw new Error(`Shorts Editor QA odrzuciło gotowy MP4: ${renderedQa.findings.filter((finding) => finding.severity === 'blocker').map((finding) => finding.message).join(' | ')}`);
+    }
     const outputUrl = `${baseUrl}/exports/${outputFilename}`;
 
     // Extract crisp thumbnail frame with FFmpeg
@@ -4267,6 +4316,13 @@ REŻYSERIA I LIMIT NARRACJI:
 - Każda scena ma osobny, unikalny, konkretny prompt Pexels po angielsku, bezpośrednio związany z wypowiedzią.
 - Napisy i lektor w każdej scenie muszą być identyczne.
 - Nie uruchamiaj publikacji, harmonogramu ani webhooków; zwróć dane do istniejącego pipeline'u.
+
+SHORTS EDITOR QA:
+- Hook i obraz zaczynają się od pierwszego ujęcia; nie dodawaj powitania, intro ani pustej planszy.
+- Każda scena wnosi nowy szczegół. Nie powtarzaj zdania lektora ani tego samego zapytania wizualnego.
+- Pokaż konkretny podmiot działania zgodny z wypowiadaną kwestią; nie używaj generycznego stocku jako wypełniacza.
+- Wypowiedź, napis i zapytanie wizualne muszą opisywać tę samą myśl; ostatnia scena zachowuje zatwierdzone CTA.
+- Przygotuj plan tak, aby dało się go zmontować w jeden krótki film bez zmiany prędkości głosu pomiędzy scenami.
 
 BAZOWE CZASY SCEN: 2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5 sekundy.
 `;
@@ -7027,14 +7083,48 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
     const articleContext = `Tytuł artykułu z Bankier.pl: "${candidate.title}"\nPodsumowanie i treść: ${candidate.description}\nKategoria: ${candidate.category}`;
 
     // 3. Autonomiczna synteza viralowa przez router OpenAI-first/Gemini-fallback
-    const scriptData = await generateSmartOrGeminiViralScript({
+    const scriptRequest = {
       topic: candidate.title,
       niche: schedulerState.niche || 'Finanse & Biznes',
       language: 'Polski',
       sceneCount: 8,
       articleContext,
       bankierArticle: candidate
-    });
+    };
+    let scriptData = await generateSmartOrGeminiViralScript(scriptRequest);
+    const qaOptions = {
+      expectedSceneCount: FINANCE_SHORT_SCENE_COUNT,
+      expectedDurationSeconds: 18,
+      maxDurationSeconds: MAX_SHORT_DURATION_SECONDS,
+      requireCta: true,
+      requireVisualQueries: true,
+      requireUniquePexelsIds: true,
+      requireCaptionAlignment: true,
+      maxWordsPerScene: (index: number) => index < 4 ? 3 : 4
+    };
+    let editorQa = evaluateShortStoryboard(scriptData.scenes, qaOptions);
+    let qaRepairAttempted = false;
+    if (editorQa.status !== 'pass') {
+      qaRepairAttempted = true;
+      try {
+        const repairedScript = await generateSmartOrGeminiViralScript({
+          ...scriptRequest,
+          revisionInstruction: buildShortsEditorQaRevisionInstruction(editorQa)
+        });
+        const repairedQa = evaluateShortStoryboard(repairedScript.scenes, qaOptions);
+        scriptData = repairedScript;
+        editorQa = repairedQa;
+      } catch (repairError) {
+        if (editorQa.status === 'blocked') {
+          throw new Error(`Shorts Editor QA zablokowało plan, a jedyna poprawka nie powiodła się: ${(repairError as Error).message}`);
+        }
+        console.warn(`[Shorts Editor QA] Poprawka planu nie powiodła się; zachowuję plan bez blockerów do ręcznej kontroli: ${(repairError as Error).message}`);
+      }
+    }
+    if (editorQa.status === 'blocked') {
+      const blockers = editorQa.findings.filter((finding) => finding.severity === 'blocker').map((finding) => finding.message);
+      throw new Error(`Shorts Editor QA zablokowało utworzenie render-jobu: ${blockers.join(' | ')}`);
+    }
 
     // 4. Konfiguracja renderera FFmpeg z autonomicznymi decyzjami SI
     const jobId = `job_auto_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -7100,11 +7190,15 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
         selectionSource: selection.selectionSource,
         runMode: isOneOffTest ? 'one-off-test' : 'scheduled',
         aiDecisions,
+        editorQa: { preflight: editorQa, repairAttempted: qaRepairAttempted },
         offerMatch: scriptData.offerMatch
       },
       revisionNumber: 0,
       exportStatus: 'not_started',
-      logs: [`[${new Date().toLocaleTimeString()}] ${isOneOffTest ? 'Uruchomiono jeden testowy render' : 'Uruchomiono autonomiczny cykl 4x/dobę'} dla newsa Bankier.pl (${candidate.title}) [Virality: ${viralityScore.totalScore}/100, Źródło: ${selection.selectionSource}]`],
+      logs: [
+        `[${new Date().toLocaleTimeString()}] ${isOneOffTest ? 'Uruchomiono jeden testowy render' : 'Uruchomiono autonomiczny cykl 4x/dobę'} dla newsa Bankier.pl (${candidate.title}) [Virality: ${viralityScore.totalScore}/100, Źródło: ${selection.selectionSource}]`,
+        `[Shorts Editor QA] Preflight ${editorQa.status} (${editorQa.score}/100); jednokrotna poprawka: ${qaRepairAttempted ? 'wykonana' : 'niepotrzebna'}.`
+      ],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };

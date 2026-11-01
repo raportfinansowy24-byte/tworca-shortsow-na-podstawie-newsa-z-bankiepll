@@ -21,6 +21,7 @@
     "test:scene-contract": "tsx tests/sceneContract.test.ts",
     "test:creative-director": "tsx tests/creativeDirector.test.ts",
     "test:short-pipeline": "tsx tests/shortPipeline.test.ts",
+    "test:shorts-editor-qa": "tsx tests/shortsEditorQa.test.ts",
     "test:motion-sound": "tsx tests/motionSoundRenderer.test.ts",
     "deploy:production": "bash scripts/deploy-production.sh"
   },

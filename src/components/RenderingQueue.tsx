@@ -440,6 +440,12 @@ export const RenderingQueue: React.FC<RenderingQueueProps> = ({
               const isCompleted = job.status === 'completed';
               const isFailed = job.status === 'failed';
               const isLogsOpen = Boolean(expandedLogs[job.id]);
+              const editorQa = (job.shortMetadata?.editorQa || {}) as Record<string, unknown>;
+              const qaReport = (editorQa.postRender || editorQa.renderPreflight || editorQa.preflight) as {
+                status?: string;
+                score?: number;
+                findings?: Array<{ message?: string; severity?: string }>;
+              } | undefined;
 
               return (
                 <motion.div
@@ -555,6 +561,29 @@ export const RenderingQueue: React.FC<RenderingQueueProps> = ({
                       />
                     </div>
                   </div>
+
+                  {qaReport && (
+                    <div className={`mb-4 rounded-xl border p-3 text-xs ${
+                      qaReport.status === 'blocked'
+                        ? 'border-rose-700/60 bg-rose-950/30 text-rose-200'
+                        : qaReport.status === 'review'
+                        ? 'border-amber-700/60 bg-amber-950/20 text-amber-200'
+                        : 'border-emerald-700/50 bg-emerald-950/20 text-emerald-200'
+                    }`}>
+                      <div className="flex flex-wrap items-center justify-between gap-2 font-semibold">
+                        <span className="flex items-center gap-1.5"><Sparkles className="h-3.5 w-3.5" /> Shorts Editor QA</span>
+                        <span>{qaReport.status === 'blocked' ? 'ZABLOKOWANO' : qaReport.status === 'review' ? 'DO SPRAWDZENIA' : 'OK'} · {qaReport.score ?? '—'}/100</span>
+                      </div>
+                      {qaReport.findings && qaReport.findings.length > 0 && (
+                        <ul className="mt-2 space-y-1 text-[11px] opacity-90">
+                          {qaReport.findings.slice(0, 3).map((finding, index) => (
+                            <li key={`${job.id}-qa-${index}`}>• {finding.message}</li>
+                          ))}
+                          {qaReport.findings.length > 3 && <li>+ {qaReport.findings.length - 3} dalsze uwagi w logach joba</li>}
+                        </ul>
+                      )}
+                    </div>
+                  )}
 
                   {/* Live Render Metrics Grid (Frames, FPS, Time, Speed) */}
                   {isProcessing && (
