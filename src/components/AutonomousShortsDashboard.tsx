@@ -7,6 +7,8 @@ interface AutonomousShortsDashboardProps {
   loading: boolean;
   error?: string | null;
   onToggle: () => void;
+  onRunOnce: () => void;
+  runOnceLoading: boolean;
 }
 
 function formatDate(value?: string | null): string {
@@ -31,8 +33,9 @@ function statusLabel(status?: string): string {
   }
 }
 
-export const AutonomousShortsDashboard: React.FC<AutonomousShortsDashboardProps> = ({ state, loading, error, onToggle }) => {
+export const AutonomousShortsDashboard: React.FC<AutonomousShortsDashboardProps> = ({ state, loading, error, onToggle, onRunOnce, runOnceLoading }) => {
   const enabled = Boolean(state?.enabled);
+  const runOnceDisabled = !state || runOnceLoading || state.lastRunStatus === 'running';
   const history = state?.history || [];
   const slots = state?.dailySlots?.length ? state.dailySlots : ['06:00', '11:00', '16:00', '21:00'];
 
@@ -49,20 +52,32 @@ export const AutonomousShortsDashboard: React.FC<AutonomousShortsDashboardProps>
               System sam wybiera kwalifikujący się news z Bankier.pl, tworzy polski scenariusz, dobiera materiały i renderuje pionowy short. Nie musisz wskazywać tematu, hooka, storyboardu, głosu ani ujęć.
             </p>
           </div>
-          {state && (
+          <div className="flex shrink-0 flex-col gap-2">
             <button
               type="button"
-              onClick={onToggle}
-              disabled={loading}
-              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-600 bg-slate-950/70 px-4 py-2.5 text-sm font-semibold text-slate-100 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
-              role="switch"
-              aria-checked={enabled}
-              aria-label="Harmonogram czterech shortów dziennie"
+              onClick={onRunOnce}
+              disabled={runOnceDisabled}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-500/50 bg-emerald-700/80 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {loading ? <RefreshCw className="h-4 w-4 animate-spin" /> : enabled ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-              {enabled ? 'Wyłącz automat' : 'Włącz 4× dziennie'}
+              {runOnceLoading || state?.lastRunStatus === 'running' ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Film className="h-4 w-4" />}
+              {runOnceLoading ? 'Uruchamiam render…' : state?.lastRunStatus === 'running' ? 'Render w toku…' : 'Renderuj jeden testowy short'}
             </button>
-          )}
+            {state && (
+              <button
+                type="button"
+                onClick={onToggle}
+                disabled={loading}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-600 bg-slate-950/70 px-4 py-2.5 text-sm font-semibold text-slate-100 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
+                role="switch"
+                aria-checked={enabled}
+                aria-label="Harmonogram czterech shortów dziennie"
+              >
+                {loading ? <RefreshCw className="h-4 w-4 animate-spin" /> : enabled ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                {enabled ? 'Wyłącz automat' : 'Włącz 4× dziennie'}
+              </button>
+            )}
+            <p className="max-w-xs text-center text-xs text-slate-400">Jeden short z automatycznie dobranego newsu. Nie włącza harmonogramu ani publikacji.</p>
+          </div>
         </div>
       </section>
 

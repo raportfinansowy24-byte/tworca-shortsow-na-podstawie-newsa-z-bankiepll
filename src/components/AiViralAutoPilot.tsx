@@ -11,6 +11,7 @@ interface AiViralAutoPilotProps {
 export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onJobStarted, onToast }) => {
   const [schedulerState, setSchedulerState] = useState<AutopilotSchedulerState | null>(null);
   const [loading, setLoading] = useState(false);
+  const [runOnceLoading, setRunOnceLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const lastNotifiedJobId = useRef<string | null>(null);
   const hasLoadedInitialState = useRef(false);
@@ -71,12 +72,41 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onJobStarted
     }
   };
 
+  const handleRunOnce = async () => {
+    if (!schedulerState || runOnceLoading || schedulerState.lastRunStatus === 'running') return;
+    setRunOnceLoading(true);
+    try {
+      const response = await fetch('/api/autopilot/scheduler/run-now', { method: 'POST' });
+      const data = await response.json();
+      if (!response.ok || data.success !== true) {
+        throw new Error(data.error || data.message || 'Nie udało się uruchomić testowego renderu.');
+      }
+      if (typeof data.jobId === 'string') {
+        onJobStarted(data.jobId);
+        setSchedulerState((current) => current ? {
+          ...current,
+          lastRunStatus: 'running',
+          lastRunJobId: data.jobId,
+          lastRunTime: new Date().toISOString()
+        } : current);
+      }
+      onToast?.('success', 'Jeden testowy render uruchomiony', 'Powstanie jeden short. Harmonogram nie został włączony, a film nie zostanie automatycznie opublikowany.');
+      await refreshSchedulerState();
+    } catch (error) {
+      onToast?.('error', 'Nie udało się uruchomić testowego renderu', (error as Error).message);
+    } finally {
+      setRunOnceLoading(false);
+    }
+  };
+
   return (
     <AutonomousShortsDashboard
       state={schedulerState}
       loading={loading}
+      runOnceLoading={runOnceLoading}
       error={loadError}
       onToggle={() => void handleToggle()}
+      onRunOnce={() => void handleRunOnce()}
     />
   );
 };

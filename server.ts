@@ -6996,6 +6996,7 @@ function getNextScheduledRun(dailySlots: string[]) {
 }
 
 async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: string) {
+  const isOneOffTest = slotTrigger === 'test-render';
   if (schedulerState.lastRunStatus === 'running') {
     console.log('[Autopilot 4x/dobę] Cykl w toku — pomijam nakładające się wywołanie.');
     return { success: false, message: 'Cykl renderowania jest już w trakcie przetwarzania.' };
@@ -7048,7 +7049,7 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
     const payload: CombineScenesPayload = {
       scenes: scriptData.scenes,
       expectedSceneCount: FINANCE_SHORT_SCENE_COUNT,
-      source: 'scheduler',
+      source: isOneOffTest ? 'test-render' : 'scheduler',
       requestId: jobId,
       backgroundMusicUrl: 'https://assets.mixkit.co/music/preview/mixkit-tech-house-vibes-130.mp3',
       audioVolume: 0.2,
@@ -7063,17 +7064,17 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
       lockSceneDurations: true,
       captionAnimation: 'single-word',
       highlightColor: 'red',
-      telegramApproval: true
+      telegramApproval: !isOneOffTest
     };
 
     const newJob: Job = {
       id: jobId,
       status: 'queued',
       progress: 0,
-      step: `Autonomiczny Start 4x/dobę: "${candidate.title.slice(0, 60)}..."`,
-      source: 'scheduler',
-      telegramApprovalRequested: true,
-      telegramApprovalStatus: 'waiting_for_render',
+      step: `${isOneOffTest ? 'Testowy render jednego shorta' : 'Autonomiczny Start 4x/dobę'}: "${candidate.title.slice(0, 60)}..."`,
+      source: isOneOffTest ? 'test-render' : 'scheduler',
+      telegramApprovalRequested: !isOneOffTest,
+      telegramApprovalStatus: isOneOffTest ? undefined : 'waiting_for_render',
       approvalTitle: candidate.title,
       approvalSourceUrl: candidate.link,
       title: candidate.title,
@@ -7097,12 +7098,13 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
         schedulerSlot: slotTrigger,
         viralityScore,
         selectionSource: selection.selectionSource,
+        runMode: isOneOffTest ? 'one-off-test' : 'scheduled',
         aiDecisions,
         offerMatch: scriptData.offerMatch
       },
       revisionNumber: 0,
       exportStatus: 'not_started',
-      logs: [`[${new Date().toLocaleTimeString()}] Uruchomiono autonomiczny cykl 4x/dobę dla newsa Bankier.pl (${candidate.title}) [Virality: ${viralityScore.totalScore}/100, Źródło: ${selection.selectionSource}]`],
+      logs: [`[${new Date().toLocaleTimeString()}] ${isOneOffTest ? 'Uruchomiono jeden testowy render' : 'Uruchomiono autonomiczny cykl 4x/dobę'} dla newsa Bankier.pl (${candidate.title}) [Virality: ${viralityScore.totalScore}/100, Źródło: ${selection.selectionSource}]`],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -7167,7 +7169,9 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
 
     return {
       success: true,
-      message: `Autonomiczny start 4x/dobę uruchomiony dla artykułu: "${candidate.title}"`,
+      message: isOneOffTest
+        ? `Jeden testowy render uruchomiony dla artykułu: "${candidate.title}"`
+        : `Autonomiczny start 4x/dobę uruchomiony dla artykułu: "${candidate.title}"`,
       jobId,
       article: candidate,
       script: scriptData
@@ -7310,7 +7314,7 @@ router.post('/autopilot/select-viral-news', async (req, res) => {
 
 router.post('/autopilot/scheduler/run-now', async (req, res) => {
   const baseUrl = getPublicBaseUrl(req);
-  const result = await executeAutonomousRun('manual', baseUrl);
+  const result = await executeAutonomousRun('test-render', baseUrl);
   if (!result.success) {
     return res.status(400).json(result);
   }
