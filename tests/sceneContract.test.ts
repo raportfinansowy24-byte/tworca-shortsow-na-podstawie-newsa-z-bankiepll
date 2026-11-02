@@ -39,6 +39,18 @@ assert.throws(
   () => sceneDurationsWithNarration(sceneDurationsForCount(8), Array(8).fill(5.9)),
   /Maksymalny czas Shorta to 23 s/
 );
+const repairBaseDurations = sceneDurationsForCount(8);
+const repairDurationsFromFreshTts = sceneDurationsWithNarration(
+  repairBaseDurations,
+  [2.8, 2.1, null, null, null, null, null, null],
+  MAX_SHORT_DURATION_SECONDS
+);
+assert.ok(Math.abs(repairDurationsFromFreshTts[0] - 2.92) < 0.001, 'naprawa przedłuża scenę, gdy nowy TTS jest dłuższy niż zapisany budżet');
+assert.ok(repairDurationsFromFreshTts.reduce((sum, duration) => sum + duration, 0) <= MAX_SHORT_DURATION_SECONDS);
+assert.throws(
+  () => sceneDurationsWithNarration(repairBaseDurations, Array(8).fill(5.9), MAX_SHORT_DURATION_SECONDS),
+  /Maksymalny czas Shorta to 23 s/
+);
 
 assert.deepEqual(sceneDurationsForCount(4), [4.5, 4.5, 4.5, 4.5]);
 assert.throws(() => sceneDurationsForCount(0), /Liczba scen musi być/);

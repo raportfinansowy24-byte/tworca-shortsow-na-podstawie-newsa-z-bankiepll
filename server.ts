@@ -2414,14 +2414,18 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
       }
     }
 
-    const plannedSceneDurations = payload.qaRepairAttempt === 1 && payload.qaRepairSceneDurations?.length === scenes.length
+    const baseSceneDurations = payload.qaRepairAttempt === 1 && payload.qaRepairSceneDurations?.length === scenes.length
       ? payload.qaRepairSceneDurations.slice()
-      : sceneDurationsWithNarration(
-        scenes.map((scene, index) =>
-          Number(scene.duration) || [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5][index] || 2.25
-        ),
-        preparedSceneTts.map((prepared) => prepared?.duration ?? null)
+      : scenes.map((scene, index) =>
+        Number(scene.duration) || [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5][index] || 2.25
       );
+    // Repair generates fresh TTS; extend each saved scene budget when the new audio is longer.
+    // Fail before encoding if the updated narration no longer fits the 23-second short limit.
+    const plannedSceneDurations = sceneDurationsWithNarration(
+      baseSceneDurations,
+      preparedSceneTts.map((prepared) => prepared?.duration ?? null),
+      MAX_SHORT_DURATION_SECONDS
+    );
     if (plannedSceneDurations.some((duration) => !Number.isFinite(duration) || duration <= 0) ||
         plannedSceneDurations.reduce((sum, duration) => sum + duration, 0) > MAX_SHORT_DURATION_SECONDS + 0.001) {
       throw new Error('Nieprawidłowy, zapisany budżet czasu naprawczego renderu.');
