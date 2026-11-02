@@ -53,6 +53,7 @@ import { buildAudioMixFilter, buildMotionFilter, generateSceneSoundEffect, motio
 import { getLearningSignals, recordHookVariants, recordPipelineEvent, recordPipelineRun, recordRetentionMetric, updatePipelineRunStatus } from './src/server/pipelineTelemetry';
 import { buildShortsEditorQaRevisionInstruction, evaluateRenderedShort, evaluateShortStoryboard } from './src/server/shortsEditorQa';
 import { buildVisualAnalysisUnavailableReport, buildVisualSemanticReport, parseVisualSemanticResponse, type VisualSemanticReport, type VisualSemanticSample } from './src/server/shortsVisualSemanticQa';
+import { applyQaRepairAssets, buildQaRepairFailureReport, executeQaRepairOnce, selectQaRepairCandidates } from './src/server/qaRepair';
 
 const execPromise = promisify(exec);
 
@@ -1739,6 +1740,12 @@ interface CombineScenesPayload {
   highlightColor?: 'yellow' | 'green' | 'lime' | 'cyan' | 'red' | 'white';
   telegramApproval?: boolean;
   allowLocalFallback?: boolean;
+  qaRepairAttempt?: number;
+  qaRepairSceneIndexes?: number[];
+  qaRepairArticle?: CreativeDirectorArticle;
+  qaRepairLog?: ReturnType<typeof selectQaRepairCandidates>;
+  qaRepairDeadline?: number;
+  qaRepairSceneDurations?: number[];
 }
 
 // Normalize language codes for narration metadata and text generation.
@@ -2245,12 +2252,14 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
   const jobTempDir = path.join(TEMP_DIR, jobId);
   fs.mkdirSync(jobTempDir, { recursive: true });
 
+  const renderDeadline = payload.qaRepairDeadline || Date.now() + 180000;
+  const remainingRenderBudget = Math.max(1, renderDeadline - Date.now());
   // Utwórz kontroler anulowania i globalny watchdog (180s max na całe wideo)
   const abortController = new AbortController();
   const totalJobTimeout = setTimeout(() => {
     console.warn(`[Job Watchdog] Zadanie ${jobId} przekroczyło całkowity limit czasu 180s. Wymuszanie zatrzymania...`);
     cancelAndTerminateJob(jobId, 'Przekroczono maksymalny czas renderowania (180s) - proces bezpiecznie przerwany.');
-  }, 180000);
+  }, remainingRenderBudget);
 
   activeJobExecutions.set(jobId, {
     jobId,
@@ -2405,12 +2414,18 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
       }
     }
 
-    const plannedSceneDurations = sceneDurationsWithNarration(
-      scenes.map((scene, index) =>
-        Number(scene.duration) || [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5][index] || 2.25
-      ),
-      preparedSceneTts.map((prepared) => prepared?.duration ?? null)
-    );
+    const plannedSceneDurations = payload.qaRepairAttempt === 1 && payload.qaRepairSceneDurations?.length === scenes.length
+      ? payload.qaRepairSceneDurations.slice()
+      : sceneDurationsWithNarration(
+        scenes.map((scene, index) =>
+          Number(scene.duration) || [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5][index] || 2.25
+        ),
+        preparedSceneTts.map((prepared) => prepared?.duration ?? null)
+      );
+    if (plannedSceneDurations.some((duration) => !Number.isFinite(duration) || duration <= 0) ||
+        plannedSceneDurations.reduce((sum, duration) => sum + duration, 0) > MAX_SHORT_DURATION_SECONDS + 0.001) {
+      throw new Error('Nieprawidłowy, zapisany budżet czasu naprawczego renderu.');
+    }
     console.info(
       `[Narration budget] Scene durations: ${plannedSceneDurations.map((duration) => duration.toFixed(2)).join(', ')}s; total=${plannedSceneDurations.reduce((sum, duration) => sum + duration, 0).toFixed(2)}s; narration speed unchanged.`
     );
@@ -2449,7 +2464,14 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
         await fs.promises.writeFile(downloadedAssetPath, visualSvg, 'utf8');
         updateJobProgress(jobId, {}, `Wygenerowano deterministyczną wizualizację danych dla sceny ${sceneNum}`);
       } else {
-        console.log(`Downloading scene ${sceneNum}: ${rawAssetUrl}`);
+        const qaRepairSceneIndexes = payload.qaRepairSceneIndexes || [];
+        const isRepairPass = payload.qaRepairAttempt === 1;
+        const isSceneBeingReplaced = qaRepairSceneIndexes.includes(index);
+        if (isRepairPass && !isSceneBeingReplaced && fs.existsSync(downloadedAssetPath) && fs.statSync(downloadedAssetPath).size > 0) {
+          console.info(`[Shorts Editor QA repair] Reusing cached accepted asset for scene ${sceneNum}; no stock re-download.`);
+        } else {
+          if (isRepairPass && isSceneBeingReplaced && fs.existsSync(downloadedAssetPath)) fs.unlinkSync(downloadedAssetPath);
+          console.log(`Downloading scene ${sceneNum}: ${rawAssetUrl}`);
         try {
           await downloadFile(rawAssetUrl, downloadedAssetPath, jobId, abortController.signal, payload.allowLocalFallback === true);
         } catch (downloadError) {
@@ -2490,6 +2512,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
           if (!downloaded) {
             throw new Error(`Nie udało się pobrać klipu Pexels ${pexelsId} po odświeżeniu linków: ${retryErrors.join(' | ').slice(0, 1200)}`);
           }
+        }
         }
       }
       updateJobProgress(jobId, {}, `Zapisano plik źródłowy: raw_scene_${sceneNum}.${isImage ? 'jpg' : 'mp4'}`);
@@ -2831,6 +2854,68 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
       }
     }, `[Shorts Editor QA] MP4 ${renderedQa.status}; analiza obrazu ${visualSemanticQa.status} (${visualSemanticQa.analyzedScenes}/${scenes.length} scen); wynik łączny ${combinedQa.status} (${combinedQa.score}/100).${combinedQa.findings.length ? ` ${combinedQa.findings.map((finding) => finding.message).join(' ')}` : ''}`);
     if (combinedQa.status === 'blocked') {
+      if (payload.qaRepairAttempt === 1) {
+        const failureReport = buildQaRepairFailureReport(scenes as any, payload.qaRepairLog || [], combinedQa as any);
+        throw new Error(failureReport);
+      }
+      if (payload.qaRepairAttempt !== 1 && renderedQa.status !== 'blocked' && visualSemanticQa.status === 'blocked' && payload.qaRepairArticle) {
+        const repairCandidates = selectQaRepairCandidates(scenes as any, combinedQa as any, payload.qaRepairArticle);
+        if (repairCandidates.length > 0) {
+          type Replacement = { sceneIndex: number; visualQuery: string; videoUrl: string; thumbnailUrl?: string; pexelsId: number; searchKeyword?: string; photographer?: string; photographerUrl?: string };
+          const execution = await executeQaRepairOnce(payload.qaRepairAttempt || 0, repairCandidates, async (candidates): Promise<Replacement[]> => {
+            const replacements: Replacement[] = [];
+            for (const candidate of candidates) {
+              const usedIds = scenes.map((scene: any) => Number(scene.pexelsId)).filter((id: number) => Number.isSafeInteger(id) && id > 0);
+              const originalScene = scenes[candidate.sceneIndex] as any;
+              const resolved = await resolveStockOrPexelsVideoDetailed(candidate.repairQuery, candidate.sceneIndex, usedIds, {
+                context: `${payload.qaRepairArticle.title}\n${payload.qaRepairArticle.description || payload.qaRepairArticle.summary || ''}\n${candidate.narration}`,
+                requirePexels: true,
+                targetDurationSeconds: plannedSceneDurations[candidate.sceneIndex]
+              });
+              if (!resolved.pexelsId || usedIds.includes(resolved.pexelsId) || resolved.pexelsId === originalScene.pexelsId) {
+                throw new Error(`Pexels nie zwrócił nowego, unikalnego klipu dla sceny ${candidate.sceneIndex + 1}.`);
+              }
+              replacements.push({
+                sceneIndex: candidate.sceneIndex,
+                visualQuery: candidate.repairQuery,
+                videoUrl: resolved.videoUrl,
+                thumbnailUrl: resolved.thumbnailUrl,
+                pexelsId: resolved.pexelsId,
+                searchKeyword: resolved.searchKeyword,
+                photographer: resolved.photographer,
+                photographerUrl: resolved.photographerUrl
+              });
+              console.info(`[Shorts Editor QA repair] Replaced only blocked scene ${candidate.sceneIndex + 1}: "${candidate.originalQuery}" -> "${candidate.repairQuery}"; narration preserved.`);
+            }
+            return replacements;
+          }, async (replacements) => {
+            const repairedScenes = applyQaRepairAssets(scenes as any, replacements);
+            const repairPayload: CombineScenesPayload = {
+              ...payload,
+              scenes: repairedScenes as unknown as SceneInput[],
+              qaRepairAttempt: 1,
+              qaRepairSceneIndexes: replacements.map((replacement) => replacement.sceneIndex),
+              qaRepairLog: repairCandidates,
+              qaRepairDeadline: renderDeadline,
+              qaRepairSceneDurations: plannedSceneDurations
+            };
+            const repairSummary = repairCandidates.map((candidate) => `Scena ${candidate.sceneIndex + 1}: narracja="${candidate.narration}"; query="${candidate.originalQuery}" -> "${candidate.repairQuery}"; powód="${candidate.reason}".`).join('\n');
+            updateJobProgress(jobId, { shortMetadata: { ...jobBeforeQaUpdate?.shortMetadata, editorQa: { ...previousEditorQa, postRender: combinedQa, repair: { attempt: 1, status: 'rerendering', scenes: repairCandidates } } } }, `[Shorts Editor QA repair] Uruchamiam jedyną próbę naprawy dla scen ${repairCandidates.map((candidate) => candidate.sceneIndex + 1).join(', ')}. Narracja bez zmian.\n${repairSummary}`);
+            clearTimeout(totalJobTimeout);
+            await processCombineScenesJob(jobId, repairPayload, baseUrl);
+          });
+          if (execution.status === 'stock_search_failed') {
+            const failure = execution.error || 'nieznany błąd Pexels';
+            const report = repairCandidates.map((candidate) => `Scena ${candidate.sceneIndex + 1}: narracja="${candidate.narration}"; pierwotne zapytanie="${candidate.originalQuery}"; powód odrzucenia="${candidate.reason}"; zapytanie naprawcze="${candidate.repairQuery}"; ponowne QA=nieuruchomione — wyszukiwanie Pexels nie powiodło się: ${failure}.`).join('\n');
+            updateJobProgress(jobId, { shortMetadata: { ...jobBeforeQaUpdate?.shortMetadata, editorQa: { ...previousEditorQa, postRender: combinedQa, repair: { attempt: 1, status: 'stock_search_failed', report } } } }, `[Shorts Editor QA repair] Nie udało się pobrać nowego klipu. Nie uruchamiam kolejnego renderu. ${report}`);
+            throw new Error(`Shorts Editor QA zablokowało render; naprawa materiału nie powiodła się.\n${report}`);
+          }
+          if (execution.status === 'render_failed') {
+            throw new Error(`Shorts Editor QA: jedyny rerender naprawczy nie powiódł się: ${execution.error || 'nieznany błąd'}`);
+          }
+          return;
+        }
+      }
       throw new Error(`Shorts Editor QA odrzuciło gotowy MP4: ${combinedQa.findings.filter((finding) => finding.severity === 'blocker').map((finding) => finding.message).join(' | ')}`);
     }
     const outputUrl = `${baseUrl}/exports/${outputFilename}`;
@@ -5239,7 +5324,11 @@ router.post('/auto-pilot-shorts', async (req, res) => {
       captionAnimation: effectiveAnimation,
       highlightColor: effectiveHighlight,
       telegramApproval: true,
-      allowLocalFallback: false
+      allowLocalFallback: false,
+      qaRepairAttempt: 0,
+      qaRepairArticle: body.bankierArticle && typeof body.bankierArticle === 'object'
+        ? body.bankierArticle as CreativeDirectorArticle
+        : useCreativeDirectorPlan ? { title: String(topic || ''), description: String(body.articleContext || '') } : undefined
     };
 
     const jobId = `job_autopilot_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;

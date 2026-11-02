@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { buildCreativeDirectorFallback, buildCreativeDirectorPrompt, loadBrandContext, mapCreativeDirectorPlanToRenderScenes, parseCreativeDirectorPlan } from '../src/server/creativeDirector';
+import { buildArticleVisualQuery, buildCreativeDirectorFallback, buildCreativeDirectorPrompt, loadBrandContext, mapCreativeDirectorPlanToRenderScenes, parseCreativeDirectorPlan } from '../src/server/creativeDirector';
 
 const brand = loadBrandContext(process.cwd());
 assert.deepEqual(brand.filesUsed.sort(), ['ICP.md', 'brand-identity.md', 'messaging.md'].sort());
@@ -20,6 +20,9 @@ assert.equal(fallback.voice, 'pl-PL-MarekNeural');
 assert.equal(fallback.brandFilesUsed.length, 3);
 assert.equal(fallback.sourceTitle, article.title);
 assert.equal(fallback.ctaDestination, '/loan');
+assert.match(fallback.scenes[0].visualQuery, /National Bank of Poland/i);
+assert.doesNotMatch(fallback.scenes[0].visualQuery, /crypto|cryptocurrency/i);
+assert.notEqual(buildArticleVisualQuery(article, 'RPP pozostaje w centrum sporu.', 0), 'financial market chart dynamic');
 
 const renderScenes = mapCreativeDirectorPlanToRenderScenes(fallback, 'Policz ratę kredytu.', 'SPRAWDŹ WPŁYW NA RATĘ\nRAPORT-FINANSOWY24.PL');
 assert.equal(renderScenes.length, 8);
@@ -48,4 +51,11 @@ assert.equal(parsed.title, 'Test planu');
 assert.equal(parsed.scenes[0].visualQuery, 'financial chart');
 assert.equal(parsed.modelUsed, 'test-model');
 assert.equal(parsed.sourceTitle, undefined);
+const missingQueryPlan = parseCreativeDirectorPlan(JSON.stringify({
+  title: 'Plan', hook: 'Hook', scenes: [{ purpose: 'hook', voiceover: 'Hook', caption: 'HOOK' }]
+}), { article });
+assert.equal(missingQueryPlan.scenes[0].visualQuery, '');
+assert.throws(() => mapCreativeDirectorPlanToRenderScenes({ ...missingQueryPlan, scenes: Array.from({ length: 8 }, (_, index) => ({
+  ...missingQueryPlan.scenes[0], start: index * 2.25, end: (index + 1) * 2.25, visualQuery: ''
+})) }), /zapytania wizualnego/);
 console.log('Creative Director tests passed');

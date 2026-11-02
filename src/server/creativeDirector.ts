@@ -56,6 +56,28 @@ export interface CreativeDirectorRenderScene {
   motionSound: MotionSoundSpec;
 }
 
+/** Build an observable, article-grounded stock query; return empty when no reliable visual anchor exists. */
+export function buildArticleVisualQuery(article: CreativeDirectorArticle, narration: string, sceneIndex: number): string {
+  const source = `${article.title} ${article.description || ''} ${article.summary || ''} ${article.keyTakeaway || ''} ${narration}`;
+  const lower = source.toLocaleLowerCase('pl-PL');
+  const anchor = /\b(nbp|narodowy bank polski|rpp|rada polityki pieniężnej)\b/i.test(source)
+    ? 'National Bank of Poland headquarters Warsaw exterior central bank building'
+    : /\b(ebc|europejski bank centralny|ecb)\b/i.test(source)
+      ? 'European Central Bank headquarters Frankfurt exterior'
+      : /\b(sejm|senat|rząd|ministerstwo|minister)\b/i.test(source)
+        ? 'Polish parliament government building Warsaw exterior'
+        : /\b(inflacj|cen|drożyzn|koszt życia)\w*/i.test(lower)
+          ? 'Polish supermarket grocery prices shopper comparing products'
+          : /\b(kredyt|rat|hipotek)\w*/i.test(lower)
+            ? 'person reviewing mortgage paperwork at home calculator documents'
+            : /\b(akcj|giełd|wig\d*|spółk|notowani)\w*/i.test(lower)
+              ? 'Warsaw Stock Exchange trading floor stock market screens'
+              : '';
+  if (!anchor) return '';
+  const actions = ['documentary news footage', 'exterior establishing shot documentary footage', 'people walking outside documentary news footage', 'close view of official building documentary footage', 'street-level establishing shot documentary footage', 'official entrance documentary footage', 'wide city shot documentary footage', 'daylight exterior documentary footage'];
+  return `${anchor}, ${actions[Math.max(0, Math.min(actions.length - 1, sceneIndex))]}`.slice(0, 220);
+}
+
 const BRAND_FILES = ['brand-identity.md', 'ICP.md', 'messaging.md'] as const;
 
 export function loadBrandContext(rootDir = process.cwd()): { context: string; filesUsed: string[] } {
@@ -184,7 +206,7 @@ export function parseCreativeDirectorPlan(text: string, params: { platform?: str
       purpose: String(scene.purpose || `beat-${index + 1}`),
       voiceover: String(scene.voiceover || scene.voiceover_text || '').slice(0, 700),
       caption: String(scene.caption || '').slice(0, 180),
-      visualQuery: String(scene.visualQuery || 'dynamic financial market data').slice(0, 220),
+      visualQuery: typeof scene.visualQuery === 'string' ? scene.visualQuery.trim().slice(0, 220) : '',
       visualMood: String(scene.visualMood || 'high-contrast editorial finance').slice(0, 220),
       camera: String(scene.camera || 'steady medium push-in, 35mm lens').slice(0, 220)
     })),
@@ -197,20 +219,19 @@ export function parseCreativeDirectorPlan(text: string, params: { platform?: str
 
 export function buildCreativeDirectorFallback(article: CreativeDirectorArticle, params: { platform?: string; duration?: number; filesUsed?: string[]; ctaText?: string; ctaDestination?: string; ctaUrl?: string }): CreativeDirectorPlan {
   const title = article.title.trim().slice(0, 180);
-  const summary = (article.keyTakeaway || article.description || article.summary || 'Najważniejsze fakty z rynku.').trim();
-  const hook = article.suggestedHook || `Co najnowsza wiadomość oznacza dla Twoich pieniędzy?`;
+  const summary = (article.keyTakeaway || article.description || article.summary || article.title || '').trim();
+  const hook = article.suggestedHook || title;
   const cta = params.ctaText || 'Sprawdź pełny kontekst.';
   const sceneCount = 8;
   const segmentDuration = (params.duration || 18) / sceneCount;
-  const queries = ['financial market chart dynamic', 'central bank building aerial', 'counting Polish zloty banknotes', 'business people city timelapse', 'close up market data screen', 'consumer checking household budget', 'financial analysis desk macro', 'financial news editorial background'];
   const purposes = ['hook', 'fakt', 'kontekst', 'mechanizm', 'wpływ', 'praktyczny wniosek', 'podsumowanie', 'cta'];
   const scenes = Array.from({ length: sceneCount }, (_, index) => ({
     start: Number((index * segmentDuration).toFixed(2)),
     end: Number(((index + 1) * segmentDuration).toFixed(2)),
     purpose: purposes[index],
-    voiceover: index === 0 ? hook : index === 7 ? cta : (index === 1 ? summary : `Zobacz, jak ten temat może przełożyć się na codzienne decyzje finansowe.`),
-    caption: index === 0 ? hook.toUpperCase() : index === 7 ? cta.toUpperCase() : title.toUpperCase().slice(0, 80),
-    visualQuery: queries[index],
+    voiceover: index === 0 ? hook : index === 7 ? cta : summary,
+    caption: index === 0 ? hook.toUpperCase() : index === 7 ? cta.toUpperCase() : (summary || title).toUpperCase().slice(0, 80),
+    visualQuery: buildArticleVisualQuery(article, index === 0 ? hook : summary, index),
     visualMood: 'high-contrast editorial finance, navy and lime accents',
     camera: index === 0 ? 'fast push-in, 24mm lens' : 'smooth lateral tracking, 35mm lens'
   }));
@@ -230,7 +251,11 @@ export function buildCreativeDirectorFallback(article: CreativeDirectorArticle, 
     duration: params.duration || 18,
     directorBrief: 'Pionowy format 9:16, kontrastowy grading granat/lime, szybki hook w pierwszych 2 sekundach, dynamiczne lecz czytelne przejścia, ambientowy beat newsroomowy i subtelne dźwięki interfejsu.',
     scenes,
-    riskFlags: ['Plan utworzony przez fallback; przed publikacją zweryfikuj liczby, daty i nazwy własne w źródle.'],
+    riskFlags: [
+      'Plan utworzony przez fallback; przed publikacją zweryfikuj liczby, daty i nazwy własne w źródle.',
+      ...(!article.keyTakeaway && !article.description && !article.summary ? ['Brak treści artykułu poza tytułem; zweryfikuj narrację przed publikacją.'] : []),
+      ...scenes.some((scene) => !scene.visualQuery) ? ['Nie udało się wyznaczyć wiarygodnego zapytania wizualnego dla każdej sceny; storyboard wymaga poprawy przed renderem.'] : []
+    ],
     brandFilesUsed: params.filesUsed || [],
     modelUsed: 'heuristic-fallback',
     generatedAt: new Date().toISOString()
