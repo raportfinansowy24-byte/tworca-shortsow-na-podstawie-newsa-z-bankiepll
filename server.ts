@@ -1032,6 +1032,8 @@ function summarizeScenesForHistory(scenes: unknown[]): Record<string, unknown>[]
       title: shortText(scene.title ?? scene.subtitles ?? scene.caption, 300),
       voiceoverText: shortText(scene.voiceover_text ?? scene.voiceoverText, 700),
       searchKeyword: shortText(scene.searchKeyword ?? scene.search_keyword, 180),
+      camera: shortText(scene.camera, 220),
+      visualMood: shortText(scene.visualMood, 220),
       source: shortText(scene.videoSource ?? scene.source, 80),
       pexelsId: Number.isFinite(pexelsId) && pexelsId > 0 ? pexelsId : undefined,
       duration: typeof scene.duration === 'number' && Number.isFinite(scene.duration) ? scene.duration : undefined
@@ -4301,6 +4303,7 @@ async function generateSmartOrGeminiViralScript({
   }
 
   // Auto-pair keywords from news analysis if bankierArticle is provided but no manual pairedKeywords
+  const hasManualPairedKeywords = Array.isArray(pairedKeywords) && pairedKeywords.some((keyword) => typeof keyword === 'string' && keyword.trim());
   let effectivePairedKeywords = pairedKeywords;
   if ((!effectivePairedKeywords || effectivePairedKeywords.length === 0) && bankierArticle) {
     try {
@@ -4385,6 +4388,9 @@ REŻYSERIA I LIMIT NARRACJI:
 - Nie czytaj adresów URL, domen, ścieżek ani hashtagów lektorem. Link docelowy znajduje się w opisie publikacji.
 - Zachowaj najważniejsze fakty; usuń powtórzenia, wstępy i zbędne łączniki zamiast dodawać słowa.
 - Każda scena ma osobny, unikalny, konkretny prompt Pexels po angielsku, bezpośrednio związany z wypowiedzią.
+- REŻYSERIA CINEMA DIRECTOR: dla każdej sceny określ filmowalny rozmiar planu/kadr, jeden spójny ruch kamery oraz obiektyw lub głębię ostrości. Oddzielnie opisz kierunek światła, atmosferę i grading; zachowaj fizyczną wiarygodność.
+- Zapytanie Pexels/searchKeyword ma zawierać wyłącznie wyszukiwalne, widoczne treści (podmiot, czynność, miejsce/obiekt). Nie umieszczaj tam nazw obiektywów, abstrakcyjnych emocji ani niewidocznych liczb/wykresów. Nie gwarantuj, że stock będzie zawierał dokładnie zadany ruch kamery.
+- Zwróć dla każdej sceny pola camera i visualMood. Są to wskazówki reżyserskie zachowywane w metadanych sceny; faktyczny ruch w pobranym klipie zależy od dostępnego materiału Pexels.
 - Napisy i lektor w każdej scenie muszą być identyczne.
 - Nie uruchamiaj publikacji, harmonogramu ani webhooków; zwróć dane do istniejącego pipeline'u.
 
@@ -4434,6 +4440,8 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
                   voiceover_text: { type: Type.STRING },
                   duration: { type: Type.NUMBER },
                   searchKeyword: { type: Type.STRING },
+                  camera: { type: Type.STRING },
+                  visualMood: { type: Type.STRING },
                   captionStyle: {
                     type: Type.OBJECT,
                     properties: {
@@ -4444,7 +4452,7 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
                     }
                   }
                 },
-                required: ['subtitles', 'duration', 'searchKeyword']
+                required: ['subtitles', 'duration', 'searchKeyword', 'camera', 'visualMood']
               }
             },
             backgroundMusicUrl: { type: Type.STRING },
@@ -4470,9 +4478,9 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
 
         for (let idx = 0; idx < parsed.scenes.length; idx++) {
           const sc = parsed.scenes[idx];
-          const targetKeyword = (Array.isArray(effectivePairedKeywords) && effectivePairedKeywords[idx])
+          const targetKeyword = hasManualPairedKeywords && effectivePairedKeywords?.[idx]
             ? effectivePairedKeywords[idx]
-            : (sc.searchKeyword || 'stock exchange screen numbers flashing');
+            : (sc.searchKeyword || effectivePairedKeywords?.[idx] || 'stock exchange screen numbers flashing');
 
           const resolved = await resolveStockOrPexelsVideoDetailed(targetKeyword, idx, usedPexelsIds, {
             context: visualContext,
