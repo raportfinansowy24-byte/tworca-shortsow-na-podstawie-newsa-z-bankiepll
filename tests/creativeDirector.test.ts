@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
-import { buildCreativeDirectorFallback, loadBrandContext, mapCreativeDirectorPlanToRenderScenes, parseCreativeDirectorPlan } from '../src/server/creativeDirector';
+import { buildCreativeDirectorFallback, buildCreativeDirectorPrompt, loadBrandContext, mapCreativeDirectorPlanToRenderScenes, parseCreativeDirectorPlan } from '../src/server/creativeDirector';
 
 const brand = loadBrandContext(process.cwd());
 assert.deepEqual(brand.filesUsed.sort(), ['ICP.md', 'brand-identity.md', 'messaging.md'].sort());
 
 const article = { title: 'RPP pozostawiła stopy procentowe bez zmian', description: 'Bank centralny opublikował decyzję dotyczącą stóp procentowych.', category: 'Kredyty & RPP' };
+const directorPrompt = buildCreativeDirectorPrompt({ article, brandContext: brand.context });
+assert.match(directorPrompt, /visualQuery jest zapytaniem do wyszukiwarki Pexels/);
+assert.match(directorPrompt, /jeden spójny ruch kamery/);
+assert.match(directorPrompt, /nie gwarantuje, że pobrany stock zawiera dokładnie taki ruch/);
 const fallback = buildCreativeDirectorFallback(article, {
   filesUsed: brand.filesUsed,
   ctaText: 'Policz ratę kredytu.',
