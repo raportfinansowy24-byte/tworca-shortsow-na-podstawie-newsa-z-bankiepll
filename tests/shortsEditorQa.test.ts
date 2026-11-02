@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { buildShortsEditorQaRevisionInstruction, evaluateRenderedShort, evaluateShortStoryboard } from '../src/server/shortsEditorQa';
+import { buildVisualAnalysisUnavailableReport, buildVisualSemanticReport, parseVisualSemanticResponse } from '../src/server/shortsVisualSemanticQa';
 
 const scenes = Array.from({ length: 8 }, (_, index) => {
   const narration = index === 0 ? 'Co się zmieniło?' : index === 7 ? 'Policz ratę kredytu.' : `Fakt numer ${index + 1}.`;
@@ -93,5 +94,26 @@ assert.ok(brokenMedia.findings.some((finding) => finding.code === 'missing_audio
 assert.ok(brokenMedia.findings.some((finding) => finding.code === 'wrong_aspect_ratio'));
 assert.ok(brokenMedia.findings.some((finding) => finding.code === 'output_over_duration_limit'));
 assert.ok(brokenMedia.findings.some((finding) => finding.code === 'empty_output_file'));
+
+const semanticResults = parseVisualSemanticResponse(JSON.stringify({ results: [
+  { scene: 1, match: true, confidence: 0.95, reason: 'Widoczny wykres pasuje do omówienia notowań.' },
+  { scene: 2, match: false, confidence: 0.91, reason: 'Widać plażę, a lektor mówi o stopach procentowych.' },
+  { scene: 3, match: false, confidence: 0.62, reason: 'Klatka jest zbyt ogólna, by potwierdzić temat.' }
+] }), 3);
+const semanticReport = buildVisualSemanticReport(3, semanticResults, 'gemini-3.8-flash');
+assert.equal(semanticReport.status, 'blocked');
+assert.equal(semanticReport.analyzedScenes, 3);
+assert.equal(semanticReport.findings.filter((finding) => finding.code === 'visual_narration_mismatch').length, 2);
+assert.equal(semanticReport.findings.find((finding) => finding.scene === 2)?.severity, 'blocker');
+assert.equal(semanticReport.findings.find((finding) => finding.scene === 3)?.severity, 'warning');
+
+const incompleteSemanticReport = buildVisualSemanticReport(2, [semanticResults[0]], 'gemini-3.8-flash');
+assert.equal(incompleteSemanticReport.status, 'review');
+assert.ok(incompleteSemanticReport.findings.some((finding) => finding.code === 'visual_analysis_missing_scene'));
+const unavailableSemanticReport = buildVisualAnalysisUnavailableReport(8, 'brak klucza');
+assert.equal(unavailableSemanticReport.status, 'review');
+assert.equal(unavailableSemanticReport.analyzedScenes, 0);
+assert.equal(unavailableSemanticReport.model, 'unavailable');
+assert.ok(unavailableSemanticReport.findings.some((finding) => finding.code === 'visual_analysis_unavailable'));
 
 console.log('Shorts Editor QA tests passed');

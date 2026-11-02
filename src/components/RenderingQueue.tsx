@@ -445,6 +445,7 @@ export const RenderingQueue: React.FC<RenderingQueueProps> = ({
                 status?: string;
                 score?: number;
                 findings?: Array<{ message?: string; severity?: string }>;
+                visualAnalysis?: { status?: string; model?: string; analyzedScenes?: number };
               } | undefined;
 
               return (
@@ -574,6 +575,11 @@ export const RenderingQueue: React.FC<RenderingQueueProps> = ({
                         <span className="flex items-center gap-1.5"><Sparkles className="h-3.5 w-3.5" /> Shorts Editor QA</span>
                         <span>{qaReport.status === 'blocked' ? 'ZABLOKOWANO' : qaReport.status === 'review' ? 'DO SPRAWDZENIA' : 'OK'} · {qaReport.score ?? '—'}/100</span>
                       </div>
+                      {qaReport.visualAnalysis && (
+                        <div className="mt-1 text-[11px] opacity-80">
+                          Dopasowanie klatek do lektora: {qaReport.visualAnalysis.status === 'pass' ? 'OK' : qaReport.visualAnalysis.status === 'blocked' ? 'niedopasowanie wykryte' : 'wymaga sprawdzenia'} · {qaReport.visualAnalysis.analyzedScenes ?? 0} scen · {qaReport.visualAnalysis.model || 'model niedostępny'}
+                        </div>
+                      )}
                       {qaReport.findings && qaReport.findings.length > 0 && (
                         <ul className="mt-2 space-y-1 text-[11px] opacity-90">
                           {qaReport.findings.slice(0, 3).map((finding, index) => (

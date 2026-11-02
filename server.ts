@@ -52,8 +52,65 @@ import { buildFinanceShortPlan, selectHookVariantFromLearningSignals, validateFi
 import { buildAudioMixFilter, buildMotionFilter, generateSceneSoundEffect, motionSoundSpecForBeat } from './src/server/motionSoundRenderer';
 import { getLearningSignals, recordHookVariants, recordPipelineEvent, recordPipelineRun, recordRetentionMetric, updatePipelineRunStatus } from './src/server/pipelineTelemetry';
 import { buildShortsEditorQaRevisionInstruction, evaluateRenderedShort, evaluateShortStoryboard } from './src/server/shortsEditorQa';
+import { buildVisualAnalysisUnavailableReport, buildVisualSemanticReport, parseVisualSemanticResponse, type VisualSemanticReport, type VisualSemanticSample } from './src/server/shortsVisualSemanticQa';
 
 const execPromise = promisify(exec);
+
+async function analyzeRenderedVisualFit(
+  videoPath: string,
+  scenes: any[],
+  sceneDurations: number[],
+  narrationTexts: string[],
+  tempDir: string
+): Promise<VisualSemanticReport> {
+  const expectedScenes = scenes.length;
+  const model = 'gemini-3.8-flash';
+  if (!process.env.GEMINI_API_KEY?.trim()) {
+    return buildVisualAnalysisUnavailableReport(expectedScenes, 'GEMINI_API_KEY nie jest skonfigurowany.', 'unavailable');
+  }
+
+  const samples: VisualSemanticSample[] = [];
+  const imageParts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [];
+  let timelineStart = 0;
+  try {
+    for (let index = 0; index < scenes.length; index++) {
+      const duration = Number(sceneDurations[index]);
+      if (!Number.isFinite(duration) || duration <= 0) throw new Error(`Nieprawidłowy czas sceny ${index + 1}.`);
+      const timestampSeconds = Math.min(timelineStart + duration / 2, timelineStart + duration - 0.12);
+      const framePath = path.join(tempDir, `visual_qa_scene_${index + 1}.jpg`);
+      await execPromise(`ffmpeg -v error -y -ss ${timestampSeconds.toFixed(3)} -i "${videoPath}" -frames:v 1 -vf "scale=512:-2" -q:v 6 "${framePath}"`);
+      if (!fs.existsSync(framePath) || fs.statSync(framePath).size === 0) throw new Error(`Nie udało się pobrać próbki obrazu dla sceny ${index + 1}.`);
+
+      const scene = scenes[index] || {};
+      const narration = String(narrationTexts[index] || scene.voiceover_text || scene.voiceoverText || scene.voiceover || scene.narration || scene.subtitles || scene.caption || scene.text || '').trim();
+      samples.push({ scene: index + 1, narration, timestampSeconds });
+      imageParts.push({ text: `SCENA ${index + 1} — próbka z ${timestampSeconds.toFixed(2)} s filmu. Tekst lektora: ${narration || '[brak tekstu]'}` });
+      imageParts.push({ inlineData: { mimeType: 'image/jpeg', data: fs.readFileSync(framePath).toString('base64') } });
+      timelineStart += duration;
+    }
+
+    const instructions = [
+      'Jesteś niezależnym kontrolerem montażu krótkiego filmu. Porównaj KAŻDĄ załączoną klatkę z tekstem lektora przypisanym do tej samej sceny.',
+      'Oceń to, co rzeczywiście widać: główny obiekt/czynność, kontekst i czy klatka semantycznie wspiera wypowiedź. Nie uznawaj za dopasowanie samego podobnego nastroju ani generycznego stocku finansowego.',
+      'Nie wnioskuj o szczegółach niewidocznych w jednej klatce. Jeśli obraz jest nieczytelny, neutralny albo dowód jest za słaby, ustaw match=true tylko gdy nie ma wyraźnej sprzeczności; obniż confidence i krótko opisz niepewność.',
+      'Zwróć wyłącznie JSON: {"results":[{"scene":1,"match":true,"confidence":0.0,"reason":"krótkie uzasadnienie po polsku"}]}.',
+      `Uwzględnij dokładnie ${samples.length} scen i zwróć jeden wynik dla każdej, z numerami 1–${samples.length}. Confidence to liczba 0..1. match=false oznacza wyraźnie niepasujący obraz.`
+    ].join('\n');
+    const response = await ai.models.generateContent({
+      model,
+      contents: [{ role: 'user', parts: [{ text: instructions }, ...imageParts] }],
+      config: { responseMimeType: 'application/json', temperature: 0.1 }
+    });
+    const responseText = response.text;
+    if (!responseText?.trim()) throw new Error('Model zwrócił pustą odpowiedź.');
+    const results = parseVisualSemanticResponse(responseText, samples.length);
+    return buildVisualSemanticReport(samples.length, results, model);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[Shorts Editor QA] Analiza semantyczna klatek nie powiodła się: ${message}`);
+    return buildVisualAnalysisUnavailableReport(expectedScenes, message, 'unavailable');
+  }
+}
 
 const PORT = Number.parseInt(process.env.PORT || '3000', 10);
 const app = express();
@@ -2748,6 +2805,19 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
       maxDurationSeconds: MAX_SHORT_DURATION_SECONDS,
       expectedDurationSeconds: scenes.length === FINANCE_SHORT_SCENE_COUNT ? 18 : undefined
     });
+    updateJobProgress(jobId, { step: 'Shorts Editor QA: semantyczne dopasowanie klatek do lektora', progress: 96 }, 'Analizuję reprezentatywną klatkę z każdej sceny względem przypisanego tekstu lektora.');
+    const visualSemanticQa = await analyzeRenderedVisualFit(finalOutputPath, scenes, plannedSceneDurations, sceneSpeechTexts, jobTempDir);
+    const combinedQa = {
+      ...renderedQa,
+      findings: [...renderedQa.findings, ...visualSemanticQa.findings],
+      score: Math.max(0, renderedQa.score - visualSemanticQa.findings.reduce((scorePenalty, finding) => scorePenalty + (finding.severity === 'blocker' ? 35 : 8), 0)),
+      status: renderedQa.status === 'blocked' || visualSemanticQa.status === 'blocked'
+        ? 'blocked' as const
+        : renderedQa.status === 'review' || visualSemanticQa.status === 'review'
+          ? 'review' as const
+          : 'pass' as const,
+      visualAnalysis: visualSemanticQa
+    };
     const jobBeforeQaUpdate = jobsStore.get(jobId);
     const previousEditorQa = jobBeforeQaUpdate?.shortMetadata?.editorQa && typeof jobBeforeQaUpdate.shortMetadata.editorQa === 'object'
       ? jobBeforeQaUpdate.shortMetadata.editorQa as Record<string, unknown>
@@ -2755,11 +2825,11 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
     updateJobProgress(jobId, {
       shortMetadata: {
         ...jobBeforeQaUpdate?.shortMetadata,
-        editorQa: { ...previousEditorQa, postRender: renderedQa }
+        editorQa: { ...previousEditorQa, postRender: combinedQa }
       }
-    }, `[Shorts Editor QA] Kontrola gotowego MP4: ${renderedQa.status} (${renderedQa.score}/100).${renderedQa.findings.length ? ` ${renderedQa.findings.map((finding) => finding.message).join(' ')}` : ''}`);
-    if (renderedQa.status === 'blocked') {
-      throw new Error(`Shorts Editor QA odrzuciło gotowy MP4: ${renderedQa.findings.filter((finding) => finding.severity === 'blocker').map((finding) => finding.message).join(' | ')}`);
+    }, `[Shorts Editor QA] MP4 ${renderedQa.status}; analiza obrazu ${visualSemanticQa.status} (${visualSemanticQa.analyzedScenes}/${scenes.length} scen); wynik łączny ${combinedQa.status} (${combinedQa.score}/100).${combinedQa.findings.length ? ` ${combinedQa.findings.map((finding) => finding.message).join(' ')}` : ''}`);
+    if (combinedQa.status === 'blocked') {
+      throw new Error(`Shorts Editor QA odrzuciło gotowy MP4: ${combinedQa.findings.filter((finding) => finding.severity === 'blocker').map((finding) => finding.message).join(' | ')}`);
     }
     const outputUrl = `${baseUrl}/exports/${outputFilename}`;
 
