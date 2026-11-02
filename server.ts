@@ -53,7 +53,7 @@ import { buildAudioMixFilter, buildMotionFilter, generateSceneSoundEffect, motio
 import { getLearningSignals, recordHookVariants, recordPipelineEvent, recordPipelineRun, recordRetentionMetric, updatePipelineRunStatus } from './src/server/pipelineTelemetry';
 import { buildShortsEditorQaRevisionInstruction, evaluateRenderedShort, evaluateShortStoryboard } from './src/server/shortsEditorQa';
 import { buildVisualAnalysisUnavailableReport, buildVisualSemanticReport, parseVisualSemanticResponse, type VisualSemanticReport, type VisualSemanticSample } from './src/server/shortsVisualSemanticQa';
-import { applyQaRepairAssets, buildQaRepairFailureReport, executeQaRepairOnce, selectQaRepairCandidates } from './src/server/qaRepair';
+import { applyQaRepairAssets, buildQaRepairFailureReport, executeQaRepairOnce, resolveUniqueQaRepairAssets, selectQaRepairCandidates } from './src/server/qaRepair';
 
 const execPromise = promisify(exec);
 
@@ -2863,19 +2863,18 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
         if (repairCandidates.length > 0) {
           type Replacement = { sceneIndex: number; visualQuery: string; videoUrl: string; thumbnailUrl?: string; pexelsId: number; searchKeyword?: string; photographer?: string; photographerUrl?: string };
           const execution = await executeQaRepairOnce(payload.qaRepairAttempt || 0, repairCandidates, async (candidates): Promise<Replacement[]> => {
-            const replacements: Replacement[] = [];
-            for (const candidate of candidates) {
-              const usedIds = scenes.map((scene: any) => Number(scene.pexelsId)).filter((id: number) => Number.isSafeInteger(id) && id > 0);
+            const existingIds = scenes.map((scene: any) => Number(scene.pexelsId)).filter((id: number) => Number.isSafeInteger(id) && id > 0);
+            return resolveUniqueQaRepairAssets(candidates, existingIds, async (candidate, usedIds): Promise<Replacement> => {
               const originalScene = scenes[candidate.sceneIndex] as any;
               const resolved = await resolveStockOrPexelsVideoDetailed(candidate.repairQuery, candidate.sceneIndex, usedIds, {
                 context: `${payload.qaRepairArticle.title}\n${payload.qaRepairArticle.description || payload.qaRepairArticle.summary || ''}\n${candidate.narration}`,
                 requirePexels: true,
                 targetDurationSeconds: plannedSceneDurations[candidate.sceneIndex]
               });
-              if (!resolved.pexelsId || usedIds.includes(resolved.pexelsId) || resolved.pexelsId === originalScene.pexelsId) {
+              if (!resolved.pexelsId || resolved.pexelsId === Number(originalScene.pexelsId)) {
                 throw new Error(`Pexels nie zwrócił nowego, unikalnego klipu dla sceny ${candidate.sceneIndex + 1}.`);
               }
-              replacements.push({
+              const replacement: Replacement = {
                 sceneIndex: candidate.sceneIndex,
                 visualQuery: candidate.repairQuery,
                 videoUrl: resolved.videoUrl,
@@ -2884,10 +2883,10 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
                 searchKeyword: resolved.searchKeyword,
                 photographer: resolved.photographer,
                 photographerUrl: resolved.photographerUrl
-              });
+              };
               console.info(`[Shorts Editor QA repair] Replaced only blocked scene ${candidate.sceneIndex + 1}: "${candidate.originalQuery}" -> "${candidate.repairQuery}"; narration preserved.`);
-            }
-            return replacements;
+              return replacement;
+            });
           }, async (replacements) => {
             const repairedScenes = applyQaRepairAssets(scenes as any, replacements);
             const repairPayload: CombineScenesPayload = {

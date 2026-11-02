@@ -25,6 +25,25 @@ export interface QaRepairCandidate {
   repairQuery: string;
 }
 
+/** Resolve candidates sequentially while reserving every original and newly selected Pexels ID. */
+export async function resolveUniqueQaRepairAssets<Candidate, Asset extends { pexelsId?: number }>(
+  candidates: Candidate[],
+  existingIds: number[],
+  resolve: (candidate: Candidate, usedIds: number[]) => Promise<Asset>
+): Promise<Asset[]> {
+  const usedIds = new Set(existingIds.filter((id) => Number.isSafeInteger(id) && id > 0));
+  const resolvedAssets: Asset[] = [];
+  for (const candidate of candidates) {
+    const asset = await resolve(candidate, [...usedIds]);
+    if (!Number.isSafeInteger(asset.pexelsId) || !asset.pexelsId || usedIds.has(asset.pexelsId)) {
+      throw new Error(`Pexels zwrócił nieprawidłowy lub powielony identyfikator klipu: ${String(asset.pexelsId)}.`);
+    }
+    usedIds.add(asset.pexelsId);
+    resolvedAssets.push(asset);
+  }
+  return resolvedAssets;
+}
+
 export function canAttemptQaRepair(attempt: number): boolean {
   return attempt === 0;
 }

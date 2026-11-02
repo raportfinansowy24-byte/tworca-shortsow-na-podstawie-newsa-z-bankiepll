@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { applyQaRepairAssets, buildQaRepairFailureReport, canAttemptQaRepair, executeQaRepairOnce, selectQaRepairCandidates, type QaRepairReport, type QaRepairScene } from '../src/server/qaRepair';
+import { applyQaRepairAssets, buildQaRepairFailureReport, canAttemptQaRepair, executeQaRepairOnce, resolveUniqueQaRepairAssets, selectQaRepairCandidates, type QaRepairReport, type QaRepairScene } from '../src/server/qaRepair';
 
 const article = { title: 'NBP pozostaje w centrum sporu o decyzję RPP', description: 'Narodowy Bank Polski i Rada Polityki Pieniężnej.' };
 const scenes: QaRepairScene[] = Array.from({ length: 8 }, (_, index) => ({
@@ -39,6 +39,20 @@ assert.equal(selectQaRepairCandidates(dataVisualScenes, report, article).length,
 assert.equal(selectQaRepairCandidates(scenes, { findings: [], visualAnalysis: { results: [] } }, article).length, 0, 'poprawny render nie uruchamia naprawy');
 assert.equal(canAttemptQaRepair(0), true);
 assert.equal(canAttemptQaRepair(1), false, 'po jednej naprawie nie ma dalszego retry');
+
+const usedIdSnapshots: number[][] = [];
+const uniqueAssets = await resolveUniqueQaRepairAssets(['scene-a', 'scene-b'], [100, 200], async (candidate, usedIds) => {
+  usedIdSnapshots.push(usedIds);
+  const pexelsId = candidate === 'scene-a' ? 301 : 302;
+  return { candidate, pexelsId };
+});
+assert.deepEqual(usedIdSnapshots[0], [100, 200]);
+assert.deepEqual(usedIdSnapshots[1], [100, 200, 301], 'drugie wyszukiwanie wyklucza ID wybrane dla pierwszej naprawy');
+assert.deepEqual(uniqueAssets.map((asset) => asset.pexelsId), [301, 302]);
+await assert.rejects(
+  () => resolveUniqueQaRepairAssets(['scene-a', 'scene-b'], [100], async () => ({ pexelsId: 401 })),
+  /powielony identyfikator/
+);
 
 const failedSecondQa: QaRepairReport = {
   findings: [{ code: 'visual_narration_mismatch', severity: 'blocker', scene: 3, message: 'Nadal niedopasowane.' }],

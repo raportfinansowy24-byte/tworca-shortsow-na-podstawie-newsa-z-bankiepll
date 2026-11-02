@@ -20,6 +20,17 @@ assert.equal(fallback.voice, 'pl-PL-MarekNeural');
 assert.equal(fallback.brandFilesUsed.length, 3);
 assert.equal(fallback.sourceTitle, article.title);
 assert.equal(fallback.ctaDestination, '/loan');
+const fallbackVoiceovers = fallback.scenes.map((scene) => scene.voiceover);
+assert.equal(new Set(fallbackVoiceovers.map((voiceover) => voiceover.toLocaleLowerCase('pl-PL'))).size, 8, 'fallback nie powtarza narracji między scenami');
+assert.ok(fallback.scenes.slice(1, 7).every((scene) => scene.voiceover.split(/\s+/).length <= 5), 'środkowe beaty fallbacku są krótkie');
+const lengthyFallback = buildCreativeDirectorFallback({
+  title: 'NBP omawia stopy procentowe',
+  description: 'Artykuł zawiera długi opis, który nie powinien być powtarzany w każdej scenie. '.repeat(12),
+  summary: 'Artykuł zawiera długi opis, który nie powinien być powtarzany w każdej scenie. '.repeat(12)
+});
+const totalFallbackWords = lengthyFallback.scenes.reduce((total, scene) => total + scene.voiceover.trim().split(/\s+/).filter(Boolean).length, 0);
+assert.ok(totalFallbackWords <= 50, `fallback utrzymuje krótki budżet narracji, otrzymano ${totalFallbackWords} słów`);
+assert.ok(lengthyFallback.riskFlags.some((flag) => /neutralne linie pomostowe/.test(flag)), 'fallback sygnalizuje, gdy źródło nie dostarcza dość krótkich, odrębnych faktów');
 assert.match(fallback.scenes[0].visualQuery, /National Bank of Poland/i);
 assert.doesNotMatch(fallback.scenes[0].visualQuery, /crypto|cryptocurrency/i);
 assert.notEqual(buildArticleVisualQuery(article, 'RPP pozostaje w centrum sporu.', 0), 'financial market chart dynamic');

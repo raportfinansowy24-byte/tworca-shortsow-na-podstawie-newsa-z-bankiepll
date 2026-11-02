@@ -217,11 +217,49 @@ export function parseCreativeDirectorPlan(text: string, params: { platform?: str
   };
 }
 
-export function buildCreativeDirectorFallback(article: CreativeDirectorArticle, params: { platform?: string; duration?: number; filesUsed?: string[]; ctaText?: string; ctaDestination?: string; ctaUrl?: string }): CreativeDirectorPlan {
+function normalizeNarrationLine(value: string): string {
+  return value.toLocaleLowerCase('pl-PL').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+}
+
+function buildFallbackMiddleNarration(article: CreativeDirectorArticle, hook: string, cta: string): { lines: string[]; usedBridge: boolean } {
+  const occupied = new Set([hook, cta].map(normalizeNarrationLine).filter(Boolean));
+  const sourceUnits = [article.keyTakeaway, article.description, article.summary]
+    .filter((text): text is string => Boolean(text?.trim()))
+    .flatMap((text) => text.split(/(?<=[.!?])\s+/))
+    .map((text) => text.trim())
+    .filter((text) => text && text.split(/\s+/).length <= 5)
+    .filter((text) => {
+      const normalized = normalizeNarrationLine(text);
+      if (!normalized || occupied.has(normalized)) return false;
+      occupied.add(normalized);
+      return true;
+    });
+  const bridgeLines = [
+    'Źródłem jest podany artykuł.',
+    'Pełny kontekst jest w artykule.',
+    'Sprawdź szczegóły w źródle.',
+    'To skrót, nie pełna analiza.',
+    'Czytaj cały tekst źródłowy.',
+    'Nie dopowiadamy poza źródłem.'
+  ];
+  const lines = sourceUnits.slice(0, 6);
+  let bridgeIndex = 0;
+  while (lines.length < 6 && bridgeIndex < bridgeLines.length) {
+    const line = bridgeLines[bridgeIndex++];
+    const normalized = normalizeNarrationLine(line);
+    if (occupied.has(normalized)) continue;
+    occupied.add(normalized);
+    lines.push(line);
+  }
+  if (lines.length !== 6) throw new Error('Nie można zbudować sześciu różnych, krótkich beatów fallbacku.');
+  return { lines, usedBridge: sourceUnits.length < 6 };
+}
+
+export function buildCreativeDirectorFallback(article: CreativeDirectorArticle, params: { platform?: string; duration?: number; filesUsed?: string[]; ctaText?: string; ctaDestination?: string; ctaUrl?: string } = {}): CreativeDirectorPlan {
   const title = article.title.trim().slice(0, 180);
-  const summary = (article.keyTakeaway || article.description || article.summary || article.title || '').trim();
   const hook = article.suggestedHook || title;
   const cta = params.ctaText || 'Sprawdź pełny kontekst.';
+  const fallbackNarration = buildFallbackMiddleNarration(article, hook, cta);
   const sceneCount = 8;
   const segmentDuration = (params.duration || 18) / sceneCount;
   const purposes = ['hook', 'fakt', 'kontekst', 'mechanizm', 'wpływ', 'praktyczny wniosek', 'podsumowanie', 'cta'];
@@ -229,16 +267,16 @@ export function buildCreativeDirectorFallback(article: CreativeDirectorArticle, 
     start: Number((index * segmentDuration).toFixed(2)),
     end: Number(((index + 1) * segmentDuration).toFixed(2)),
     purpose: purposes[index],
-    voiceover: index === 0 ? hook : index === 7 ? cta : summary,
-    caption: index === 0 ? hook.toUpperCase() : index === 7 ? cta.toUpperCase() : (summary || title).toUpperCase().slice(0, 80),
-    visualQuery: buildArticleVisualQuery(article, index === 0 ? hook : summary, index),
+    voiceover: index === 0 ? hook : index === 7 ? cta : fallbackNarration.lines[index - 1],
+    caption: index === 0 ? hook.toUpperCase() : index === 7 ? cta.toUpperCase() : fallbackNarration.lines[index - 1].toUpperCase().slice(0, 80),
+    visualQuery: buildArticleVisualQuery(article, index === 0 ? hook : fallbackNarration.lines[index - 1] || cta, index),
     visualMood: 'high-contrast editorial finance, navy and lime accents',
     camera: index === 0 ? 'fast push-in, 24mm lens' : 'smooth lateral tracking, 35mm lens'
   }));
   return {
     title,
     hook,
-    body: `${summary} Ten materiał porządkuje najważniejsze informacje i ich praktyczne znaczenie.`,
+    body: fallbackNarration.lines.join(' '),
     cta,
     ctaDestination: params.ctaDestination,
     ctaUrl: params.ctaUrl,
@@ -253,6 +291,7 @@ export function buildCreativeDirectorFallback(article: CreativeDirectorArticle, 
     scenes,
     riskFlags: [
       'Plan utworzony przez fallback; przed publikacją zweryfikuj liczby, daty i nazwy własne w źródle.',
+      ...(fallbackNarration.usedBridge ? ['Fallback wykorzystał krótkie, neutralne linie pomostowe; sprawdź, czy materiał zawiera wystarczająco dużo unikalnych faktów.'] : []),
       ...(!article.keyTakeaway && !article.description && !article.summary ? ['Brak treści artykułu poza tytułem; zweryfikuj narrację przed publikacją.'] : []),
       ...scenes.some((scene) => !scene.visualQuery) ? ['Nie udało się wyznaczyć wiarygodnego zapytania wizualnego dla każdej sceny; storyboard wymaga poprawy przed renderem.'] : []
     ],
