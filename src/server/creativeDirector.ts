@@ -97,6 +97,15 @@ ZASADY RZETELNOŚCI:
 - Hook ma być mocny, ale nie może sugerować spisku ani wprowadzać w błąd.
 - Odpowiedź zwróć wyłącznie jako poprawny JSON zgodny z wymaganym kształtem.
 
+REŻYSERIA UJĘĆ I WYSZUKIWANIE PEXELS:
+- Dla każdej sceny podaj osobne, niepowtarzalne visualQuery po angielsku: konkretny widoczny podmiot + czynność + miejsce lub obiekt; używaj słów, które mogą wystąpić w opisie stockowego klipu.
+- visualQuery jest zapytaniem do wyszukiwarki Pexels, nie promptem generatora: nie umieszczaj w nim parametrów kamery, nazw obiektywów, abstrakcyjnych emocji ani faktów/danych, których nie widać w scenie.
+- Dobieraj obraz do dokładnej wypowiedzi sceny i źródła. Nie zastępuj konkretu generycznym stockiem finansowym; nie wymyślaj wykresów, kwot, nazw, logo ani informacji ekranowych.
+- W polu camera opisz filmowalne kadrowanie/rozmiar planu, jeden spójny ruch kamery oraz obiektyw lub głębię ostrości. Nie łącz sprzecznych ruchów.
+- W polu visualMood opisz konkretny schemat światła, atmosferę i grading oraz fizycznie wiarygodne relacje światła z otoczeniem.
+- directorBrief ma podsumować spójną estetykę całości i zawierać krótką wskazówkę dźwiękową; nie dodawaj scen ani faktów poza zatwierdzonym storyboardem.
+- Ujęcia są wyszukiwane i dobierane z Pexels przez istniejący resolver. Opis kamery kieruje storyboardem, ale nie gwarantuje, że pobrany stock zawiera dokładnie taki ruch; nie twierdź, że resolver syntetyzuje brakujący ruch.
+
 KONTEKST MARKI:
 ${brandContext}
 
@@ -132,15 +141,15 @@ WYMAGANY JSON:
       "purpose": "hook",
       "voiceover": "tekst lektora tej sceny",
       "caption": "NAPIS NA EKRANIE",
-      "visualQuery": "English dynamic stock-video query for Pexels",
-      "visualMood": "technical visual mood",
-      "camera": "specific camera movement and lens"
+      "visualQuery": "unique English Pexels search query: visible subject, action, setting",
+      "visualMood": "lighting design, atmosphere, physically plausible light, color grade",
+      "camera": "shot size and framing, one coherent camera move, lens or depth of field"
     }
   ],
   "riskFlags": ["opcjonalne ostrzeżenia redakcyjne"]
 }
 
-Sceny powinny tworzyć logiczną sekwencję: hook, fakt, znaczenie dla odbiorcy, kontekst, konsekwencja, praktyczny wniosek, CTA. Używaj technicznych określeń wizualnych zamiast ogólnych przymiotników.`;
+Sceny powinny tworzyć logiczną sekwencję: hook, fakt, znaczenie dla odbiorcy, kontekst, konsekwencja, praktyczny wniosek, CTA. Używaj technicznych określeń wizualnych zamiast ogólnych przymiotników. Każda z ${sceneCount} scen ma mieć odrębne visualQuery; kamera, kadr, światło i optyka należą do camera/visualMood, a nie do zapytania Pexels.`;
 }
 
 function cleanJsonText(text: string): string {
