@@ -3781,7 +3781,8 @@ async function callModelRouter(params: {
             { role: 'user', content: params.contents }
           ],
           response_format: { type: 'json_object' },
-          temperature: 0.8
+          // This model only supports its default sampling temperature.
+          temperature: 1
         })
       });
       if (!response.ok) {
