@@ -57,7 +57,7 @@ async function main() {
     assert.equal(calls[1].url, 'https://api.telegram.org/bottest-token/editMessageCaption');
     const update = calls[1].body as Record<string, any>;
     assert.match(update.caption, /ZATWIERDZONO/);
-    assert.match(update.caption, /Film nie został opublikowany/);
+    assert.match(update.caption, /Publikacja nie jest częścią tego etapu integracji\./);
     assert.deepEqual(update.reply_markup, { inline_keyboard: [] });
   } finally {
     globalThis.fetch = originalFetch;

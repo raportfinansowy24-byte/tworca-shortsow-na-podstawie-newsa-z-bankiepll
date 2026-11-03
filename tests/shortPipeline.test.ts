@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { buildFinanceShortPlan, selectHookVariantFromLearningSignals, validateFinanceShortPlan } from '../src/server/shortPipeline';
+import { buildFinanceSceneDataVisual, buildFinanceShortPlan, selectHookVariantFromLearningSignals, validateFinanceShortPlan } from '../src/server/shortPipeline';
+import { isSafeFinanceDataVisualSvg } from '../src/server/sceneContract';
 
 const plan = buildFinanceShortPlan({
   title: 'Dramat na akcjach Cyfrowego Polsatu i Eurocashu. Szeroki rynek pędzi dzięki bankom',
@@ -17,12 +18,56 @@ assert.equal(plan.viralStrategy.mutedFirst, true);
 assert.equal(plan.viralStrategy.retentionTargets.retention3s, 0.6);
 assert.equal(plan.scenes.every((scene) => scene.visualMode === 'data_visual'), true);
 assert.equal(plan.scenes.every((scene) => typeof scene.visualSvg === 'string' && scene.visualSvg.includes('<svg')), true);
+assert.match(plan.scenes[0].visualSvg || '', /FAKT Z ARTYKUŁU BANKIER\.PL/);
 assert.equal(plan.qualityGate.publishable, true);
 assert.equal(validateFinanceShortPlan(plan).publishable, true);
 assert.match(plan.hook, /Cyfrowy Polsat/);
 assert.equal(plan.scenes[7].voiceover_text, 'Sprawdź spółkę po NIP.');
 assert.match(plan.scenes[7].caption, /RAPORT-FINANSOWY24\.PL/);
 assert.equal(plan.ctaUrl, 'https://raport-finansowy24.pl/firma');
+
+const wig20Card = buildFinanceSceneDataVisual(
+  { title: 'GPW: sesja zakończyła się spadkiem', description: 'WIG20 zakończył sesję spadkiem o 0,68 proc.' },
+  'WIG20 spadł o 0,68 procent.',
+  'WIG20 -0,68%'
+);
+assert.equal(wig20Card?.visualMode, 'data_visual');
+assert.equal(isSafeFinanceDataVisualSvg(wig20Card?.visualSvg), true);
+assert.match(wig20Card?.visualSvg || '', /WIG20/);
+assert.match(wig20Card?.visualSvg || '', /-0,68%/);
+assert.match(wig20Card?.visualSvg || '', /<rect x="222" y="196" width="170"/);
+assert.match(wig20Card?.visualSvg || '', /FAKT Z ARTYKUŁU ŹRÓDŁOWEGO/);
+assert.doesNotMatch(wig20Card?.visualSvg || '', /BANKIER\.PL/);
+assert.deepEqual(wig20Card?.facts.map((fact) => fact.value), [-0.68]);
+
+const gpwCardWithSingleSourcedFact = buildFinanceSceneDataVisual(
+  { title: 'GPW: podsumowanie sesji', summary: 'WIG20 wzrósł o 0,86 proc.' },
+  'Indeks na GPW zakończył sesję wyżej.',
+  'RYNEK GPW'
+);
+assert.equal(gpwCardWithSingleSourcedFact?.visualMode, 'data_visual');
+assert.match(gpwCardWithSingleSourcedFact?.visualSvg || '', /\+0,86%/);
+
+assert.equal(buildFinanceSceneDataVisual(
+  { title: 'WIG20 w centrum uwagi', description: 'Artykuł nie podaje zmiany indeksu.' },
+  'WIG20 na GPW — co to oznacza?',
+  'WIG20'
+), null, 'bez potwierdzonej wartości z artykułu generator nie może dopisać danych do karty');
+assert.equal(buildFinanceSceneDataVisual(
+  { title: 'GPW: WIG20 spadł o 0,68 proc.', description: 'WIG20 zakończył sesję spadkiem o 0,68 proc.' },
+  'Analitycy omawiają rynki zagraniczne.',
+  'RYNKI ZAGRANICZNE'
+), null, 'fakt z artykułu nie powinien trafić do sceny, której lektor go nie omawia');
+assert.equal(buildFinanceSceneDataVisual(
+  { title: 'WIG20 spadł o 0,68 proc.', description: 'WIG20 zakończył sesję spadkiem o 0,68 proc.' },
+  'WIG20 spadł o 0,82 procent.',
+  'WIG20 -0,82%'
+), null, 'karta nie może pokazać źródłowej liczby sprzecznej z lektorem');
+assert.equal(buildFinanceSceneDataVisual(
+  { title: 'Cyfrowy Polsat spadł o 17,67 proc.' },
+  'WIG20 na GPW zakończył sesję.',
+  'WIG20'
+), null, 'wynik pojedynczej spółki nie może być przedstawiony jako wynik WIG20');
 
 const warningWins = selectHookVariantFromLearningSignals(plan, [
   { hookText: 'Stop: Cyfrowy Polsat traci 17,67% — sprawdź dlaczego.', sampleSize: 6, averageCompletionRate: 0.74 },
