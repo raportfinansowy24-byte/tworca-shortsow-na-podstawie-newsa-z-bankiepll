@@ -53,7 +53,7 @@ import { buildAudioMixFilter, buildMotionFilter, generateSceneSoundEffect, motio
 import { getLearningSignals, recordHookVariants, recordPipelineEvent, recordPipelineRun, recordRetentionMetric, updatePipelineRunStatus } from './src/server/pipelineTelemetry';
 import { buildShortsEditorQaRevisionInstruction, evaluateRenderedShort, evaluateShortStoryboard } from './src/server/shortsEditorQa';
 import { buildVisualAnalysisUnavailableReport, buildVisualSemanticReport, parseVisualSemanticResponse, type VisualSemanticReport, type VisualSemanticSample } from './src/server/shortsVisualSemanticQa';
-import { applyQaRepairAssets, buildQaRepairFailureReport, executeQaRepairOnce, selectQaRepairCandidates } from './src/server/qaRepair';
+import { applyQaRepairAssets, buildQaRepairFailureReport, executeQaRepairOnce, QaRepairCancelledError, resolveUniqueQaRepairAssets, selectQaRepairCandidates, validatedPexelsRepairMetadata } from './src/server/qaRepair';
 
 const execPromise = promisify(exec);
 
@@ -1692,6 +1692,8 @@ interface CaptionStyle {
 
 interface SceneInput {
   videoUrl?: string;
+  source?: string;
+  pexelsId?: number;
   imageUrl?: string;
   visualSvg?: string;
   visualMode?: 'data_visual' | 'matched_clip';
@@ -2414,14 +2416,18 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
       }
     }
 
-    const plannedSceneDurations = payload.qaRepairAttempt === 1 && payload.qaRepairSceneDurations?.length === scenes.length
+    const baseSceneDurations = payload.qaRepairAttempt === 1 && payload.qaRepairSceneDurations?.length === scenes.length
       ? payload.qaRepairSceneDurations.slice()
-      : sceneDurationsWithNarration(
-        scenes.map((scene, index) =>
-          Number(scene.duration) || [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5][index] || 2.25
-        ),
-        preparedSceneTts.map((prepared) => prepared?.duration ?? null)
+      : scenes.map((scene, index) =>
+        Number(scene.duration) || [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5][index] || 2.25
       );
+    // Repair generates fresh TTS; extend each saved scene budget when the new audio is longer.
+    // Fail before encoding if the updated narration no longer fits the 23-second short limit.
+    const plannedSceneDurations = sceneDurationsWithNarration(
+      baseSceneDurations,
+      preparedSceneTts.map((prepared) => prepared?.duration ?? null),
+      MAX_SHORT_DURATION_SECONDS
+    );
     if (plannedSceneDurations.some((duration) => !Number.isFinite(duration) || duration <= 0) ||
         plannedSceneDurations.reduce((sum, duration) => sum + duration, 0) > MAX_SHORT_DURATION_SECONDS + 0.001) {
       throw new Error('Nieprawidłowy, zapisany budżet czasu naprawczego renderu.');
@@ -2862,20 +2868,24 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
         const repairCandidates = selectQaRepairCandidates(scenes as any, combinedQa as any, payload.qaRepairArticle);
         if (repairCandidates.length > 0) {
           type Replacement = { sceneIndex: number; visualQuery: string; videoUrl: string; thumbnailUrl?: string; pexelsId: number; searchKeyword?: string; photographer?: string; photographerUrl?: string };
+          const isRepairJobActive = () => {
+            const currentJob = jobsStore.get(jobId);
+            const currentExecution = activeJobExecutions.get(jobId);
+            return !abortController.signal.aborted && currentJob?.status === 'processing' && currentExecution?.abortController === abortController;
+          };
           const execution = await executeQaRepairOnce(payload.qaRepairAttempt || 0, repairCandidates, async (candidates): Promise<Replacement[]> => {
-            const replacements: Replacement[] = [];
-            for (const candidate of candidates) {
-              const usedIds = scenes.map((scene: any) => Number(scene.pexelsId)).filter((id: number) => Number.isSafeInteger(id) && id > 0);
+            const existingIds = scenes.map((scene: any) => Number(scene.pexelsId)).filter((id: number) => Number.isSafeInteger(id) && id > 0);
+            return resolveUniqueQaRepairAssets(candidates, existingIds, async (candidate, usedIds): Promise<Replacement> => {
               const originalScene = scenes[candidate.sceneIndex] as any;
               const resolved = await resolveStockOrPexelsVideoDetailed(candidate.repairQuery, candidate.sceneIndex, usedIds, {
                 context: `${payload.qaRepairArticle.title}\n${payload.qaRepairArticle.description || payload.qaRepairArticle.summary || ''}\n${candidate.narration}`,
                 requirePexels: true,
                 targetDurationSeconds: plannedSceneDurations[candidate.sceneIndex]
               });
-              if (!resolved.pexelsId || usedIds.includes(resolved.pexelsId) || resolved.pexelsId === originalScene.pexelsId) {
+              if (!resolved.pexelsId || resolved.pexelsId === Number(originalScene.pexelsId)) {
                 throw new Error(`Pexels nie zwrócił nowego, unikalnego klipu dla sceny ${candidate.sceneIndex + 1}.`);
               }
-              replacements.push({
+              const replacement: Replacement = {
                 sceneIndex: candidate.sceneIndex,
                 visualQuery: candidate.repairQuery,
                 videoUrl: resolved.videoUrl,
@@ -2884,11 +2894,12 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
                 searchKeyword: resolved.searchKeyword,
                 photographer: resolved.photographer,
                 photographerUrl: resolved.photographerUrl
-              });
+              };
               console.info(`[Shorts Editor QA repair] Replaced only blocked scene ${candidate.sceneIndex + 1}: "${candidate.originalQuery}" -> "${candidate.repairQuery}"; narration preserved.`);
-            }
-            return replacements;
+              return replacement;
+            }, isRepairJobActive);
           }, async (replacements) => {
+            if (!isRepairJobActive()) throw new QaRepairCancelledError();
             const repairedScenes = applyQaRepairAssets(scenes as any, replacements);
             const repairPayload: CombineScenesPayload = {
               ...payload,
@@ -2901,9 +2912,14 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
             };
             const repairSummary = repairCandidates.map((candidate) => `Scena ${candidate.sceneIndex + 1}: narracja="${candidate.narration}"; query="${candidate.originalQuery}" -> "${candidate.repairQuery}"; powód="${candidate.reason}".`).join('\n');
             updateJobProgress(jobId, { shortMetadata: { ...jobBeforeQaUpdate?.shortMetadata, editorQa: { ...previousEditorQa, postRender: combinedQa, repair: { attempt: 1, status: 'rerendering', scenes: repairCandidates } } } }, `[Shorts Editor QA repair] Uruchamiam jedyną próbę naprawy dla scen ${repairCandidates.map((candidate) => candidate.sceneIndex + 1).join(', ')}. Narracja bez zmian.\n${repairSummary}`);
+            if (!isRepairJobActive()) throw new QaRepairCancelledError();
             clearTimeout(totalJobTimeout);
             await processCombineScenesJob(jobId, repairPayload, baseUrl);
-          });
+          }, isRepairJobActive);
+          if (execution.status === 'cancelled') {
+            console.info(`[Shorts Editor QA repair] Job ${jobId} is no longer active; skipping rerender.`);
+            return;
+          }
           if (execution.status === 'stock_search_failed') {
             const failure = execution.error || 'nieznany błąd Pexels';
             const report = repairCandidates.map((candidate) => `Scena ${candidate.sceneIndex + 1}: narracja="${candidate.narration}"; pierwotne zapytanie="${candidate.originalQuery}"; powód odrzucenia="${candidate.reason}"; zapytanie naprawcze="${candidate.repairQuery}"; ponowne QA=nieuruchomione — wyszukiwanie Pexels nie powiodło się: ${failure}.`).join('\n');
@@ -3516,6 +3532,7 @@ function normalizeSceneItem(sc: any, idx: number, totalCount: number): SceneInpu
     subtitles: rawText.toString().trim(),
     voiceover_text: (sc.voiceover_text || sc['tekst_głosowy'] || sc['tekst_glosowy'] || rawText).toString().trim(),
     videoUrl,
+    ...validatedPexelsRepairMetadata(sc),
     duration,
     motionSound: sc.motionSound && typeof sc.motionSound === 'object' ? sc.motionSound : undefined,
     visualQuery: typeof sc.visualQuery === 'string' ? sc.visualQuery : undefined,
