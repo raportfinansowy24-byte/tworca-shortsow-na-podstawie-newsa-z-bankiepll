@@ -31,6 +31,15 @@ const lengthyFallback = buildCreativeDirectorFallback({
 const totalFallbackWords = lengthyFallback.scenes.reduce((total, scene) => total + scene.voiceover.trim().split(/\s+/).filter(Boolean).length, 0);
 assert.ok(totalFallbackWords <= 50, `fallback utrzymuje krótki budżet narracji, otrzymano ${totalFallbackWords} słów`);
 assert.ok(lengthyFallback.riskFlags.some((flag) => /neutralne linie pomostowe/.test(flag)), 'fallback sygnalizuje, gdy źródło nie dostarcza dość krótkich, odrębnych faktów');
+const longTitleFallback = buildCreativeDirectorFallback({
+  title: 'Narodowy Bank Polski ogłosił ważną decyzję dotyczącą stóp procentowych oraz rat kredytów w Polsce',
+  keyTakeaway: 'Bank ogłosił decyzję.',
+  description: 'Szczegóły podaje artykuł źródłowy.'
+});
+assert.equal(longTitleFallback.hook, 'Narodowy Bank Polski ogłosił…');
+assert.ok(longTitleFallback.hook.split(/\s+/).length <= 4, 'hook fallbacku mieści się w czterech słowach');
+assert.ok(longTitleFallback.hook.length <= 49, 'hook fallbacku mieści się w 48 znakach plus wielokropek');
+assert.ok(longTitleFallback.riskFlags.some((flag) => /Długi hook fallbacku został skrócony/.test(flag)), 'fallback jawnie sygnalizuje skrócenie długiego hooka');
 assert.match(fallback.scenes[0].visualQuery, /National Bank of Poland/i);
 assert.doesNotMatch(fallback.scenes[0].visualQuery, /crypto|cryptocurrency/i);
 assert.notEqual(buildArticleVisualQuery(article, 'RPP pozostaje w centrum sporu.', 0), 'financial market chart dynamic');

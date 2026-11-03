@@ -221,6 +221,22 @@ function normalizeNarrationLine(value: string): string {
   return value.toLocaleLowerCase('pl-PL').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 }
 
+function buildShortFallbackHook(value: string): { text: string; truncated: boolean } {
+  const fullText = value.trim().replace(/\s+/g, ' ');
+  const normalized = fullText.slice(0, 180);
+  const words = normalized.split(/\s+/).filter(Boolean);
+  const selectedWords: string[] = [];
+  for (const word of words) {
+    const candidate = [...selectedWords, word].join(' ');
+    if (selectedWords.length >= 4 || candidate.length > 48) break;
+    selectedWords.push(word);
+  }
+  if (selectedWords.length === 0 && words[0]) selectedWords.push(words[0].slice(0, 47));
+  const truncated = fullText.length > 180 || selectedWords.length < words.length || Boolean(words[0] && selectedWords[0] !== words[0]);
+  const text = selectedWords.join(' ').replace(/[.,;:!?…]+$/u, '') + (truncated ? '…' : '');
+  return { text, truncated };
+}
+
 function buildFallbackMiddleNarration(article: CreativeDirectorArticle, hook: string, cta: string): { lines: string[]; usedBridge: boolean } {
   const occupied = new Set([hook, cta].map(normalizeNarrationLine).filter(Boolean));
   const sourceUnits = [article.keyTakeaway, article.description, article.summary]
@@ -257,7 +273,9 @@ function buildFallbackMiddleNarration(article: CreativeDirectorArticle, hook: st
 
 export function buildCreativeDirectorFallback(article: CreativeDirectorArticle, params: { platform?: string; duration?: number; filesUsed?: string[]; ctaText?: string; ctaDestination?: string; ctaUrl?: string } = {}): CreativeDirectorPlan {
   const title = article.title.trim().slice(0, 180);
-  const hook = article.suggestedHook || title;
+  const rawHook = typeof article.suggestedHook === 'string' && article.suggestedHook.trim() ? article.suggestedHook : title;
+  const boundedHook = buildShortFallbackHook(rawHook);
+  const hook = boundedHook.text;
   const cta = params.ctaText || 'Sprawdź pełny kontekst.';
   const fallbackNarration = buildFallbackMiddleNarration(article, hook, cta);
   const sceneCount = 8;
@@ -291,6 +309,7 @@ export function buildCreativeDirectorFallback(article: CreativeDirectorArticle, 
     scenes,
     riskFlags: [
       'Plan utworzony przez fallback; przed publikacją zweryfikuj liczby, daty i nazwy własne w źródle.',
+      ...(boundedHook.truncated ? ['Długi hook fallbacku został skrócony do maksymalnie czterech słów i 48 znaków, by ograniczyć ryzyko przekroczenia budżetu lektora.'] : []),
       ...(fallbackNarration.usedBridge ? ['Fallback wykorzystał krótkie, neutralne linie pomostowe; sprawdź, czy materiał zawiera wystarczająco dużo unikalnych faktów.'] : []),
       ...(!article.keyTakeaway && !article.description && !article.summary ? ['Brak treści artykułu poza tytułem; zweryfikuj narrację przed publikacją.'] : []),
       ...scenes.some((scene) => !scene.visualQuery) ? ['Nie udało się wyznaczyć wiarygodnego zapytania wizualnego dla każdej sceny; storyboard wymaga poprawy przed renderem.'] : []
