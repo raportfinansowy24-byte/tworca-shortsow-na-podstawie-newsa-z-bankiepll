@@ -53,7 +53,7 @@ import { buildAudioMixFilter, buildMotionFilter, generateSceneSoundEffect, motio
 import { getLearningSignals, recordHookVariants, recordPipelineEvent, recordPipelineRun, recordRetentionMetric, updatePipelineRunStatus } from './src/server/pipelineTelemetry';
 import { buildShortsEditorQaRevisionInstruction, evaluateRenderedShort, evaluateShortStoryboard } from './src/server/shortsEditorQa';
 import { buildVisualAnalysisUnavailableReport, buildVisualSemanticReport, parseVisualSemanticResponse, type VisualSemanticReport, type VisualSemanticSample } from './src/server/shortsVisualSemanticQa';
-import { applyQaRepairAssets, buildQaRepairFailureReport, executeQaRepairOnce, resolveUniqueQaRepairAssets, selectQaRepairCandidates } from './src/server/qaRepair';
+import { applyQaRepairAssets, buildQaRepairFailureReport, executeQaRepairOnce, QaRepairCancelledError, resolveUniqueQaRepairAssets, selectQaRepairCandidates } from './src/server/qaRepair';
 
 const execPromise = promisify(exec);
 
@@ -2866,6 +2866,11 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
         const repairCandidates = selectQaRepairCandidates(scenes as any, combinedQa as any, payload.qaRepairArticle);
         if (repairCandidates.length > 0) {
           type Replacement = { sceneIndex: number; visualQuery: string; videoUrl: string; thumbnailUrl?: string; pexelsId: number; searchKeyword?: string; photographer?: string; photographerUrl?: string };
+          const isRepairJobActive = () => {
+            const currentJob = jobsStore.get(jobId);
+            const currentExecution = activeJobExecutions.get(jobId);
+            return !abortController.signal.aborted && currentJob?.status === 'processing' && currentExecution?.abortController === abortController;
+          };
           const execution = await executeQaRepairOnce(payload.qaRepairAttempt || 0, repairCandidates, async (candidates): Promise<Replacement[]> => {
             const existingIds = scenes.map((scene: any) => Number(scene.pexelsId)).filter((id: number) => Number.isSafeInteger(id) && id > 0);
             return resolveUniqueQaRepairAssets(candidates, existingIds, async (candidate, usedIds): Promise<Replacement> => {
@@ -2890,8 +2895,9 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
               };
               console.info(`[Shorts Editor QA repair] Replaced only blocked scene ${candidate.sceneIndex + 1}: "${candidate.originalQuery}" -> "${candidate.repairQuery}"; narration preserved.`);
               return replacement;
-            });
+            }, isRepairJobActive);
           }, async (replacements) => {
+            if (!isRepairJobActive()) throw new QaRepairCancelledError();
             const repairedScenes = applyQaRepairAssets(scenes as any, replacements);
             const repairPayload: CombineScenesPayload = {
               ...payload,
@@ -2904,9 +2910,14 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
             };
             const repairSummary = repairCandidates.map((candidate) => `Scena ${candidate.sceneIndex + 1}: narracja="${candidate.narration}"; query="${candidate.originalQuery}" -> "${candidate.repairQuery}"; powód="${candidate.reason}".`).join('\n');
             updateJobProgress(jobId, { shortMetadata: { ...jobBeforeQaUpdate?.shortMetadata, editorQa: { ...previousEditorQa, postRender: combinedQa, repair: { attempt: 1, status: 'rerendering', scenes: repairCandidates } } } }, `[Shorts Editor QA repair] Uruchamiam jedyną próbę naprawy dla scen ${repairCandidates.map((candidate) => candidate.sceneIndex + 1).join(', ')}. Narracja bez zmian.\n${repairSummary}`);
+            if (!isRepairJobActive()) throw new QaRepairCancelledError();
             clearTimeout(totalJobTimeout);
             await processCombineScenesJob(jobId, repairPayload, baseUrl);
-          });
+          }, isRepairJobActive);
+          if (execution.status === 'cancelled') {
+            console.info(`[Shorts Editor QA repair] Job ${jobId} is no longer active; skipping rerender.`);
+            return;
+          }
           if (execution.status === 'stock_search_failed') {
             const failure = execution.error || 'nieznany błąd Pexels';
             const report = repairCandidates.map((candidate) => `Scena ${candidate.sceneIndex + 1}: narracja="${candidate.narration}"; pierwotne zapytanie="${candidate.originalQuery}"; powód odrzucenia="${candidate.reason}"; zapytanie naprawcze="${candidate.repairQuery}"; ponowne QA=nieuruchomione — wyszukiwanie Pexels nie powiodło się: ${failure}.`).join('\n');

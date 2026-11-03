@@ -25,16 +25,26 @@ export interface QaRepairCandidate {
   repairQuery: string;
 }
 
+export class QaRepairCancelledError extends Error {
+  constructor() {
+    super('Zadanie nie jest już aktywne; przerwano naprawę QA.');
+    this.name = 'QaRepairCancelledError';
+  }
+}
+
 /** Resolve candidates sequentially while reserving every original and newly selected Pexels ID. */
 export async function resolveUniqueQaRepairAssets<Candidate, Asset extends { pexelsId?: number }>(
   candidates: Candidate[],
   existingIds: number[],
-  resolve: (candidate: Candidate, usedIds: number[]) => Promise<Asset>
+  resolve: (candidate: Candidate, usedIds: number[]) => Promise<Asset>,
+  shouldContinue: () => boolean = () => true
 ): Promise<Asset[]> {
   const usedIds = new Set(existingIds.filter((id) => Number.isSafeInteger(id) && id > 0));
   const resolvedAssets: Asset[] = [];
   for (const candidate of candidates) {
+    if (!shouldContinue()) throw new QaRepairCancelledError();
     const asset = await resolve(candidate, [...usedIds]);
+    if (!shouldContinue()) throw new QaRepairCancelledError();
     if (!Number.isSafeInteger(asset.pexelsId) || !asset.pexelsId || usedIds.has(asset.pexelsId)) {
       throw new Error(`Pexels zwrócił nieprawidłowy lub powielony identyfikator klipu: ${String(asset.pexelsId)}.`);
     }
@@ -52,19 +62,24 @@ export async function executeQaRepairOnce<Candidate, Asset>(
   attempt: number,
   candidates: Candidate[],
   resolveAssets: (candidates: Candidate[]) => Promise<Asset[]>,
-  rerenderAndValidate: (assets: Asset[]) => Promise<void>
-): Promise<{ status: 'skipped' | 'stock_search_failed' | 'render_failed' | 'completed'; error?: string }> {
+  rerenderAndValidate: (assets: Asset[]) => Promise<void>,
+  shouldContinue: () => boolean = () => true
+): Promise<{ status: 'skipped' | 'cancelled' | 'stock_search_failed' | 'render_failed' | 'completed'; error?: string }> {
   if (!canAttemptQaRepair(attempt) || candidates.length === 0) return { status: 'skipped' };
+  if (!shouldContinue()) return { status: 'cancelled' };
   let assets: Asset[];
   try {
     assets = await resolveAssets(candidates);
   } catch (error) {
+    if (error instanceof QaRepairCancelledError) return { status: 'cancelled' };
     return { status: 'stock_search_failed', error: error instanceof Error ? error.message : String(error) };
   }
+  if (!shouldContinue()) return { status: 'cancelled' };
   try {
     await rerenderAndValidate(assets);
     return { status: 'completed' };
   } catch (error) {
+    if (error instanceof QaRepairCancelledError) return { status: 'cancelled' };
     return { status: 'render_failed', error: error instanceof Error ? error.message : String(error) };
   }
 }

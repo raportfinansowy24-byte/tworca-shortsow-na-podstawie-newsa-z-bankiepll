@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { applyQaRepairAssets, buildQaRepairFailureReport, canAttemptQaRepair, executeQaRepairOnce, resolveUniqueQaRepairAssets, selectQaRepairCandidates, type QaRepairReport, type QaRepairScene } from '../src/server/qaRepair';
+import { applyQaRepairAssets, buildQaRepairFailureReport, canAttemptQaRepair, executeQaRepairOnce, QaRepairCancelledError, resolveUniqueQaRepairAssets, selectQaRepairCandidates, type QaRepairReport, type QaRepairScene } from '../src/server/qaRepair';
 
 const article = { title: 'NBP pozostaje w centrum sporu o decyzję RPP', description: 'Narodowy Bank Polski i Rada Polityki Pieniężnej.' };
 const scenes: QaRepairScene[] = Array.from({ length: 8 }, (_, index) => ({
@@ -53,6 +53,17 @@ await assert.rejects(
   () => resolveUniqueQaRepairAssets(['scene-a', 'scene-b'], [100], async () => ({ pexelsId: 401 })),
   /powielony identyfikator/
 );
+let repairJobActive = true;
+let postCancelPexelsCalls = 0;
+await assert.rejects(
+  () => resolveUniqueQaRepairAssets(['scene-a', 'scene-b'], [], async () => {
+    postCancelPexelsCalls++;
+    repairJobActive = false;
+    return { pexelsId: 501 };
+  }, () => repairJobActive),
+  QaRepairCancelledError
+);
+assert.equal(postCancelPexelsCalls, 1, 'po anulowaniu nie rozpoczyna kolejnego wyszukiwania Pexels');
 
 const failedSecondQa: QaRepairReport = {
   findings: [{ code: 'visual_narration_mismatch', severity: 'blocker', scene: 3, message: 'Nadal niedopasowane.' }],
@@ -76,6 +87,15 @@ assert.equal(stockFailure.status, 'stock_search_failed');
 assert.match(stockFailure.error || '', /Pexels timeout/);
 assert.equal(resolveCalls, 1);
 assert.equal(rerenderCalls, 0, 'błąd wyszukania stocku nie uruchamia kolejnego renderu');
+
+let activeAfterPexelsSearch = true;
+let cancelledRerenderCalls = 0;
+const cancelledAttempt = await executeQaRepairOnce(0, candidates, async () => {
+  activeAfterPexelsSearch = false;
+  return [{ replacement: true }];
+}, async () => { cancelledRerenderCalls++; }, () => activeAfterPexelsSearch);
+assert.equal(cancelledAttempt.status, 'cancelled', 'utrata aktywności po wyszukiwaniu oznacza anulowanie naprawy');
+assert.equal(cancelledRerenderCalls, 0, 'po anulowaniu podczas wyszukiwania nie startuje recursive rerender');
 
 const successfulAttempt = await executeQaRepairOnce(0, candidates, async () => [{ replacement: true }], async () => { rerenderCalls++; });
 assert.equal(successfulAttempt.status, 'completed');
