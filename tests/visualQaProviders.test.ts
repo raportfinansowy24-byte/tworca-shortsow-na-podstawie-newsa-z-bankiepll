@@ -30,6 +30,15 @@ const sdkStatusRetry = await retryVisualQa(async () => {
 assert.equal(sdkStatusRetry, 'Gemini recovered');
 assert.equal(sdkStatusAttempts, 2, 'Gemini SDK status=500 jest ponawiany mimo braku HTTP code w message');
 
+let malformedJsonAttempts = 0;
+const parsedAfterRetry = await retryVisualQa(async () => {
+  malformedJsonAttempts++;
+  if (malformedJsonAttempts === 1) throw new SyntaxError('Unexpected end of JSON input');
+  return JSON.parse('{"results":[]}');
+}, { maxAttempts: 2, delaysMs: [0], sleep: async () => {} });
+assert.deepEqual(parsedAfterRetry, { results: [] });
+assert.equal(malformedJsonAttempts, 2, 'SyntaxError modelu jest ponawiany przed fallbackiem');
+
 let permanentFailureAttempts = 0;
 await assert.rejects(() => retryVisualQa(async () => {
   permanentFailureAttempts++;

@@ -13,6 +13,7 @@ export interface VisualQaRetryOptions {
 
 export function isRetryableVisualQaError(error: Error): boolean {
   const message = error.message;
+  if (error instanceof SyntaxError) return true;
   const status = Number((error as Error & { status?: unknown }).status);
   if (Number.isFinite(status) && (status === 408 || status === 425 || status === 429 || status >= 500)) return true;
   return /\bHTTP\s+(?:408|425|429|5\d\d)\b/i.test(message) ||
