@@ -94,17 +94,55 @@ function escapeXml(value: string): string {
 
 function parsePercentFacts(text: string): FinanceFact[] {
   const facts: FinanceFact[] = [];
-  const patterns: Array<{ regex: RegExp; label: string; entity: string }> = [
-    { regex: /WIG20[^.]{0,80}?wzr[oó]s(?:ł|ła|ła)\s+o\s+([+-]?\d+(?:[,.]\d+)?)\s*proc/i, label: 'WIG20', entity: 'WIG20' },
-    { regex: /WIG-Banki[^.]{0,80}?ur[oó]s(?:ł|ła|la)\s+o\s+([+-]?\d+(?:[,.]\d+)?)\s*proc/i, label: 'WIG-Banki', entity: 'WIG-Banki' },
-    { regex: /Cyfrowy Polsat[^.]{0,80}?(?:spad(?:ł|ła)|stracił)[^\d-]{0,12}(-?\d+(?:[,.]\d+)?)\s*proc/i, label: 'Cyfrowy Polsat', entity: 'Cyfrowy Polsat' },
-    { regex: /Eurocash[^.]{0,80}?(?:spad(?:ł|ła)|stracił)[^\d-]{0,12}(-?\d+(?:[,.]\d+)?)\s*proc/i, label: 'Eurocash', entity: 'Eurocash' }
+  const indexPattern = /\b(mWIG40|sWIG80|WIG-Banki|WIG20|WIG30|WIG)\b/gi;
+  for (const match of text.matchAll(indexPattern)) {
+    const entity = match[0];
+    const start = (match.index || 0) + entity.length;
+    const remaining = text.slice(start, start + 220);
+    const nextEntity = remaining.search(/\b(?:mWIG40|sWIG80|WIG-Banki|WIG20|WIG30|WIG)\b/i);
+    const candidate = remaining.slice(0, nextEntity >= 0 ? nextEntity : remaining.length);
+    const sentenceEnd = /[!?]|\.(?!\d)/.exec(candidate)?.index;
+    const sourceText = candidate.slice(0, sentenceEnd ?? candidate.length).trim();
+    const metric = sourceText.match(/([+-]?\d+(?:[,.]\d+)?)\s*(?:%|proc(?:ent(?:a|u|y|ów)?)?)/i);
+    if (!metric || facts.some((fact) => fact.entity?.toLocaleLowerCase('pl-PL') === entity.toLocaleLowerCase('pl-PL'))) continue;
+
+    const normalizedSource = sourceText.toLocaleLowerCase('pl-PL');
+    const hasNegativeDirection = /spad|zniż|strac|minus|przecen|obniż/i.test(normalizedSource);
+    const hasPositiveDirection = /wzr|ur[oó]s|rosn|zysk|zwyż|plus|wzrost/i.test(normalizedSource);
+    const rawValue = metric[1].replace(',', '.');
+    const absoluteValue = Math.abs(Number(rawValue));
+    const hasExplicitSign = /^[+-]/.test(metric[1]);
+    if (!Number.isFinite(absoluteValue) || (!hasExplicitSign && !hasNegativeDirection && !hasPositiveDirection)) continue;
+
+    const value = hasExplicitSign
+      ? Number(rawValue)
+      : hasNegativeDirection ? -absoluteValue : absoluteValue;
+    const normalizedEntity = entity.toLocaleLowerCase('pl-PL');
+    const label = normalizedEntity === 'mwig40' ? 'mWIG40'
+      : normalizedEntity === 'swig80' ? 'sWIG80'
+        : normalizedEntity === 'wig-banki' ? 'WIG-Banki'
+          : entity.toUpperCase();
+    facts.push({
+      label,
+      entity: label,
+      value,
+      displayValue: `${value >= 0 ? '+' : ''}${value.toFixed(2).replace('.', ',')}%`,
+      direction: value > 0 ? 'up' : value < 0 ? 'down' : 'neutral',
+      sourceText: `${entity} ${sourceText}`.trim()
+    });
+  }
+
+  const companyPatterns: Array<{ regex: RegExp; label: string; entity: string }> = [
+    { regex: /Cyfrowy Polsat[^.!?]{0,100}?(?:spad(?:ł|ła)|stracił)[^\d-]{0,12}(-?\d+(?:[,.]\d+)?)\s*(?:proc|%)/i, label: 'Cyfrowy Polsat', entity: 'Cyfrowy Polsat' },
+    { regex: /Eurocash[^.!?]{0,100}?(?:spad(?:ł|ła)|stracił)[^\d-]{0,12}(-?\d+(?:[,.]\d+)?)\s*(?:proc|%)/i, label: 'Eurocash', entity: 'Eurocash' }
   ];
-  for (const pattern of patterns) {
+  for (const pattern of companyPatterns) {
     const match = text.match(pattern.regex);
     if (!match) continue;
     const raw = match[1].replace(',', '.');
-    const value = Number(raw) * (pattern.label === 'Cyfrowy Polsat' || pattern.label === 'Eurocash' ? -1 : 1);
+    const value = pattern.label === 'Cyfrowy Polsat' || pattern.label === 'Eurocash'
+      ? -Math.abs(Number(raw))
+      : Number(raw);
     if (!Number.isFinite(value)) continue;
     facts.push({
       label: pattern.label,
@@ -122,7 +160,7 @@ function formatFact(fact?: FinanceFact): string {
   return fact ? `${fact.label} ${fact.displayValue}` : 'DANE RYNKOWE';
 }
 
-function makeBarsSvg(title: string, subtitle: string, facts: FinanceFact[], accent = '#b7f34a'): string {
+function makeBarsSvg(title: string, subtitle: string, facts: FinanceFact[], accent = '#b7f34a', sourceLabel = 'ARTYKUŁU BANKIER.PL'): string {
   const safeFacts = facts.slice(0, 4);
   const maxAbs = Math.max(1, ...safeFacts.map((fact) => Math.abs(fact.value)));
   const bars = safeFacts.map((fact, index) => {
@@ -130,13 +168,53 @@ function makeBarsSvg(title: string, subtitle: string, facts: FinanceFact[], acce
     const y = 196 + index * 76;
     const color = fact.direction === 'down' ? '#ff5d73' : fact.direction === 'up' ? accent : '#d5d9e4';
     const x = fact.value < 0 ? 392 - width : 392;
-    return `<text x="64" y="${y + 24}" fill="#f8fafc" font-size="24" font-family="TikTok Sans" font-weight="700">${escapeXml(fact.label)}</text><rect x="392" y="${y}" width="${width}" height="34" rx="17" fill="${color}"/><text x="${fact.value < 0 ? 392 - width - 18 : 410 + width}" y="${y + 25}" text-anchor="${fact.value < 0 ? 'end' : 'start'}" fill="${color}" font-size="24" font-family="TikTok Sans" font-weight="800">${escapeXml(fact.displayValue)}</text>`;
+    return `<text x="64" y="${y + 24}" fill="#f8fafc" font-size="24" font-family="TikTok Sans" font-weight="700">${escapeXml(fact.label)}</text><rect x="${x}" y="${y}" width="${width}" height="34" rx="17" fill="${color}"/><text x="${fact.value < 0 ? 392 - width - 18 : 410 + width}" y="${y + 25}" text-anchor="${fact.value < 0 ? 'end' : 'start'}" fill="${color}" font-size="24" font-family="TikTok Sans" font-weight="800">${escapeXml(fact.displayValue)}</text>`;
   }).join('');
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="720" height="1280" viewBox="0 0 720 1280"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#07111f"/><stop offset="1" stop-color="#172a45"/></linearGradient></defs><rect width="720" height="1280" fill="url(#bg)"/><path d="M0 940 L720 760 L720 1280 L0 1280 Z" fill="#0b1728" opacity=".75"/><text x="64" y="86" fill="${accent}" font-size="22" font-family="TikTok Sans" font-weight="800" letter-spacing="3">RAPORTFINANSOWY24 / GPW</text><text x="64" y="146" fill="#fff" font-size="42" font-family="TikTok Sans" font-weight="900">${escapeXml(title)}</text><text x="64" y="184" fill="#cbd5e1" font-size="22" font-family="TikTok Sans">${escapeXml(subtitle)}</text><line x1="392" y1="170" x2="392" y2="520" stroke="#64748b" stroke-width="2" opacity=".55"/>${bars}<rect x="48" y="1060" width="624" height="112" rx="28" fill="#0f1f34" stroke="#29415e" stroke-width="2"/><text x="82" y="1110" fill="#f8fafc" font-size="22" font-family="TikTok Sans" font-weight="700">FAKT Z ARTYKUŁU BANKIER.PL</text><text x="82" y="1146" fill="#94a3b8" font-size="18" font-family="TikTok Sans">Dane redakcyjne — nie jest to rekomendacja inwestycyjna</text></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="720" height="1280" viewBox="0 0 720 1280"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#07111f"/><stop offset="1" stop-color="#172a45"/></linearGradient></defs><rect width="720" height="1280" fill="url(#bg)"/><path d="M0 940 L720 760 L720 1280 L0 1280 Z" fill="#0b1728" opacity=".75"/><text x="64" y="86" fill="${accent}" font-size="22" font-family="TikTok Sans" font-weight="800" letter-spacing="3">RAPORTFINANSOWY24 / GPW</text><text x="64" y="146" fill="#fff" font-size="42" font-family="TikTok Sans" font-weight="900">${escapeXml(title)}</text><text x="64" y="184" fill="#cbd5e1" font-size="22" font-family="TikTok Sans">${escapeXml(subtitle)}</text><line x1="392" y1="170" x2="392" y2="520" stroke="#64748b" stroke-width="2" opacity=".55"/>${bars}<rect x="48" y="1060" width="624" height="112" rx="28" fill="#0f1f34" stroke="#29415e" stroke-width="2"/><text x="82" y="1110" fill="#f8fafc" font-size="22" font-family="TikTok Sans" font-weight="700">FAKT Z ${escapeXml(sourceLabel)}</text><text x="82" y="1146" fill="#94a3b8" font-size="18" font-family="TikTok Sans">Dane redakcyjne — nie jest to rekomendacja inwestycyjna</text></svg>`;
 }
 
 function makeTitleSvg(title: string, kicker: string, accent = '#b7f34a'): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="720" height="1280"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#06101d"/><stop offset="1" stop-color="#203c5f"/></linearGradient></defs><rect width="720" height="1280" fill="url(#g)"/><circle cx="590" cy="260" r="250" fill="#b7f34a" opacity=".1"/><circle cx="120" cy="1050" r="340" fill="#ff5d73" opacity=".08"/><text x="60" y="150" fill="${accent}" font-size="24" font-family="TikTok Sans" font-weight="900" letter-spacing="4">${escapeXml(kicker)}</text><text x="60" y="420" fill="#fff" font-size="62" font-family="TikTok Sans" font-weight="900">${escapeXml(title)}</text><rect x="60" y="500" width="140" height="8" rx="4" fill="${accent}"/><text x="60" y="1120" fill="#cbd5e1" font-size="22" font-family="TikTok Sans">RaportFinansowy24</text></svg>`;
+}
+
+export function buildFinanceSceneDataVisual(
+  article: FinanceArticleInput,
+  narration: string,
+  caption = ''
+): Pick<PipelineScene, 'visualMode' | 'visualTitle' | 'visualSubtitle' | 'facts' | 'visualSvg'> | null {
+  const sourceText = [article.title, article.description, article.summary].map(clean).filter(Boolean).join('. ');
+  const sourceFacts = parsePercentFacts(sourceText);
+  if (!sourceFacts.length) return null;
+
+  const sceneText = clean(`${narration} ${caption}`).toLocaleLowerCase('pl-PL');
+  const hasNumericClaim = /\d+(?:[,.]\d+)?\s*(?:%|proc(?:ent(?:a|u|y|ów)?)?)/i.test(sceneText);
+  const matchedFacts = sourceFacts.filter((fact) => {
+    const sourceLabels = [fact.label, fact.entity].filter(Boolean).map((label) => String(label).toLocaleLowerCase('pl-PL'));
+    const localizedNumber = Math.abs(fact.value).toFixed(2).replace('.', ',');
+    const decimalNumber = Math.abs(fact.value).toFixed(2);
+    const matchesNumber = [localizedNumber, decimalNumber].some((number) => {
+      const escapedNumber = number.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return new RegExp(`(?:^|[^\\d,.])${escapedNumber}(?:$|[^\\d])`).test(sceneText);
+    });
+    const matchesEntity = sourceLabels.some((label) => sceneText.includes(label));
+    return matchesNumber || (!hasNumericClaim && matchesEntity);
+  });
+  const mentionsGpWIndex = /\b(?:gpw|wig(?:20|30)|mwig40|swig80|wig-banki|indeks\w*|giełd\w*|sesj\w*)\b/i.test(sceneText);
+  const singleSourceFactIsIndex = sourceFacts.length === 1 && /^(?:mWIG40|sWIG80|WIG(?:20|30)?|WIG-Banki)$/i.test(sourceFacts[0].label);
+  const selectedFacts = matchedFacts.length
+    ? matchedFacts.slice(0, 4)
+    : !hasNumericClaim && mentionsGpWIndex && singleSourceFactIsIndex ? sourceFacts : [];
+  if (!selectedFacts.length) return null;
+
+  const visualTitle = selectedFacts.length === 1 ? selectedFacts[0].label : 'DANE Z ARTYKUŁU';
+  const visualSubtitle = selectedFacts.length === 1 ? 'Zmiana podana w źródle' : 'Potwierdzone dane rynkowe';
+  return {
+    visualMode: 'data_visual',
+    visualTitle,
+    visualSubtitle,
+    facts: selectedFacts,
+    visualSvg: makeBarsSvg(visualTitle, visualSubtitle, selectedFacts, '#b7f34a', 'ARTYKUŁU ŹRÓDŁOWEGO')
+  };
 }
 
 export function buildFinanceShortPlan(articleInput: FinanceArticleInput): FinanceShortPlan {

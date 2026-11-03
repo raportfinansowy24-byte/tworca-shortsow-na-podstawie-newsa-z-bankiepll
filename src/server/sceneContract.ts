@@ -23,6 +23,29 @@ export function hasUniquePexelsSceneIds(scenes: unknown): boolean {
     new Set(ids).size === FINANCE_SHORT_SCENE_COUNT;
 }
 
+export function isSafeFinanceDataVisualSvg(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const svg = value.trim();
+  return svg.startsWith('<svg xmlns="http://www.w3.org/2000/svg" width="720" height="1280" viewBox="0 0 720 1280">') &&
+    svg.endsWith('</svg>') &&
+    !/(?:<\s*(?:script|foreignObject|image|iframe|style)\b|(?:href|xlink:href)\s*=|on[a-z]+\s*=|<!DOCTYPE|<!ENTITY)/i.test(svg) &&
+    !/url\((?!#)/i.test(svg);
+}
+
+export function hasCompleteFinanceSceneVisualAssets(scenes: unknown): boolean {
+  if (!Array.isArray(scenes) || scenes.length !== FINANCE_SHORT_SCENE_COUNT) return false;
+  const pexelsIds: number[] = [];
+  for (const scene of scenes as any[]) {
+    if (scene?.visualMode === 'data_visual') {
+      if (!isSafeFinanceDataVisualSvg(scene.visualSvg)) return false;
+      continue;
+    }
+    if (scene?.source !== 'pexels' || !Number.isSafeInteger(scene?.pexelsId) || scene.pexelsId <= 0) return false;
+    pexelsIds.push(scene.pexelsId);
+  }
+  return new Set(pexelsIds).size === pexelsIds.length;
+}
+
 export function sceneDurationsForCount(sceneCount: number): number[] {
   if (!Number.isInteger(sceneCount) || sceneCount < 1 || sceneCount > MAX_SCENE_COUNT) {
     throw new Error(`Liczba scen musi być liczbą całkowitą od 1 do ${MAX_SCENE_COUNT}.`);

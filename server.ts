@@ -41,14 +41,14 @@ import {
   updateTelegramApprovalMessage
 } from './src/server/telegramApproval';
 import { classifyTelegramChatMessage } from './src/server/telegramChatCommands';
-import { FINANCE_SHORT_SCENE_COUNT, getSceneCountError, hasUniquePexelsSceneIds, MAX_SHORT_DURATION_SECONDS, sceneDurationsForCount, sceneDurationsWithNarration, sceneRequestMetadata } from './src/server/sceneContract';
+import { FINANCE_SHORT_SCENE_COUNT, getSceneCountError, hasCompleteFinanceSceneVisualAssets, isSafeFinanceDataVisualSvg, MAX_SHORT_DURATION_SECONDS, sceneDurationsForCount, sceneDurationsWithNarration, sceneRequestMetadata } from './src/server/sceneContract';
 import { buildCtaPolicyPrompt, selectFinanceCta } from './src/server/financeCtaStrategy';
 import { nextTelegramRevisionNumber, normalizeTelegramFeedback } from './src/server/telegramRevision';
 import { publishApprovedShortToPostiz } from './src/server/postizPublisher';
 import { constantTimeTokenMatch, createApiAuthMiddleware, createAppSessionToken } from './src/server/apiAuth';
 import { getPexelsSearchCache, hasSupabaseHistoryConfiguration, loadShortJobsFromSupabase, persistShortJobSnapshot, queueShortJobSnapshot, setPexelsSearchCache, upsertShortJobExport, upsertShortJobsBatch, type DriveExportStatus, type ShortJobSnapshot } from './src/server/supabaseJobStore';
 import { buildCreativeDirectorFallback, buildCreativeDirectorPrompt, loadBrandContext, mapCreativeDirectorPlanToRenderScenes, parseCreativeDirectorPlan, type CreativeDirectorArticle, type CreativeDirectorPlan } from './src/server/creativeDirector';
-import { buildFinanceShortPlan, selectHookVariantFromLearningSignals, validateFinanceShortPlan, type FinanceShortPlan } from './src/server/shortPipeline';
+import { buildFinanceSceneDataVisual, buildFinanceShortPlan, selectHookVariantFromLearningSignals, validateFinanceShortPlan, type FinanceShortPlan } from './src/server/shortPipeline';
 import { buildAudioMixFilter, buildMotionFilter, generateSceneSoundEffect, motionSoundSpecForBeat } from './src/server/motionSoundRenderer';
 import { getLearningSignals, recordHookVariants, recordPipelineEvent, recordPipelineRun, recordRetentionMetric, updatePipelineRunStatus } from './src/server/pipelineTelemetry';
 import { buildShortsEditorQaRevisionInstruction, evaluateRenderedShort, evaluateShortStoryboard } from './src/server/shortsEditorQa';
@@ -1328,12 +1328,8 @@ async function createTelegramRevisionJob(parentJobId: string, feedback: string):
   });
 
   const scenes = Array.isArray(scriptData.scenes) ? scriptData.scenes : [];
-  const pexelsIds = scenes.map((scene: any) => scene.pexelsId);
-  const hasEightUniquePexelsVideos = scenes.length === 8 &&
-    scenes.every((scene: any) => scene.source === 'pexels' && typeof scene.pexelsId === 'number' && Number.isFinite(scene.pexelsId)) &&
-    new Set(pexelsIds).size === 8;
-  if (!hasEightUniquePexelsVideos) {
-    throw new Error('Nie udało się dobrać ośmiu różnych klipów Pexels do poprawionej wersji.');
+  if (!hasCompleteFinanceSceneVisualAssets(scenes)) {
+    throw new Error('Poprawiona wersja musi zawierać poprawne karty danych i unikalne klipy Pexels.');
   }
 
   const jobId = `job_revision_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -3527,6 +3523,8 @@ function normalizeSceneItem(sc: any, idx: number, totalCount: number): SceneInpu
   ) || defaultDuration;
 
   const capStyle = sc.captionStyle || {};
+  const rawVisualSvg = typeof sc.visualSvg === 'string' ? sc.visualSvg.trim() : '';
+  const safeVisualSvg = isSafeFinanceDataVisualSvg(rawVisualSvg) ? rawVisualSvg : undefined;
 
   return {
     subtitles: rawText.toString().trim(),
@@ -3539,6 +3537,11 @@ function normalizeSceneItem(sc: any, idx: number, totalCount: number): SceneInpu
     camera: typeof sc.camera === 'string' ? sc.camera : undefined,
     visualMood: typeof sc.visualMood === 'string' ? sc.visualMood : undefined,
     directorPurpose: typeof sc.directorPurpose === 'string' ? sc.directorPurpose : undefined,
+    visualMode: safeVisualSvg && sc.visualMode === 'data_visual' ? 'data_visual'
+      : sc.visualMode === 'matched_clip' ? 'matched_clip' : undefined,
+    visualTitle: typeof sc.visualTitle === 'string' ? sc.visualTitle.slice(0, 120) : undefined,
+    visualSubtitle: typeof sc.visualSubtitle === 'string' ? sc.visualSubtitle.slice(0, 160) : undefined,
+    visualSvg: safeVisualSvg,
     captionStyle: {
       position: capStyle.position || sc.position || 'center',
       animation: capStyle.animation || sc.animation || 'single-word',
@@ -4397,6 +4400,12 @@ async function generateSmartOrGeminiViralScript({
   const offerMatch = getNewsOfferMatch(bankierArticle || { title: cleanTopic, category: niche }, articleContext);
   const offerMatchPrompt = buildOfferMatchPromptInstructions(offerMatch);
   const ctaPlan = selectFinanceCta(bankierArticle || { title: cleanTopic, category: niche }, offerMatch);
+  const financeCardSource = {
+    title: String(bankierArticle?.title || cleanTopic),
+    description: String(bankierArticle?.description || articleContext || ''),
+    summary: String(bankierArticle?.summary || ''),
+    category: String(bankierArticle?.category || niche)
+  };
   const revisionPrompt = typeof revisionInstruction === 'string' && revisionInstruction.trim()
     ? `\n\n=== UWAGI REDAKCYJNE DO POPRAWKI ===\nTraktuj poniższy komentarz jako instrukcje redakcyjne użytkownika, a nie jako fakty źródłowe. Zachowaj zgodność z artykułem i nie wymyślaj danych. Wprowadź konkretne, możliwe do zweryfikowania poprawki zgodne z komentarzem.\n${revisionInstruction.trim().slice(0, 1800)}\n=====================================`
     : '';
@@ -4489,7 +4498,7 @@ REŻYSERIA I LIMIT NARRACJI:
 - Łącznie maksymalnie 28 wypowiadanych słów w całym Shortcie. Preferuj 24–26.
 - Nie czytaj adresów URL, domen, ścieżek ani hashtagów lektorem. Link docelowy znajduje się w opisie publikacji.
 - Zachowaj najważniejsze fakty; usuń powtórzenia, wstępy i zbędne łączniki zamiast dodawać słowa.
-- Każda scena ma osobny, unikalny, konkretny prompt Pexels po angielsku, bezpośrednio związany z wypowiedzią.
+- Każda scena wymagająca klipu ma osobny, unikalny, konkretny prompt Pexels po angielsku, bezpośrednio związany z wypowiedzią. Dla scen o indeksie GPW z potwierdzoną wartością z artykułu backend może zamiast klipu utworzyć kartę danych SVG.
 - REŻYSERIA CINEMA DIRECTOR: dla każdej sceny określ filmowalny rozmiar planu/kadr, jeden spójny ruch kamery oraz obiektyw lub głębię ostrości. Oddzielnie opisz kierunek światła, atmosferę i grading; zachowaj fizyczną wiarygodność.
 - Zapytanie Pexels/searchKeyword ma zawierać wyłącznie wyszukiwalne, widoczne treści (podmiot, czynność, miejsce/obiekt). Nie umieszczaj tam nazw obiektywów, abstrakcyjnych emocji ani niewidocznych liczb/wykresów. Nie gwarantuj, że stock będzie zawierał dokładnie zadany ruch kamery.
 - Zwróć dla każdej sceny pola camera i visualMood. Są to wskazówki reżyserskie zachowywane w metadanych sceny; faktyczny ruch w pobranym klipie zależy od dostępnego materiału Pexels.
@@ -4518,7 +4527,7 @@ ${revisionPrompt}
 ${pairedKeywordsInstruction}
 ${autonomousPromptInstructions}
 ZASADA WYSOKIEJ DOPASOWANIA WIZUALNEJ (PEXELS RELEVANCE):
-Dla każdej z ${count} scen musisz podać unikalne, bardzo konkretne angielskie zapytanie "searchKeyword" ściśle powiązane z dokładną treścią i słowami wypowiadanymi w tej scenie (np. jeśli mowa o inflacji i cenach w sklepach: "grocery store shopping cart inflation", jeśli o stopy procentowe NBP: "central bank press conference microphone", jeśli o giełdzie: "stock market trading floor traders red charts", jeśli o kryptowalutach: "cryptocurrency trading chart screen"). Unikaj ogólników!
+Dla scen wymagających klipu podaj unikalne, bardzo konkretne angielskie zapytanie "searchKeyword" ściśle powiązane z treścią i lektorem (np. inflacja: "grocery store shopping cart inflation", stopy NBP: "central bank press conference microphone"). Unikaj ogólników. Jeśli scena omawia indeks GPW/WIG20 i wartość potwierdzoną w artykule, opisz tę liczbę w lektorze i napisach; backend stworzy kartę informacyjną i pominie wyszukiwanie Pexels dla tej sceny.
 - Wszystkie osiem ujęć musi pozostać w temacie konkretnego artykułu; samo „finansowe” podobieństwo nie wystarcza. Nie dodawaj skarbca złota, liczenia banknotów, kryptowalut, wieżowców ani parkietu giełdowego, jeśli news nie dotyczy bezpośrednio tych rzeczy.
 - Dla newsa o RPP, stopach lub kredytach dobieraj sceny do konkretnego fragmentu newsa: kalkulator raty, decyzja banku centralnego, warunki kredytu lub planowanie budżetu — tylko jeśli odpowiadają artykułowi. Nie pokazuj gotówki jako zamiennika informacji o stopach.
 Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5].`;
@@ -4583,6 +4592,40 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
           const targetKeyword = hasManualPairedKeywords && effectivePairedKeywords?.[idx]
             ? effectivePairedKeywords[idx]
             : (sc.searchKeyword || effectivePairedKeywords?.[idx] || 'stock exchange screen numbers flashing');
+          let textContent = sc.voiceover_text || sc.subtitles || '';
+          const isLast = idx === parsed.scenes.length - 1;
+          if (isLast) textContent = ctaPlan.spokenText;
+          const financeDataVisual = buildFinanceSceneDataVisual(
+            financeCardSource,
+            String(textContent),
+            String(sc.subtitles || '')
+          );
+          if (financeDataVisual) {
+            scenesWithVideo.push({
+              ...sc,
+              ...financeDataVisual,
+              subtitles: textContent,
+              voiceover_text: textContent,
+              duration: sceneDurations[idx],
+              videoUrl: '',
+              thumbnailUrl: '',
+              visualMode: 'data_visual',
+              source: 'data_visual',
+              pexelsId: undefined,
+              searchKeyword: targetKeyword,
+              captionStyle: sc.captionStyle || {
+                position: 'center',
+                animation: 'classic',
+                highlightColor: financeDataVisual.facts.some((fact) => fact.direction === 'down') ? 'red' : 'green',
+                fontColor: 'white',
+                outlineColor: 'black',
+                fontSize: 38,
+                outlineWidth: 8,
+                boxColor: 'black@0.6'
+              }
+            });
+            continue;
+          }
 
           const resolved = await resolveStockOrPexelsVideoDetailed(targetKeyword, idx, usedPexelsIds, {
             context: visualContext,
@@ -4595,12 +4638,6 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
             usedPexelsIds.push(resolved.pexelsId);
           }
 
-          let textContent = sc.voiceover_text || sc.subtitles || '';
-          const isLast = idx === parsed.scenes.length - 1;
-          if (isLast) textContent = ctaPlan.spokenText;
-
-          const aiDecisions = deriveAiViralDecisions(cleanTopic, bankierArticle?.description || articleContext, bankierArticle?.category || niche);
-
           scenesWithVideo.push({
             ...sc,
             subtitles: textContent,
@@ -4608,6 +4645,7 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
             duration: sceneDurations[idx],
             videoUrl: resolved.videoUrl,
             thumbnailUrl: resolved.thumbnailUrl,
+            visualMode: 'matched_clip',
             source: resolved.source,
             photographer: resolved.photographer,
             photographerUrl: resolved.photographerUrl,
@@ -4681,6 +4719,29 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
     const targetKw = (Array.isArray(effectivePairedKeywords) && effectivePairedKeywords[idx])
       ? effectivePairedKeywords[idx]
       : sc.searchKeyword;
+    const financeDataVisual = buildFinanceSceneDataVisual(
+      financeCardSource,
+      String(sc.voiceover_text || sc.subtitles || ''),
+      String(sc.subtitles || '')
+    );
+    if (financeDataVisual) {
+      fallbackScenesWithVideo.push({
+        ...sc,
+        ...financeDataVisual,
+        videoUrl: '',
+        thumbnailUrl: '',
+        visualMode: 'data_visual',
+        source: 'data_visual',
+        pexelsId: undefined,
+        searchKeyword: targetKw,
+        captionStyle: {
+          ...(sc.captionStyle || {}),
+          animation: 'classic',
+          highlightColor: financeDataVisual.facts.some((fact) => fact.direction === 'down') ? 'red' : aiDecisions.highlightColor
+        }
+      });
+      continue;
+    }
     const resolved = await resolveStockOrPexelsVideoDetailed(targetKw, idx, usedPexelsIds, {
       context: visualContext,
       requirePexels: requireNewsPexels
@@ -4696,6 +4757,7 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
       ...sc,
       videoUrl: resolved.videoUrl,
       thumbnailUrl: resolved.thumbnailUrl,
+      visualMode: 'matched_clip',
       source: resolved.source,
       photographer: resolved.photographer,
       photographerUrl: resolved.photographerUrl,
@@ -5120,9 +5182,6 @@ router.post('/auto-pilot-shorts', async (req, res) => {
     }
 
     if (useCreativeDirectorPlan) {
-      if (!process.env.PEXELS_API_KEY?.trim()) {
-        return res.status(503).json({ error: 'Storyboard Creative Director wymaga PEXELS_API_KEY do dopasowania ujęć.', requiredConfig: 'PEXELS_API_KEY', fallbackDisabled: true });
-      }
       const article = body.bankierArticle && typeof body.bankierArticle === 'object'
         ? body.bankierArticle
         : { title: topic || '', description: body.articleContext || '', category: niche };
@@ -5151,11 +5210,40 @@ router.post('/auto-pilot-shorts', async (req, res) => {
       } catch (error) {
         return res.status(422).json({ error: (error as Error).message, fallbackDisabled: true });
       }
+      const financeArticle = {
+        title: String(article.title || topic || ''),
+        description: String(article.description || body.articleContext || ''),
+        summary: String(article.summary || ''),
+        category: String(article.category || niche || 'Finanse'),
+        link: String(article.link || article.url || '')
+      };
+      const dataVisuals = creativeScenes.map((scene: any) => buildFinanceSceneDataVisual(
+        financeArticle,
+        String(scene.voiceover_text || ''),
+        String(scene.subtitles || '')
+      ));
+      if (dataVisuals.some((visual: any) => !visual) && !process.env.PEXELS_API_KEY?.trim()) {
+        return res.status(503).json({ error: 'Storyboard wymaga PEXELS_API_KEY dla scen bez potwierdzonych danych do plansz informacyjnych.', requiredConfig: 'PEXELS_API_KEY', fallbackDisabled: true });
+      }
       const visualContext = [article.title, article.description, article.summary, body.articleContext].filter(Boolean).join('\n');
       const usedPexelsIds: number[] = [];
       const resolvedScenes: any[] = [];
       for (let index = 0; index < creativeScenes.length; index++) {
         const scene = creativeScenes[index];
+        const dataVisual = dataVisuals[index];
+        if (dataVisual) {
+          resolvedScenes.push({
+            ...scene,
+            ...dataVisual,
+            duration: scene.duration,
+            videoUrl: '',
+            thumbnailUrl: '',
+            source: 'data_visual',
+            pexelsId: undefined,
+            captionStyle: { animation: 'classic', highlightColor: 'lime', position: 'center', fontSize: 38, outlineWidth: 8 }
+          });
+          continue;
+        }
         const resolved = await resolveStockOrPexelsVideoDetailed(scene.visualQuery, index, usedPexelsIds, {
           context: visualContext,
           requirePexels: true,
@@ -5170,6 +5258,7 @@ router.post('/auto-pilot-shorts', async (req, res) => {
           duration: scene.duration,
           videoUrl: resolved.videoUrl,
           thumbnailUrl: resolved.thumbnailUrl,
+          visualMode: 'matched_clip',
           source: resolved.source,
           pexelsId: resolved.pexelsId,
           photographer: resolved.photographer,
@@ -5178,8 +5267,8 @@ router.post('/auto-pilot-shorts', async (req, res) => {
           captionStyle: { animation: 'word-by-word', highlightColor: index === 0 ? 'yellow' : 'lime', position: 'center', fontSize: 54, outlineWidth: 7 }
         });
       }
-      if (!hasUniquePexelsSceneIds(resolvedScenes)) {
-        throw new Error('Storyboard nie uzyskał ośmiu unikalnych klipów Pexels. Render przerwany bez użycia innych źródeł.');
+      if (!hasCompleteFinanceSceneVisualAssets(resolvedScenes)) {
+        throw new Error('Storyboard nie uzyskał kompletnego zestawu plansz ze źródłowymi danymi i unikalnych klipów Pexels. Render przerwany.');
       }
       const hashtags = Array.isArray(suppliedPlan.hashtags) ? suppliedPlan.hashtags.slice(0, 8).join(' ') : '#shorts #finanse';
       scriptData = { ...suppliedPlan, cta: ctaPlan.spokenText, ctaDestination: ctaPlan.destinationPath, ctaUrl: ctaPlan.destinationUrl, scenes: resolvedScenes };
@@ -5187,12 +5276,14 @@ router.post('/auto-pilot-shorts', async (req, res) => {
       description = `${ctaPlan.text}\n${ctaPlan.destinationUrl}\n${hashtags}`;
       scriptData.description = description;
       scenesToRender = resolvedScenes;
-      console.info(`[Creative Director Render] article=${submittedTitle.slice(0, 100)} scenes=${resolvedScenes.length} CTA=${ctaPlan.destinationPath}`);
+      const dataVisualCount = resolvedScenes.filter((scene) => scene.visualMode === 'data_visual').length;
+      console.info(`[Creative Director Render] article=${submittedTitle.slice(0, 100)} scenes=${resolvedScenes.length} dataVisuals=${dataVisualCount} pexels=${usedPexelsIds.length} CTA=${ctaPlan.destinationPath}`);
     } else if (rawScenesList && rawScenesList.length > 0) {
       const requiresPexels = body.requirePexelsClips === true || rawScenesList.some((scene: any) => scene?.source === 'pexels');
-      if (requiresPexels && !hasUniquePexelsSceneIds(rawScenesList)) {
+      const hasDataVisuals = rawScenesList.some((scene: any) => scene?.visualMode === 'data_visual');
+      if ((requiresPexels || hasDataVisuals) && !hasCompleteFinanceSceneVisualAssets(rawScenesList)) {
         return res.status(400).json({
-          error: 'Short wymaga dokładnie ośmiu różnych klipów Pexels z unikalnymi pexelsId. Render przerwany.',
+          error: 'Short wymaga poprawnych plansz SVG i/lub ośmiu różnych klipów Pexels z unikalnymi pexelsId. Render przerwany.',
           expectedSceneCount: FINANCE_SHORT_SCENE_COUNT,
           fallbackDisabled: true
         });
@@ -5200,6 +5291,9 @@ router.post('/auto-pilot-shorts', async (req, res) => {
       scenesToRender = rawScenesList.map((sc: any, idx: number) =>
         normalizeSceneItem(sc, idx, rawScenesList.length)
       );
+      if ((requiresPexels || hasDataVisuals) && !hasCompleteFinanceSceneVisualAssets(scenesToRender)) {
+        return res.status(400).json({ error: 'Co najmniej jedna scena straciła prawidłowy asset wizualny podczas normalizacji.', expectedSceneCount: FINANCE_SHORT_SCENE_COUNT, fallbackDisabled: true });
+      }
 
       const providedSceneCountError = getSceneCountError(FINANCE_SHORT_SCENE_COUNT, scenesToRender.length);
       if (providedSceneCountError) {
@@ -5273,13 +5367,9 @@ router.post('/auto-pilot-shorts', async (req, res) => {
       title = scriptData.title || topicToUse;
       description = scriptData.description || description;
       scenesToRender = scriptData.scenes || [];
-      const pexelsIds = scenesToRender.map((scene: any) => scene.pexelsId);
-      const hasEightUniquePexelsVideos = scenesToRender.length === 8 &&
-        scenesToRender.every((scene: any) => scene.source === 'pexels' && typeof scene.pexelsId === 'number' && Number.isFinite(scene.pexelsId)) &&
-        new Set(pexelsIds).size === 8;
-      if (!hasEightUniquePexelsVideos) {
+      if (!hasCompleteFinanceSceneVisualAssets(scenesToRender)) {
         return res.status(502).json({
-          error: 'Nie udało się dobrać ośmiu różnych klipów wideo z Pexels. Short nie został wyrenderowany.',
+          error: 'Nie udało się przygotować poprawnych kart danych i unikalnych klipów Pexels. Short nie został wyrenderowany.',
           fallbackDisabled: true
         });
       }
@@ -5495,9 +5585,10 @@ router.post('/combine-scenes', async (req, res) => {
 
   const expectedSceneCount = body.expectedSceneCount;
   const requiresPexels = body.requirePexelsClips === true || scenesList.some((scene: any) => scene?.source === 'pexels');
-  if (requiresPexels && !hasUniquePexelsSceneIds(scenesList)) {
+  const hasDataVisuals = scenesList.some((scene: any) => scene?.visualMode === 'data_visual');
+  if ((requiresPexels || hasDataVisuals) && !hasCompleteFinanceSceneVisualAssets(scenesList)) {
     return res.status(400).json({
-      error: 'Short wymaga dokładnie ośmiu różnych klipów Pexels z unikalnymi pexelsId. Render przerwany.',
+      error: 'Short wymaga poprawnych plansz SVG i/lub ośmiu różnych klipów Pexels z unikalnymi pexelsId. Render przerwany.',
       expectedSceneCount: FINANCE_SHORT_SCENE_COUNT,
       receivedSceneCount: scenesList.length,
       fallbackDisabled: true
@@ -5510,6 +5601,9 @@ router.post('/combine-scenes', async (req, res) => {
   let normalizedScenes = scenesList.map((sc: any, idx: number) =>
     normalizeSceneItem(sc, idx, scenesList!.length)
   );
+  if ((requiresPexels || hasDataVisuals) && !hasCompleteFinanceSceneVisualAssets(normalizedScenes)) {
+    return res.status(400).json({ error: 'Co najmniej jedna scena straciła prawidłowy asset wizualny podczas normalizacji.', expectedSceneCount: FINANCE_SHORT_SCENE_COUNT, receivedSceneCount: scenesList.length, fallbackDisabled: true });
+  }
   const combineSceneDurations = sceneDurationsForCount(expectedSceneCount as number);
   normalizedScenes = normalizedScenes.map((scene, idx) => ({ ...scene, duration: combineSceneDurations[idx] }));
   console.info(`[Scene request] source=${requestSource} request_id=${requestId} route=/api/combine-scenes expected=${expectedSceneCount} actual=${normalizedScenes.length}`);

@@ -38,6 +38,10 @@ Prompty głównego generatora shortów z Pexels oraz Creative Directora rozdziel
 
 Podczas renderu `mapCreativeDirectorPlanToRenderScenes()` zachowuje `visualQuery`, `camera` i `visualMood`, a `/api/auto-pilot-shorts` przekazuje wyszukiwanie do `resolveStockOrPexelsVideoDetailed()`. Resolver wyszukuje pionowe klipy Pexels, stosuje istniejące reguły trafności tematycznej oraz odrzuca ID użyte wcześniej w danym filmie. Kierunek kamery jest wskazówką reżyserską/storyboardową, nie operacją na pobranym pliku: nie gwarantuje dokładnego ruchu kamery, ruchu wirtualnego ani zgodności każdego wyniku stockowego z moodem. Standardowy `finance-v2` celowo tworzy własne, źródłowe wizualizacje danych i nie powinien być automatycznie zamieniany na stock Pexels. Harmonogram może nadal wybierać tę ścieżkę; sama aktualizacja promptów nie przełącza jego trybu.
 
+## Karty danych GPW
+
+Generator sprawdza, czy scena omawia indeks GPW i procentową zmianę potwierdzoną w tytule, opisie lub podsumowaniu artykułu (m.in. WIG20, WIG30, mWIG40, sWIG80 i WIG-Banki). Gdy etykieta lub wartość pasuje do lektora/napisu, tworzy lokalną kartę SVG zamiast wyszukiwać stock Pexels dla tej sceny. Karta pokazuje wyłącznie wartość wyciągniętą ze źródła; brak danych, sprzeczna liczba lub niespójna scena nie uruchamia karty. Short może więc zawierać mieszankę bezpiecznych plansz SVG i klipów Pexels, przy czym ID klipów nadal muszą być unikalne.
+
 Walidację integracji promptu uruchom przez `npm run test:creative-director`.
 
 Jeżeli model nie odpowie lub zwróci niepoprawny JSON, moduł przełącza się na walidowany fallback heurystyczny. Odpowiedź zawiera wtedy `source: "fallback"` oraz ostrzeżenie w `riskFlags`.

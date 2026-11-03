@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { getSceneCountError, hasUniquePexelsSceneIds, MAX_SHORT_DURATION_SECONDS, sceneDurationsForCount, sceneDurationsWithNarration, sceneRequestMetadata } from '../src/server/sceneContract';
+import { getSceneCountError, hasCompleteFinanceSceneVisualAssets, hasUniquePexelsSceneIds, isSafeFinanceDataVisualSvg, MAX_SHORT_DURATION_SECONDS, sceneDurationsForCount, sceneDurationsWithNarration, sceneRequestMetadata } from '../src/server/sceneContract';
 import { selectFinanceCta } from '../src/server/financeCtaStrategy';
 
 assert.equal(getSceneCountError(8, 8), null);
@@ -58,6 +58,19 @@ const distinctPexels = Array.from({ length: 8 }, (_, i) => ({ source: 'pexels', 
 assert.equal(hasUniquePexelsSceneIds(distinctPexels), true);
 assert.equal(hasUniquePexelsSceneIds([...distinctPexels.slice(0, 7), distinctPexels[0]]), false);
 assert.equal(hasUniquePexelsSceneIds(distinctPexels.slice(0, 7)), false);
+const safeFinanceDataSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="720" height="1280" viewBox="0 0 720 1280"><rect width="720" height="1280" fill="#fff"/></svg>';
+assert.equal(isSafeFinanceDataVisualSvg(safeFinanceDataSvg), true);
+assert.equal(isSafeFinanceDataVisualSvg(safeFinanceDataSvg.replace('<rect', '<script>alert(1)</script><rect')), false);
+const mixedVisualAssets = [
+  { visualMode: 'data_visual', visualSvg: safeFinanceDataSvg },
+  ...Array.from({ length: 6 }, (_, index) => ({ visualMode: 'matched_clip', source: 'pexels', pexelsId: index + 1 })),
+  { visualMode: 'data_visual', visualSvg: safeFinanceDataSvg }
+];
+assert.equal(hasCompleteFinanceSceneVisualAssets(mixedVisualAssets), true);
+assert.equal(hasCompleteFinanceSceneVisualAssets([...mixedVisualAssets.slice(0, 3), { ...mixedVisualAssets[3], pexelsId: 1 }, ...mixedVisualAssets.slice(4)]), false);
+assert.equal(hasCompleteFinanceSceneVisualAssets([{ ...mixedVisualAssets[0], visualSvg: '' }, ...mixedVisualAssets.slice(1)]), false);
+assert.equal(hasCompleteFinanceSceneVisualAssets([{ ...mixedVisualAssets[0], visualSvg: safeFinanceDataSvg.replace('<rect', '<script>alert(1)</script><rect') }, ...mixedVisualAssets.slice(1)]), false);
+assert.equal(hasCompleteFinanceSceneVisualAssets(Array.from({ length: 8 }, () => ({ visualMode: 'data_visual', visualSvg: safeFinanceDataSvg }))), true);
 
 assert.deepEqual(sceneRequestMetadata('auto-pilot-news', 'id_123', 'fallback'), { source: 'auto-pilot-news', requestId: 'id_123' });
 assert.equal(sceneRequestMetadata('bad source!', 'id_123', 'api-client').source, 'api-client');
