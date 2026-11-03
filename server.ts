@@ -54,6 +54,7 @@ import { getLearningSignals, recordHookVariants, recordPipelineEvent, recordPipe
 import { buildShortsEditorQaRevisionInstruction, evaluateRenderedShort, evaluateShortStoryboard } from './src/server/shortsEditorQa';
 import { buildVisualAnalysisUnavailableReport, buildVisualSemanticReport, parseVisualSemanticResponse, type VisualSemanticReport, type VisualSemanticSample } from './src/server/shortsVisualSemanticQa';
 import { applyQaRepairAssets, buildQaRepairFailureReport, executeQaRepairOnce, QaRepairCancelledError, resolveUniqueQaRepairAssets, selectQaRepairCandidates, validatedPexelsRepairMetadata } from './src/server/qaRepair';
+import { buildConcatArgs, FAST_H264_OPTIONS, isValidConcatenatedVideo, mapWithConcurrency, SCENE_TTS_CONCURRENCY } from './src/server/renderOptimizations';
 
 const execPromise = promisify(exec);
 
@@ -2389,9 +2390,9 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
         { step: `Generowanie jednego głosu ElevenLabs dla ${scenes.length} scen`, progress: 12 },
         `Jeden lektor ElevenLabs, model i tempo dla całego Shorta (${ttsSpeed.toFixed(2)}x).`
       );
-      for (let index = 0; index < scenes.length; index++) {
+      let completedTtsScenes = 0;
+      await mapWithConcurrency(sceneSpeechTexts, SCENE_TTS_CONCURRENCY, async (speechText, index) => {
         if (abortController.signal.aborted) throw new Error('Zadanie zostało anulowane przez użytkownika.');
-        const speechText = sceneSpeechTexts[index];
         const ttsPath = path.join(jobTempDir, `scene_tts_${index + 1}.mp3`);
         const wordTimings: CaptionWordTiming[] = [];
         const duration = await generateTtsAudio(
@@ -2409,7 +2410,13 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
           throw new Error(`Nie udało się wygenerować lektora dla sceny ${index + 1}.`);
         }
         preparedSceneTts[index] = { path: ttsPath, duration, wordTimings };
-      }
+        completedTtsScenes++;
+        updateJobProgress(
+          jobId,
+          { progress: 12 + Math.floor((completedTtsScenes / scenes.length) * 3) },
+          `Wygenerowano lektora TTS dla ${completedTtsScenes}/${scenes.length} scen.`
+        );
+      });
     }
 
     const baseSceneDurations = payload.qaRepairAttempt === 1 && payload.qaRepairSceneDurations?.length === scenes.length
@@ -2603,8 +2610,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
             '-map', '[v]',
             '-map', audioMix.map,
             '-t', sceneDuration.toString(),
-            '-c:v', 'libx264',
-            '-pix_fmt', 'yuv420p',
+            ...FAST_H264_OPTIONS,
             '-c:a', 'aac',
             '-b:a', '192k',
             '-movflags', '+faststart',
@@ -2621,8 +2627,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
             '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',
             ...(hasSceneSfx ? ['-i', sfxPath, '-filter_complex', `[0:v]${videoFilterWithAss}[v];${audioMix.filter}`, '-map', '[v]', '-map', audioMix.map] : ['-vf', videoFilterWithAss]),
             '-t', sceneDuration.toString(),
-            '-c:v', 'libx264',
-            '-pix_fmt', 'yuv420p',
+            ...FAST_H264_OPTIONS,
             '-c:a', 'aac',
             '-movflags', '+faststart',
             '-shortest',
@@ -2650,8 +2655,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
             '-map', '[v]',
             '-map', '[a]',
             '-t', sceneDuration.toString(),
-            '-c:v', 'libx264',
-            '-pix_fmt', 'yuv420p',
+            ...FAST_H264_OPTIONS,
             '-c:a', 'aac',
             '-b:a', '192k',
             '-movflags', '+faststart',
@@ -2668,8 +2672,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
             '-map', '[v]',
             '-map', '[a]',
             '-t', sceneDuration.toString(),
-            '-c:v', 'libx264',
-            '-pix_fmt', 'yuv420p',
+            ...FAST_H264_OPTIONS,
             '-c:a', 'aac',
             '-movflags', '+faststart',
             normalizedScenePath
@@ -2704,8 +2707,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
           '-map', '[v]',
           '-map', '[a]',
           '-t', sceneDuration.toString(),
-          '-c:v', 'libx264',
-          '-pix_fmt', 'yuv420p',
+          ...FAST_H264_OPTIONS,
           '-c:a', 'aac',
           '-movflags', '+faststart',
           '-shortest',
@@ -2729,19 +2731,21 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
     fs.writeFileSync(concatListPath, concatContent);
 
     const mergedVideoPath = path.join(jobTempDir, 'merged_scenes.mp4');
-    const concatArgs = [
-      '-y',
-      '-f', 'concat',
-      '-safe', '0',
-      '-i', concatListPath,
-      '-c:v', 'libx264',
-      '-pix_fmt', 'yuv420p',
-      '-c:a', 'aac',
-      '-movflags', '+faststart',
-      mergedVideoPath
-    ];
-
-    await runFfmpegWithProgress(concatArgs, jobId, 70, 85, totalEstimatedDuration || 10);
+    try {
+      await runFfmpegWithProgress(buildConcatArgs(concatListPath, mergedVideoPath, true), jobId, 70, 85, totalEstimatedDuration || 10);
+      const { stdout: concatProbeOutput } = await execPromise(
+        `ffprobe -v error -show_entries stream=codec_type,width,height -show_entries format=duration -of json "${mergedVideoPath}"`
+      );
+      const concatProbe = JSON.parse(concatProbeOutput);
+      if (!isValidConcatenatedVideo(concatProbe, targetWidth, targetHeight, ttsEnabled, MAX_SHORT_DURATION_SECONDS)) {
+        throw new Error('Wynik stream-copy concat nie przeszedł walidacji parametrów filmu.');
+      }
+      console.info(`[Render optimization] Połączono ${processedScenePaths.length} scen bez ponownego kodowania.`);
+    } catch (concatError) {
+      if (abortController.signal.aborted) throw concatError;
+      console.warn('[Render optimization] Stream-copy concat nie przeszedł; uruchamiam zgodne ponowne kodowanie.', (concatError as Error).message);
+      await runFfmpegWithProgress(buildConcatArgs(concatListPath, mergedVideoPath, false), jobId, 70, 85, totalEstimatedDuration || 10);
+    }
 
     // Step: Audio Mixing (Background Music)
     updateJobProgress(
