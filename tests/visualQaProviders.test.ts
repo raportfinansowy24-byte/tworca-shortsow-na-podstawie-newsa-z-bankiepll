@@ -17,6 +17,19 @@ assert.equal(recoveredResult, 'odzyskany wynik');
 assert.equal(retryAttempts, 3, 'provider jest ponawiany do uzyskania wyniku');
 assert.deepEqual(scheduledDelays, [10, 20], 'retry stosuje rosnące opóźnienie');
 
+let sdkStatusAttempts = 0;
+const sdkStatusRetry = await retryVisualQa(async () => {
+  sdkStatusAttempts++;
+  if (sdkStatusAttempts === 1) {
+    const sdkError = new Error('INTERNAL') as Error & { status: number };
+    sdkError.status = 500;
+    throw sdkError;
+  }
+  return 'Gemini recovered';
+}, { maxAttempts: 2, delaysMs: [0], sleep: async () => {} });
+assert.equal(sdkStatusRetry, 'Gemini recovered');
+assert.equal(sdkStatusAttempts, 2, 'Gemini SDK status=500 jest ponawiany mimo braku HTTP code w message');
+
 let permanentFailureAttempts = 0;
 await assert.rejects(() => retryVisualQa(async () => {
   permanentFailureAttempts++;

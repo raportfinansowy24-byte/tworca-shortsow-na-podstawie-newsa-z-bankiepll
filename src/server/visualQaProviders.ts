@@ -13,6 +13,8 @@ export interface VisualQaRetryOptions {
 
 export function isRetryableVisualQaError(error: Error): boolean {
   const message = error.message;
+  const status = Number((error as Error & { status?: unknown }).status);
+  if (Number.isFinite(status) && (status === 408 || status === 425 || status === 429 || status >= 500)) return true;
   return /\bHTTP\s+(?:408|425|429|5\d\d)\b/i.test(message) ||
     /\b(?:UNAVAILABLE|RESOURCE_EXHAUSTED|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|fetch failed|network error|timed? ?out|overloaded|currently experiencing high demand)\b/i.test(message) ||
     /pust(?:ą|a|e) odpowiedź|nie zwrócił obiektu JSON|wyników dla \d+ z \d+ wymaganych scen/i.test(message);
