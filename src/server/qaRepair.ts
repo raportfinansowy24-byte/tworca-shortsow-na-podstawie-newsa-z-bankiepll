@@ -12,6 +12,15 @@ export interface QaRepairScene {
   [key: string]: unknown;
 }
 
+/** Preserve only canonical Pexels metadata that passed the route's ID validation. */
+export function validatedPexelsRepairMetadata(scene: unknown): Partial<Pick<QaRepairScene, 'source' | 'pexelsId'>> {
+  if (!scene || typeof scene !== 'object') return {};
+  const candidate = scene as Record<string, unknown>;
+  const pexelsId = candidate.pexelsId;
+  if (candidate.source !== 'pexels' || !Number.isSafeInteger(pexelsId) || (pexelsId as number) <= 0) return {};
+  return { source: 'pexels', pexelsId: pexelsId as number };
+}
+
 export interface QaRepairReport {
   findings: Array<{ code?: string; severity?: string; scene?: number; message?: string }>;
   visualAnalysis?: { results?: Array<{ scene: number; match: boolean; confidence: number; reason: string }> };

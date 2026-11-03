@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { applyQaRepairAssets, buildQaRepairFailureReport, canAttemptQaRepair, executeQaRepairOnce, QaRepairCancelledError, resolveUniqueQaRepairAssets, selectQaRepairCandidates, type QaRepairReport, type QaRepairScene } from '../src/server/qaRepair';
+import { applyQaRepairAssets, buildQaRepairFailureReport, canAttemptQaRepair, executeQaRepairOnce, QaRepairCancelledError, resolveUniqueQaRepairAssets, selectQaRepairCandidates, validatedPexelsRepairMetadata, type QaRepairReport, type QaRepairScene } from '../src/server/qaRepair';
 
 const article = { title: 'NBP pozostaje w centrum sporu o decyzję RPP', description: 'Narodowy Bank Polski i Rada Polityki Pieniężnej.' };
 const scenes: QaRepairScene[] = Array.from({ length: 8 }, (_, index) => ({
@@ -24,6 +24,16 @@ assert.equal(candidates[0].sceneIndex, 2);
 assert.equal(candidates[0].narration, 'Narracja sceny 3');
 assert.match(candidates[0].repairQuery, /National Bank of Poland/i);
 assert.notEqual(candidates[0].repairQuery, candidates[0].originalQuery);
+assert.deepEqual(validatedPexelsRepairMetadata({ source: 'pexels', pexelsId: 102 }), { source: 'pexels', pexelsId: 102 });
+assert.deepEqual(validatedPexelsRepairMetadata({ source: 'pexels', pexelsId: '102' }), {}, 'nie zachowuj ID w niekanonicznym formacie');
+assert.deepEqual(validatedPexelsRepairMetadata({ source: 'other', pexelsId: 102 }), {});
+const apiNormalizedScenes = scenes.map((scene) => ({
+  ...scene,
+  source: undefined,
+  pexelsId: undefined,
+  ...validatedPexelsRepairMetadata({ source: 'pexels', pexelsId: scene.pexelsId })
+}));
+assert.equal(selectQaRepairCandidates(apiNormalizedScenes, report, article).length, 1, 'zwalidowane Pexels source i ID zachowane przez normalizację umożliwiają one-shot repair');
 
 const repaired = applyQaRepairAssets(scenes, [{ sceneIndex: 2, visualQuery: candidates[0].repairQuery, videoUrl: 'https://new-video/3.mp4', pexelsId: 999 }]);
 assert.equal(repaired[2].voiceover_text, scenes[2].voiceover_text, 'naprawa nie zmienia narracji');

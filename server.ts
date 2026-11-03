@@ -53,7 +53,7 @@ import { buildAudioMixFilter, buildMotionFilter, generateSceneSoundEffect, motio
 import { getLearningSignals, recordHookVariants, recordPipelineEvent, recordPipelineRun, recordRetentionMetric, updatePipelineRunStatus } from './src/server/pipelineTelemetry';
 import { buildShortsEditorQaRevisionInstruction, evaluateRenderedShort, evaluateShortStoryboard } from './src/server/shortsEditorQa';
 import { buildVisualAnalysisUnavailableReport, buildVisualSemanticReport, parseVisualSemanticResponse, type VisualSemanticReport, type VisualSemanticSample } from './src/server/shortsVisualSemanticQa';
-import { applyQaRepairAssets, buildQaRepairFailureReport, executeQaRepairOnce, QaRepairCancelledError, resolveUniqueQaRepairAssets, selectQaRepairCandidates } from './src/server/qaRepair';
+import { applyQaRepairAssets, buildQaRepairFailureReport, executeQaRepairOnce, QaRepairCancelledError, resolveUniqueQaRepairAssets, selectQaRepairCandidates, validatedPexelsRepairMetadata } from './src/server/qaRepair';
 
 const execPromise = promisify(exec);
 
@@ -1692,6 +1692,8 @@ interface CaptionStyle {
 
 interface SceneInput {
   videoUrl?: string;
+  source?: string;
+  pexelsId?: number;
   imageUrl?: string;
   visualSvg?: string;
   visualMode?: 'data_visual' | 'matched_clip';
@@ -3530,6 +3532,7 @@ function normalizeSceneItem(sc: any, idx: number, totalCount: number): SceneInpu
     subtitles: rawText.toString().trim(),
     voiceover_text: (sc.voiceover_text || sc['tekst_głosowy'] || sc['tekst_glosowy'] || rawText).toString().trim(),
     videoUrl,
+    ...validatedPexelsRepairMetadata(sc),
     duration,
     motionSound: sc.motionSound && typeof sc.motionSound === 'object' ? sc.motionSound : undefined,
     visualQuery: typeof sc.visualQuery === 'string' ? sc.visualQuery : undefined,
