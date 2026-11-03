@@ -32,5 +32,7 @@ jobs:
         run: npm run test:auth
       - name: Deployment info tests
         run: npm run test:deployment-info
+      - name: Visual QA provider fallback tests
+        run: npm run test:visual-qa-providers
       - name: Supabase job history tests
         run: npm run test:supabase-history
