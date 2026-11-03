@@ -56,7 +56,7 @@ import { buildVisualAnalysisUnavailableReport, buildVisualSemanticReport, parseC
 import { applyQaRepairAssets, buildQaRepairFailureReport, executeQaRepairOnce, QaRepairCancelledError, resolveUniqueQaRepairAssets, selectQaRepairCandidates, validatedPexelsRepairMetadata } from './src/server/qaRepair';
 import { buildConcatArgs, FAST_H264_OPTIONS, isValidConcatenatedVideo, mapWithConcurrency, SCENE_TTS_CONCURRENCY } from './src/server/renderOptimizations';
 import { getDeploymentInfo } from './src/server/deploymentInfo';
-import { requestOpenAiVisualQa, runVisualQaWithFallback } from './src/server/visualQaProviders';
+import { requestOpenAiVisualQa, retryVisualQa, runVisualQaWithFallback } from './src/server/visualQaProviders';
 
 const execPromise = promisify(exec);
 const serverStartedAt = new Date().toISOString();
@@ -106,7 +106,7 @@ async function analyzeRenderedVisualFit(
     if (geminiApiKey) {
       providers.push({
         model: 'gemini-3.8-flash',
-        analyze: async () => {
+        analyze: async () => retryVisualQa(async () => {
           const response = await ai.models.generateContent({
             model: 'gemini-3.8-flash',
             contents: [{ role: 'user', parts: [{ text: instructions }, ...imageParts] }],
@@ -114,14 +114,17 @@ async function analyzeRenderedVisualFit(
           });
           if (!response.text?.trim()) throw new Error('Gemini zwróciło pustą odpowiedź.');
           return parseCompleteVisualSemanticResponse(response.text, samples.length);
-        }
+        }, {
+          maxAttempts: 3,
+          onRetry: (attempt, error) => console.warn(`[Shorts Editor QA] Gemini: ponowienie ${attempt}/2 po błędzie analizy: ${error.message}`)
+        })
       });
     }
     if (openAiApiKey) {
       const openAiModel = (process.env.OPENAI_VISUAL_QA_MODEL || process.env.OPENAI_SCRIPT_MODEL || 'gpt-6.1-sol').trim();
       providers.push({
         model: `openai:${openAiModel}`,
-        analyze: async () => {
+        analyze: async () => retryVisualQa(async () => {
           const responseText = await requestOpenAiVisualQa({
             apiKey: openAiApiKey,
             model: openAiModel,
@@ -129,7 +132,10 @@ async function analyzeRenderedVisualFit(
             imageParts
           });
           return parseCompleteVisualSemanticResponse(responseText, samples.length);
-        }
+        }, {
+          maxAttempts: 3,
+          onRetry: (attempt, error) => console.warn(`[Shorts Editor QA] OpenAI: ponowienie ${attempt}/2 po błędzie analizy: ${error.message}`)
+        })
       });
     }
 

@@ -1,6 +1,50 @@
 import assert from 'node:assert/strict';
 import { parseCompleteVisualSemanticResponse, parseVisualSemanticResponse, buildVisualSemanticReport } from '../src/server/shortsVisualSemanticQa';
-import { buildOpenAiVisualQaContent, requestOpenAiVisualQa, runVisualQaWithFallback } from '../src/server/visualQaProviders';
+import { buildOpenAiVisualQaContent, requestOpenAiVisualQa, retryVisualQa, runVisualQaWithFallback } from '../src/server/visualQaProviders';
+
+let retryAttempts = 0;
+const scheduledDelays: number[] = [];
+const recoveredResult = await retryVisualQa(async () => {
+  retryAttempts++;
+  if (retryAttempts < 3) throw new Error('Gemini HTTP 503 UNAVAILABLE');
+  return 'odzyskany wynik';
+}, {
+  maxAttempts: 3,
+  delaysMs: [10, 20],
+  sleep: async (delayMs) => { scheduledDelays.push(delayMs); }
+});
+assert.equal(recoveredResult, 'odzyskany wynik');
+assert.equal(retryAttempts, 3, 'provider jest ponawiany do uzyskania wyniku');
+assert.deepEqual(scheduledDelays, [10, 20], 'retry stosuje rosnące opóźnienie');
+
+let sdkStatusAttempts = 0;
+const sdkStatusRetry = await retryVisualQa(async () => {
+  sdkStatusAttempts++;
+  if (sdkStatusAttempts === 1) {
+    const sdkError = new Error('INTERNAL') as Error & { status: number };
+    sdkError.status = 500;
+    throw sdkError;
+  }
+  return 'Gemini recovered';
+}, { maxAttempts: 2, delaysMs: [0], sleep: async () => {} });
+assert.equal(sdkStatusRetry, 'Gemini recovered');
+assert.equal(sdkStatusAttempts, 2, 'Gemini SDK status=500 jest ponawiany mimo braku HTTP code w message');
+
+let malformedJsonAttempts = 0;
+const parsedAfterRetry = await retryVisualQa(async () => {
+  malformedJsonAttempts++;
+  if (malformedJsonAttempts === 1) throw new SyntaxError('Unexpected end of JSON input');
+  return JSON.parse('{"results":[]}');
+}, { maxAttempts: 2, delaysMs: [0], sleep: async () => {} });
+assert.deepEqual(parsedAfterRetry, { results: [] });
+assert.equal(malformedJsonAttempts, 2, 'SyntaxError modelu jest ponawiany przed fallbackiem');
+
+let permanentFailureAttempts = 0;
+await assert.rejects(() => retryVisualQa(async () => {
+  permanentFailureAttempts++;
+  throw new Error('OpenAI visual QA API HTTP 400: invalid model');
+}, { maxAttempts: 3, sleep: async () => {} }), /HTTP 400/);
+assert.equal(permanentFailureAttempts, 1, 'błędy konfiguracji 4xx nie są ponawiane');
 
 const calls: string[] = [];
 const providerFailures: string[] = [];

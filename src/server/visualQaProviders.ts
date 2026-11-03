@@ -3,6 +3,43 @@ export interface VisualQaProvider<T> {
   analyze: () => Promise<T>;
 }
 
+export interface VisualQaRetryOptions {
+  maxAttempts?: number;
+  delaysMs?: number[];
+  shouldRetry?: (error: Error) => boolean;
+  onRetry?: (attempt: number, error: Error) => void;
+  sleep?: (delayMs: number) => Promise<void>;
+}
+
+export function isRetryableVisualQaError(error: Error): boolean {
+  const message = error.message;
+  if (error instanceof SyntaxError) return true;
+  const status = Number((error as Error & { status?: unknown }).status);
+  if (Number.isFinite(status) && (status === 408 || status === 425 || status === 429 || status >= 500)) return true;
+  return /\bHTTP\s+(?:408|425|429|5\d\d)\b/i.test(message) ||
+    /\b(?:UNAVAILABLE|RESOURCE_EXHAUSTED|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|fetch failed|network error|timed? ?out|overloaded|currently experiencing high demand)\b/i.test(message) ||
+    /pust(?:ą|a|e) odpowiedź|nie zwrócił obiektu JSON|wyników dla \d+ z \d+ wymaganych scen/i.test(message);
+}
+
+export async function retryVisualQa<T>(
+  operation: () => Promise<T>,
+  options: VisualQaRetryOptions = {}
+): Promise<T> {
+  const maxAttempts = Math.max(1, Math.floor(options.maxAttempts ?? 3));
+  const delaysMs = options.delaysMs ?? [800, 2000];
+  const sleep = options.sleep ?? ((delayMs: number) => new Promise<void>((resolve) => setTimeout(resolve, delayMs)));
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await operation();
+    } catch (cause) {
+      const error = cause instanceof Error ? cause : new Error(String(cause));
+      if (attempt >= maxAttempts || !(options.shouldRetry ?? isRetryableVisualQaError)(error)) throw error;
+      options.onRetry?.(attempt, error);
+      await sleep(delaysMs[Math.min(attempt - 1, delaysMs.length - 1)] ?? 0);
+    }
+  }
+}
+
 export async function runVisualQaWithFallback<T>(
   providers: VisualQaProvider<T>[],
   onFailure?: (model: string, error: Error) => void
