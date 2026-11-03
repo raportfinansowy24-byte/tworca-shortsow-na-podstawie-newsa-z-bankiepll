@@ -23,10 +23,11 @@ const validProbe = {
   ],
   format: { duration: '18.0' }
 };
-assert.equal(isValidConcatenatedVideo(validProbe, 720, 1280, true, 23), true);
-assert.equal(isValidConcatenatedVideo(validProbe, 1080, 1920, true, 23), false, 'odrzuca niezgodny wymiar');
-assert.equal(isValidConcatenatedVideo({ ...validProbe, streams: [validProbe.streams[0]] }, 720, 1280, true, 23), false, 'odrzuca brak audio dla renderu z lektorem');
-assert.equal(isValidConcatenatedVideo({ ...validProbe, format: { duration: '23.5' } }, 720, 1280, true, 23), false, 'odrzuca czas przekraczający limit shorta');
+assert.equal(isValidConcatenatedVideo(validProbe, 720, 1280, true, 23, 18), true);
+assert.equal(isValidConcatenatedVideo(validProbe, 1080, 1920, true, 23, 18), false, 'odrzuca niezgodny wymiar');
+assert.equal(isValidConcatenatedVideo({ ...validProbe, streams: [validProbe.streams[0]] }, 720, 1280, true, 23, 18), false, 'odrzuca brak audio dla renderu z lektorem');
+assert.equal(isValidConcatenatedVideo({ ...validProbe, format: { duration: '23.5' } }, 720, 1280, true, 23, 18), false, 'odrzuca czas przekraczający limit shorta');
+assert.equal(isValidConcatenatedVideo({ ...validProbe, format: { duration: '15.0' } }, 720, 1280, true, 23, 18), false, 'odrzuca wynik krótszy od oczekiwanego, prawdopodobnie ucięty');
 
 let active = 0;
 let maxActive = 0;
@@ -48,5 +49,23 @@ await assert.rejects(() => mapWithConcurrency([0, 1, 2, 3], 2, async (_item, ind
   await new Promise((resolve) => setTimeout(resolve, 5));
 }), /synthetic worker failure/);
 assert.ok(started.length < 4, 'po błędzie nie są uruchamiane nowe zadania TTS');
+
+const abortController = new AbortController();
+const startedRequests: number[] = [];
+let activeRequests = 0;
+const activeTtsRequests = mapWithConcurrency([0, 1, 2], 2, async (_item, index) => {
+  startedRequests.push(index);
+  activeRequests++;
+  await new Promise<void>((_resolve, reject) => {
+    abortController.signal.addEventListener('abort', () => {
+      activeRequests--;
+      reject(new Error('synthetic TTS request aborted'));
+    }, { once: true });
+  });
+});
+setTimeout(() => abortController.abort(), 5);
+await assert.rejects(activeTtsRequests, /synthetic TTS request aborted/);
+assert.equal(startedRequests.length, 2, 'anulowanie aktywnych żądań nie uruchamia kolejnych zadań TTS');
+assert.equal(activeRequests, 0, 'aktywne żądania TTS zostają zakończone po abort');
 
 console.log('Render optimization tests passed');

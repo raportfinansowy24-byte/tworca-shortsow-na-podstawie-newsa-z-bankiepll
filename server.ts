@@ -1792,13 +1792,15 @@ function resolveElevenLabsVoiceId(requestedVoice?: string): string {
   return process.env.ELEVENLABS_VOICE_ID?.trim() || DEFAULT_ELEVENLABS_VOICE_ID;
 }
 
-function requestElevenLabsApi(method: 'GET' | 'POST', endpoint: string, payload?: unknown): Promise<{ statusCode: number; body: string }> {
+function requestElevenLabsApi(method: 'GET' | 'POST', endpoint: string, payload?: unknown, signal?: AbortSignal): Promise<{ statusCode: number; body: string }> {
   const apiKey = process.env.ELEVENLABS_API_KEY?.trim();
   if (!apiKey) return Promise.reject(new Error('Brakuje ELEVENLABS_API_KEY. Skonfiguruj klucz ElevenLabs po stronie serwera.'));
+  if (signal?.aborted) return Promise.reject(new Error('Żądanie ElevenLabs anulowane wraz z renderem.'));
   const body = payload === undefined ? undefined : JSON.stringify(payload);
   return new Promise((resolve, reject) => {
     const req = https.request(`https://api.elevenlabs.io${endpoint}`, {
       method,
+      ...(signal ? { signal } : {}),
       headers: {
         'xi-api-key': apiKey,
         'Accept': 'application/json',
@@ -1868,7 +1870,8 @@ async function generateElevenLabsAudio(
   speed: number = 1.0,
   wordTimingsOut?: CaptionWordTiming[],
   previousText?: string,
-  nextText?: string
+  nextText?: string,
+  signal?: AbortSignal
 ): Promise<number> {
   const actualVoiceId = resolveElevenLabsVoiceId(voiceId);
   const safeSpeed = Math.max(0.7, Math.min(Number.isFinite(speed) ? speed : 1.0, 1.2));
@@ -1881,7 +1884,8 @@ async function generateElevenLabsAudio(
       voice_settings: { stability: 0.75, similarity_boost: 0.8, style: 0, use_speaker_boost: true, speed: safeSpeed },
       ...(previousText ? { previous_text: previousText.slice(-500) } : {}),
       ...(nextText ? { next_text: nextText.slice(0, 500) } : {})
-    }
+    },
+    signal
   );
   if (response.statusCode !== 200) {
     const message = `ElevenLabs zwrócił HTTP ${response.statusCode}: ${elevenLabsErrorMessage(response.body)}`;
@@ -2005,7 +2009,8 @@ async function generateTtsAudio(
   speedMultiplier: number = 1.0,
   wordTimingsOut?: CaptionWordTiming[],
   previousText?: string,
-  nextText?: string
+  nextText?: string,
+  signal?: AbortSignal
 ): Promise<number> {
   const cleanText = text.replace(/[\r\n]+/g, ' ').trim();
   void tempDir;
@@ -2017,7 +2022,7 @@ async function generateTtsAudio(
   if (!process.env.ELEVENLABS_API_KEY?.trim()) {
     throw new Error('Brak ELEVENLABS_API_KEY. Render finansowego shorta wymaga lektora ElevenLabs; Google TTS jest wyłączony.');
   }
-  return await generateElevenLabsAudio(cleanText, selectedVoice, destPath, safeSpeed, wordTimingsOut, previousText, nextText);
+  return await generateElevenLabsAudio(cleanText, selectedVoice, destPath, safeSpeed, wordTimingsOut, previousText, nextText, signal);
 }
 
 // Convert seconds to ASS time format (h:mm:ss.cc)
@@ -2404,7 +2409,8 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
           ttsSpeed,
           wordTimings,
           sceneSpeechTexts[index - 1],
-          sceneSpeechTexts[index + 1]
+          sceneSpeechTexts[index + 1],
+          abortController.signal
         );
         if (duration <= 0 || !fs.existsSync(ttsPath)) {
           throw new Error(`Nie udało się wygenerować lektora dla sceny ${index + 1}.`);
@@ -2737,7 +2743,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
         `ffprobe -v error -show_entries stream=codec_type,width,height -show_entries format=duration -of json "${mergedVideoPath}"`
       );
       const concatProbe = JSON.parse(concatProbeOutput);
-      if (!isValidConcatenatedVideo(concatProbe, targetWidth, targetHeight, ttsEnabled, MAX_SHORT_DURATION_SECONDS)) {
+      if (!isValidConcatenatedVideo(concatProbe, targetWidth, targetHeight, ttsEnabled, MAX_SHORT_DURATION_SECONDS, totalEstimatedDuration)) {
         throw new Error('Wynik stream-copy concat nie przeszedł walidacji parametrów filmu.');
       }
       console.info(`[Render optimization] Połączono ${processedScenePaths.length} scen bez ponownego kodowania.`);
