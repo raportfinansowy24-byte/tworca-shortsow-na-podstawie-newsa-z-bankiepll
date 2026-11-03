@@ -52,7 +52,7 @@ import { buildFinanceSceneDataVisual, buildFinanceShortPlan, selectHookVariantFr
 import { buildAudioMixFilter, buildMotionFilter, generateSceneSoundEffect, motionSoundSpecForBeat } from './src/server/motionSoundRenderer';
 import { getLearningSignals, recordHookVariants, recordPipelineEvent, recordPipelineRun, recordRetentionMetric, updatePipelineRunStatus } from './src/server/pipelineTelemetry';
 import { buildShortsEditorQaRevisionInstruction, evaluateRenderedShort, evaluateShortStoryboard } from './src/server/shortsEditorQa';
-import { buildVisualAnalysisUnavailableReport, buildVisualSemanticReport, parseVisualSemanticResponse, type VisualSemanticReport, type VisualSemanticSample } from './src/server/shortsVisualSemanticQa';
+import { buildVisualAnalysisUnavailableReport, buildVisualSemanticReport, parseCompleteVisualSemanticResponse, type VisualSemanticReport, type VisualSemanticSample } from './src/server/shortsVisualSemanticQa';
 import { applyQaRepairAssets, buildQaRepairFailureReport, executeQaRepairOnce, QaRepairCancelledError, resolveUniqueQaRepairAssets, selectQaRepairCandidates, validatedPexelsRepairMetadata } from './src/server/qaRepair';
 import { buildConcatArgs, FAST_H264_OPTIONS, isValidConcatenatedVideo, mapWithConcurrency, SCENE_TTS_CONCURRENCY } from './src/server/renderOptimizations';
 import { getDeploymentInfo } from './src/server/deploymentInfo';
@@ -102,7 +102,7 @@ async function analyzeRenderedVisualFit(
       'Zwróć wyłącznie JSON: {"results":[{"scene":1,"match":true,"confidence":0.0,"reason":"krótkie uzasadnienie po polsku"}]}.',
       `Uwzględnij dokładnie ${samples.length} scen i zwróć jeden wynik dla każdej, z numerami 1–${samples.length}. Confidence to liczba 0..1. match=false oznacza wyraźnie niepasujący obraz.`
     ].join('\n');
-    const providers: Array<{ model: string; analyze: () => Promise<ReturnType<typeof parseVisualSemanticResponse>> }> = [];
+    const providers: Array<{ model: string; analyze: () => Promise<ReturnType<typeof parseCompleteVisualSemanticResponse>> }> = [];
     if (geminiApiKey) {
       providers.push({
         model: 'gemini-3.8-flash',
@@ -113,7 +113,7 @@ async function analyzeRenderedVisualFit(
             config: { responseMimeType: 'application/json', temperature: 0.1 }
           });
           if (!response.text?.trim()) throw new Error('Gemini zwróciło pustą odpowiedź.');
-          return parseVisualSemanticResponse(response.text, samples.length);
+          return parseCompleteVisualSemanticResponse(response.text, samples.length);
         }
       });
     }
@@ -128,7 +128,7 @@ async function analyzeRenderedVisualFit(
             instructions,
             imageParts
           });
-          return parseVisualSemanticResponse(responseText, samples.length);
+          return parseCompleteVisualSemanticResponse(responseText, samples.length);
         }
       });
     }

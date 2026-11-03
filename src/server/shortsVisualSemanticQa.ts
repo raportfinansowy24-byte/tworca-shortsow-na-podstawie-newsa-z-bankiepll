@@ -64,6 +64,14 @@ export function parseVisualSemanticResponse(text: string, expectedScenes: number
   return results.sort((a, b) => a.scene - b.scene);
 }
 
+export function parseCompleteVisualSemanticResponse(text: string, expectedScenes: number): VisualSemanticResult[] {
+  const results = parseVisualSemanticResponse(text, expectedScenes);
+  if (results.length !== expectedScenes) {
+    throw new Error(`Model zwrócił wyniki dla ${results.length} z ${expectedScenes} wymaganych scen.`);
+  }
+  return results;
+}
+
 export function buildVisualSemanticReport(
   expectedScenes: number,
   results: VisualSemanticResult[],

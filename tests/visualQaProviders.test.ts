@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { parseVisualSemanticResponse, buildVisualSemanticReport } from '../src/server/shortsVisualSemanticQa';
+import { parseCompleteVisualSemanticResponse, parseVisualSemanticResponse, buildVisualSemanticReport } from '../src/server/shortsVisualSemanticQa';
 import { buildOpenAiVisualQaContent, requestOpenAiVisualQa, runVisualQaWithFallback } from '../src/server/visualQaProviders';
 
 const calls: string[] = [];
@@ -16,7 +16,7 @@ const fallbackResult = await runVisualQaWithFallback([
     model: 'openai:gpt-6.1-sol',
     analyze: async () => {
       calls.push('openai');
-      return parseVisualSemanticResponse(JSON.stringify({ results: [
+      return parseCompleteVisualSemanticResponse(JSON.stringify({ results: [
         { scene: 1, match: true, confidence: 0.93, reason: 'Klatka odpowiada lektorowi.' }
       ] }), 1);
     }
@@ -26,6 +26,35 @@ assert.deepEqual(calls, ['gemini', 'openai'], 'OpenAI jest wywoływany dopiero p
 assert.equal(fallbackResult.model, 'openai:gpt-6.1-sol');
 assert.equal(buildVisualSemanticReport(1, fallbackResult.result, fallbackResult.model).status, 'pass');
 assert.deepEqual(providerFailures, ['gemini-3.8-flash: HTTP 503 unavailable']);
+
+const partialProviderCalls: string[] = [];
+const completeGeminiResponse = JSON.stringify({ results: [
+  { scene: 1, match: true, confidence: 0.9, reason: 'Pasuje.' }
+] });
+const completeOpenAiResponse = JSON.stringify({ results: [
+  { scene: 1, match: true, confidence: 0.9, reason: 'Pasuje.' },
+  { scene: 2, match: false, confidence: 0.85, reason: 'Nie pasuje.' }
+] });
+const partialFallback = await runVisualQaWithFallback([
+  {
+    model: 'gemini-3.8-flash',
+    analyze: async () => {
+      partialProviderCalls.push('gemini');
+      return parseCompleteVisualSemanticResponse(completeGeminiResponse, 2);
+    }
+  },
+  {
+    model: 'openai:gpt-6.1-sol',
+    analyze: async () => {
+      partialProviderCalls.push('openai');
+      return parseCompleteVisualSemanticResponse(completeOpenAiResponse, 2);
+    }
+  }
+]);
+assert.deepEqual(partialProviderCalls, ['gemini', 'openai'], 'brak wyniku dla którejkolwiek sceny uruchamia fallback');
+assert.equal(partialFallback.model, 'openai:gpt-6.1-sol');
+assert.equal(partialFallback.result.length, 2);
+assert.throws(() => parseCompleteVisualSemanticResponse('{"results":[]}', 2), /0 z 2 wymaganych scen/);
 
 let fallbackCalled = false;
 const primaryResult = await runVisualQaWithFallback([
