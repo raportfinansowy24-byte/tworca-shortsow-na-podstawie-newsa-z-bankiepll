@@ -347,7 +347,7 @@ export const MakeHttpConnector: React.FC = () => {
   const fetchHealth = async () => {
     setHealthLoading(true);
     try {
-      const res = await fetch('/api/health');
+      const res = await fetch('/api/health', { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
         setHealth(data);
@@ -367,7 +367,7 @@ export const MakeHttpConnector: React.FC = () => {
     try {
       await Promise.allSettled([
         fetch('/api/autopilot/refresh-all', { method: 'POST' }),
-        fetch('/api/health').then(async (r) => {
+        fetch('/api/health', { cache: 'no-store' }).then(async (r) => {
           if (r.ok) setHealth(await r.json());
         }),
         fetch('/api/jobs').then(async (r) => {
@@ -898,6 +898,29 @@ export const MakeHttpConnector: React.FC = () => {
 
           {/* Environment Status Badges */}
           <div className="flex flex-wrap items-center gap-2">
+            <div
+              className={`px-3 py-1.5 rounded-lg border flex items-center gap-2 text-xs ${health?.status === 'online' ? 'bg-emerald-950/50 border-emerald-700/60' : 'bg-amber-950/40 border-amber-700/60'}`}
+              title={health?.deployment?.imageRef || health?.deployment?.machineId || 'Identyfikator builda Fly.io jest niedostępny'}
+              aria-label={health?.status === 'online' ? 'Potwierdzono aktualną wersję serwera' : 'Wersja serwera niepotwierdzona'}
+            >
+              <span className={`h-2 w-2 rounded-full ${health?.status === 'online' ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'}`} />
+              <span className="text-slate-300">Serwer:</span>
+              {healthLoading ? (
+                <span className="text-amber-300 font-medium">sprawdzam…</span>
+              ) : health?.deployment?.imageRef ? (
+                <span className="text-emerald-300 font-medium">obraz {health.deployment.imageRef.slice(-12)}</span>
+              ) : health?.deployment?.machineId ? (
+                <span className="text-emerald-300 font-medium">instancja {health.deployment.machineId.slice(-8)}</span>
+              ) : health?.deployment?.startedAt ? (
+                <span className="text-emerald-300 font-medium">start {new Date(health.deployment.startedAt).toLocaleString('pl-PL')}</span>
+              ) : (
+                <span className="text-amber-300 font-medium">brak potwierdzenia</span>
+              )}
+              {health?.timestamp && !healthLoading && (
+                <span className="text-slate-500">· sprawdzono {new Date(health.timestamp).toLocaleTimeString('pl-PL')}</span>
+              )}
+            </div>
+
             <div className="px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-lg flex items-center gap-2 text-xs">
               <Server className="w-3.5 h-3.5 text-indigo-400" />
               <span className="text-slate-400">API:</span>

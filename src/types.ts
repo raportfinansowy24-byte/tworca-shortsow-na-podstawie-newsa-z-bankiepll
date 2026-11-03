@@ -67,6 +67,12 @@ export interface SystemHealth {
   };
   activeJobsCount: number;
   retainedJobsCount: number;
+  deployment?: {
+    appName: string | null;
+    imageRef: string | null;
+    machineId: string | null;
+    startedAt: string;
+  };
   timestamp: string;
 }
 

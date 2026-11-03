@@ -55,8 +55,10 @@ import { buildShortsEditorQaRevisionInstruction, evaluateRenderedShort, evaluate
 import { buildVisualAnalysisUnavailableReport, buildVisualSemanticReport, parseVisualSemanticResponse, type VisualSemanticReport, type VisualSemanticSample } from './src/server/shortsVisualSemanticQa';
 import { applyQaRepairAssets, buildQaRepairFailureReport, executeQaRepairOnce, QaRepairCancelledError, resolveUniqueQaRepairAssets, selectQaRepairCandidates, validatedPexelsRepairMetadata } from './src/server/qaRepair';
 import { buildConcatArgs, FAST_H264_OPTIONS, isValidConcatenatedVideo, mapWithConcurrency, SCENE_TTS_CONCURRENCY } from './src/server/renderOptimizations';
+import { getDeploymentInfo } from './src/server/deploymentInfo';
 
 const execPromise = promisify(exec);
+const serverStartedAt = new Date().toISOString();
 
 async function analyzeRenderedVisualFit(
   videoPath: string,
@@ -3195,6 +3197,7 @@ async function getMediaRuntimeDiagnostics() {
 
 // Health Check Endpoint
 router.get('/health', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
   const mediaRuntime = await getMediaRuntimeDiagnostics();
   const ffmpegVersion = mediaRuntime.ffmpegVersion;
   const fontReady = mediaRuntime.fontReady;
@@ -3213,6 +3216,7 @@ router.get('/health', async (req, res) => {
     },
     activeJobsCount,
     retainedJobsCount: jobsStore.size,
+    deployment: getDeploymentInfo(process.env, serverStartedAt),
     timestamp: new Date().toISOString()
   });
 });
