@@ -30,5 +30,7 @@ jobs:
         run: npm run test:telegram-chat
       - name: API auth tests
         run: npm run test:auth
+      - name: Deployment info tests
+        run: npm run test:deployment-info
       - name: Supabase job history tests
         run: npm run test:supabase-history
