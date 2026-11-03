@@ -1,0 +1,84 @@
+export interface VisualQaProvider<T> {
+  model: string;
+  analyze: () => Promise<T>;
+}
+
+export async function runVisualQaWithFallback<T>(
+  providers: VisualQaProvider<T>[],
+  onFailure?: (model: string, error: Error) => void
+): Promise<{ model: string; result: T }> {
+  const failures: string[] = [];
+  for (const provider of providers) {
+    try {
+      return { model: provider.model, result: await provider.analyze() };
+    } catch (cause) {
+      const error = cause instanceof Error ? cause : new Error(String(cause));
+      failures.push(`${provider.model}: ${error.message}`);
+      onFailure?.(provider.model, error);
+    }
+  }
+  if (failures.length === 0) throw new Error('Nie skonfigurowano providera analizy semantycznej.');
+  throw new Error(failures.join(' | ').slice(0, 1000));
+}
+
+export type InlineVisualQaPart =
+  | { text: string }
+  | { inlineData: { mimeType: string; data: string } };
+
+export function buildOpenAiVisualQaContent(
+  instructions: string,
+  imageParts: InlineVisualQaPart[]
+): Array<Record<string, unknown>> {
+  return [
+    { type: 'text', text: instructions },
+    ...imageParts.map((part) => 'text' in part
+      ? { type: 'text', text: part.text }
+      : {
+          type: 'image_url',
+          image_url: {
+            url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`,
+            detail: 'auto'
+          }
+        })
+  ];
+}
+
+export async function requestOpenAiVisualQa(params: {
+  apiKey: string;
+  model: string;
+  instructions: string;
+  imageParts: InlineVisualQaPart[];
+  fetchImpl?: typeof fetch;
+}): Promise<string> {
+  const apiKey = params.apiKey.trim();
+  if (!apiKey) throw new Error('Brak OPENAI_API_KEY dla zapasowej analizy wizualnej.');
+  const fetchImpl = params.fetchImpl || fetch;
+  const response = await fetchImpl('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: params.model,
+      messages: [{ role: 'user', content: buildOpenAiVisualQaContent(params.instructions, params.imageParts) }],
+      response_format: { type: 'json_object' }
+    }),
+    signal: AbortSignal.timeout(45_000)
+  });
+
+  if (!response.ok) {
+    const detail = (await response.text().catch(() => '')).slice(0, 500);
+    throw new Error(`OpenAI visual QA API HTTP ${response.status}${detail ? `: ${detail}` : ''}`);
+  }
+
+  const payload: any = await response.json();
+  const content = payload?.choices?.[0]?.message?.content;
+  const text = typeof content === 'string'
+    ? content
+    : Array.isArray(content)
+      ? content.map((part: any) => typeof part?.text === 'string' ? part.text : '').join('')
+      : '';
+  if (!text.trim()) throw new Error('OpenAI visual QA zwróciło pustą odpowiedź.');
+  return text;
+}

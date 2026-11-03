@@ -52,10 +52,11 @@ import { buildFinanceSceneDataVisual, buildFinanceShortPlan, selectHookVariantFr
 import { buildAudioMixFilter, buildMotionFilter, generateSceneSoundEffect, motionSoundSpecForBeat } from './src/server/motionSoundRenderer';
 import { getLearningSignals, recordHookVariants, recordPipelineEvent, recordPipelineRun, recordRetentionMetric, updatePipelineRunStatus } from './src/server/pipelineTelemetry';
 import { buildShortsEditorQaRevisionInstruction, evaluateRenderedShort, evaluateShortStoryboard } from './src/server/shortsEditorQa';
-import { buildVisualAnalysisUnavailableReport, buildVisualSemanticReport, parseVisualSemanticResponse, type VisualSemanticReport, type VisualSemanticSample } from './src/server/shortsVisualSemanticQa';
+import { buildVisualAnalysisUnavailableReport, buildVisualSemanticReport, parseCompleteVisualSemanticResponse, type VisualSemanticReport, type VisualSemanticSample } from './src/server/shortsVisualSemanticQa';
 import { applyQaRepairAssets, buildQaRepairFailureReport, executeQaRepairOnce, QaRepairCancelledError, resolveUniqueQaRepairAssets, selectQaRepairCandidates, validatedPexelsRepairMetadata } from './src/server/qaRepair';
 import { buildConcatArgs, FAST_H264_OPTIONS, isValidConcatenatedVideo, mapWithConcurrency, SCENE_TTS_CONCURRENCY } from './src/server/renderOptimizations';
 import { getDeploymentInfo } from './src/server/deploymentInfo';
+import { requestOpenAiVisualQa, runVisualQaWithFallback } from './src/server/visualQaProviders';
 
 const execPromise = promisify(exec);
 const serverStartedAt = new Date().toISOString();
@@ -68,9 +69,10 @@ async function analyzeRenderedVisualFit(
   tempDir: string
 ): Promise<VisualSemanticReport> {
   const expectedScenes = scenes.length;
-  const model = 'gemini-3.8-flash';
-  if (!process.env.GEMINI_API_KEY?.trim()) {
-    return buildVisualAnalysisUnavailableReport(expectedScenes, 'GEMINI_API_KEY nie jest skonfigurowany.', 'unavailable');
+  const geminiApiKey = process.env.GEMINI_API_KEY?.trim();
+  const openAiApiKey = process.env.OPENAI_API_KEY?.trim();
+  if (!geminiApiKey && !openAiApiKey) {
+    return buildVisualAnalysisUnavailableReport(expectedScenes, 'Nie skonfigurowano GEMINI_API_KEY ani OPENAI_API_KEY.', 'unavailable');
   }
 
   const samples: VisualSemanticSample[] = [];
@@ -100,15 +102,41 @@ async function analyzeRenderedVisualFit(
       'Zwróć wyłącznie JSON: {"results":[{"scene":1,"match":true,"confidence":0.0,"reason":"krótkie uzasadnienie po polsku"}]}.',
       `Uwzględnij dokładnie ${samples.length} scen i zwróć jeden wynik dla każdej, z numerami 1–${samples.length}. Confidence to liczba 0..1. match=false oznacza wyraźnie niepasujący obraz.`
     ].join('\n');
-    const response = await ai.models.generateContent({
-      model,
-      contents: [{ role: 'user', parts: [{ text: instructions }, ...imageParts] }],
-      config: { responseMimeType: 'application/json', temperature: 0.1 }
+    const providers: Array<{ model: string; analyze: () => Promise<ReturnType<typeof parseCompleteVisualSemanticResponse>> }> = [];
+    if (geminiApiKey) {
+      providers.push({
+        model: 'gemini-3.8-flash',
+        analyze: async () => {
+          const response = await ai.models.generateContent({
+            model: 'gemini-3.8-flash',
+            contents: [{ role: 'user', parts: [{ text: instructions }, ...imageParts] }],
+            config: { responseMimeType: 'application/json', temperature: 0.1 }
+          });
+          if (!response.text?.trim()) throw new Error('Gemini zwróciło pustą odpowiedź.');
+          return parseCompleteVisualSemanticResponse(response.text, samples.length);
+        }
+      });
+    }
+    if (openAiApiKey) {
+      const openAiModel = (process.env.OPENAI_VISUAL_QA_MODEL || process.env.OPENAI_SCRIPT_MODEL || 'gpt-6.1-sol').trim();
+      providers.push({
+        model: `openai:${openAiModel}`,
+        analyze: async () => {
+          const responseText = await requestOpenAiVisualQa({
+            apiKey: openAiApiKey,
+            model: openAiModel,
+            instructions,
+            imageParts
+          });
+          return parseCompleteVisualSemanticResponse(responseText, samples.length);
+        }
+      });
+    }
+
+    const { model, result } = await runVisualQaWithFallback(providers, (provider, error) => {
+      console.warn(`[Shorts Editor QA] Provider ${provider} nie wykonał analizy klatek; przechodzę do kolejnego: ${error.message}`);
     });
-    const responseText = response.text;
-    if (!responseText?.trim()) throw new Error('Model zwrócił pustą odpowiedź.');
-    const results = parseVisualSemanticResponse(responseText, samples.length);
-    return buildVisualSemanticReport(samples.length, results, model);
+    return buildVisualSemanticReport(samples.length, result, model);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.warn(`[Shorts Editor QA] Analiza semantyczna klatek nie powiodła się: ${message}`);
