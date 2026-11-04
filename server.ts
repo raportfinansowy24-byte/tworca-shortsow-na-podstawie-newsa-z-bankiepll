@@ -49,6 +49,7 @@ import { constantTimeTokenMatch, createApiAuthMiddleware, createAppSessionToken 
 import { getPexelsSearchCache, hasSupabaseHistoryConfiguration, loadShortJobsFromSupabase, persistShortJobSnapshot, queueShortJobSnapshot, setPexelsSearchCache, upsertShortJobExport, upsertShortJobsBatch, type DriveExportStatus, type ShortJobSnapshot } from './src/server/supabaseJobStore';
 import { buildCreativeDirectorFallback, buildCreativeDirectorPrompt, loadBrandContext, mapCreativeDirectorPlanToRenderScenes, parseCreativeDirectorPlan, type CreativeDirectorArticle, type CreativeDirectorPlan } from './src/server/creativeDirector';
 import { buildFinanceSceneDataVisual, buildFinanceShortPlan, selectHookVariantFromLearningSignals, validateFinanceShortPlan, type FinanceShortPlan } from './src/server/shortPipeline';
+import { generateHighlightBoardAss, type HighlightBoardOptions } from './src/server/highlightBoards';
 import { buildAudioMixFilter, buildMotionFilter, generateSceneSoundEffect, motionSoundSpecForBeat } from './src/server/motionSoundRenderer';
 import { getLearningSignals, recordHookVariants, recordPipelineEvent, recordPipelineRun, recordRetentionMetric, updatePipelineRunStatus } from './src/server/pipelineTelemetry';
 import { buildShortsEditorQaRevisionInstruction, evaluateRenderedShort, evaluateShortStoryboard } from './src/server/shortsEditorQa';
@@ -1773,6 +1774,7 @@ interface CombineScenesPayload {
   preserveSceneDurations?: boolean;
   captionAnimation?: 'word-by-word' | 'single-word' | 'karaoke' | 'classic';
   highlightColor?: 'yellow' | 'green' | 'lime' | 'cyan' | 'red' | 'white';
+  highlightBoards?: HighlightBoardOptions;
   telegramApproval?: boolean;
   allowLocalFallback?: boolean;
   qaRepairAttempt?: number;
@@ -2601,13 +2603,16 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
       if (speechText.length > 0) {
         try {
           console.log(`[Subtitle sync] Scene ${sceneNum}: audio=${captionDuration.toFixed(2)}s, scene=${sceneDuration.toFixed(2)}s, TTS word boundaries=${sceneWordTimings.length}/${speechText.split(/\s+/).filter(Boolean).length}.`);
-          const assContent = generateWordByWordAss(speechText, captionDuration, {
-            animation: animMode,
-            highlightColor: highlightCol,
-            position,
-            fontSize,
-            outlineWidth
-          }, sceneWordTimings);
+          const boardOptions: HighlightBoardOptions = payload.highlightBoards || { enabled: true };
+          const assContent = boardOptions.enabled === false
+            ? generateWordByWordAss(speechText, captionDuration, {
+                animation: animMode,
+                highlightColor: highlightCol,
+                position,
+                fontSize,
+                outlineWidth
+              }, sceneWordTimings)
+            : generateHighlightBoardAss(speechText, captionDuration, sceneWordTimings, boardOptions);
           fs.writeFileSync(sceneAssPath, assContent, 'utf8');
           // Escape single quotes and backslashes for FFmpeg filter
           const cleanAssPath = sceneAssPath.replace(/\\/g, '/').replace(/'/g, "'\\\\''");

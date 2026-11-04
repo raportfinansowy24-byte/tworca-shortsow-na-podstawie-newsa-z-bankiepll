@@ -27,7 +27,8 @@
     "test:short-pipeline": "tsx tests/shortPipeline.test.ts",
     "test:shorts-editor-qa": "tsx tests/shortsEditorQa.test.ts",
     "test:motion-sound": "tsx tests/motionSoundRenderer.test.ts",
-    "deploy:production": "bash scripts/deploy-production.sh"
+    "deploy:production": "bash scripts/deploy-production.sh",
+    "test:highlight-boards": "tsx tests/highlightBoards.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
