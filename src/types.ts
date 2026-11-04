@@ -27,6 +27,19 @@ export interface Scene {
   searchKeyword?: string;
 }
 
+export interface HighlightBoardsConfig {
+  enabled?: boolean;
+  position?: 'bottom' | 'center' | 'top';
+  fontSize?: number;
+  fontColor?: string;
+  highlightColor?: string;
+  outlineColor?: string;
+  outlineWidth?: number;
+  shadow?: number;
+  maxLines?: number;
+  minWords?: number;
+  maxWords?: number;
+}
 export interface CombinePayload {
   scenes: {
     videoUrl?: string;
@@ -54,6 +67,7 @@ export interface CombinePayload {
   lockSceneDurations?: boolean;
   captionAnimation?: 'word-by-word' | 'single-word' | 'karaoke' | 'classic';
   highlightColor?: 'yellow' | 'green' | 'lime' | 'cyan' | 'red' | 'white';
+  highlightBoards?: HighlightBoardsConfig;
 }
 
 export interface SystemHealth {
