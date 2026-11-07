@@ -30,6 +30,8 @@ jobs:
         run: npm run test:telegram-chat
       - name: API auth tests
         run: npm run test:auth
+      - name: Security, range and export path tests
+        run: npm run test:security
       - name: Deployment info tests
         run: npm run test:deployment-info
       - name: Visual QA provider fallback tests
