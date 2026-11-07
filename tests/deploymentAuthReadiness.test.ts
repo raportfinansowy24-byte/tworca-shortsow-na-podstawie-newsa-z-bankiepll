@@ -33,5 +33,7 @@ assert.match(requiredSecrets, /(^|\s)APP_LOGIN_PASSWORD(\s|$)/);
 const server = readFileSync(new URL('../server.ts', import.meta.url), 'utf8');
 assert.match(server, /appAuth:\s*Boolean\(getAppAuthConfiguration\(\)\)/);
 assert.match(server, /getAppAuthConfiguration\(\)\s*\?\s*200\s*:\s*503/);
+assert.match(deployScript, /api\\/auth\\/status/);
+assert.match(deployScript, /AUTH_STATUS.*200/);
 
 console.log('deployment auth readiness tests passed');
