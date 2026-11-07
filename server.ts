@@ -8,7 +8,7 @@ import http from 'http';
 import { validateRemoteUrl, pinnedLookup } from './src/server/remoteUrlSecurity';
 import { downloadRemoteFile, postWebhook } from './src/server/safeHttp';
 import { isSafeExportPath, parseByteRange } from './src/server/byteRange';
-import { clearRenderDeadline } from './src/server/renderDeadline';
+import { runCompletionCallback } from './src/server/renderDeadline';
 import { exec, spawn, ChildProcess } from 'child_process';
 import { promisify } from 'util';
 import { createServer as createViteServer } from 'vite';
@@ -2897,7 +2897,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
         });
 
         console.log('📡 Sending completion webhook');
-        await dispatchWebhook(payload.webhookUrl, webhookPayload);
+        await runCompletionCallback(totalJobTimeout, () => dispatchWebhook(payload.webhookUrl, webhookPayload));
       } catch (webhookErr) {
         console.warn('Webhook callback error:', (webhookErr as Error).message);
       }
