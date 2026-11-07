@@ -77,7 +77,7 @@ log "Sprawdzam dostęp do Fly.io dla aplikacji $APP_NAME."
 
 log "Sprawdzam nazwy wymaganych sekretów; wartości nie są wyświetlane."
 SECRET_LIST="$($FLY_BIN secrets list --app "$APP_NAME")" || fail "Nie udało się odczytać listy sekretów Fly.io."
-REQUIRED_SECRETS=(APP_AUTH_SECRET BANKIER_SHORTS_API_TOKEN GEMINI_API_KEY PEXELS_API_KEY ELEVENLABS_API_KEY SUPABASE_URL)
+REQUIRED_SECRETS=(APP_AUTH_SECRET APP_LOGIN_PASSWORD BANKIER_SHORTS_API_TOKEN GEMINI_API_KEY PEXELS_API_KEY ELEVENLABS_API_KEY SUPABASE_URL)
 MISSING=()
 for secret in "${REQUIRED_SECRETS[@]}"; do
   if ! grep -Eq "(^|[[:space:]])${secret}([[:space:]]|$)" <<<"$SECRET_LIST"; then
