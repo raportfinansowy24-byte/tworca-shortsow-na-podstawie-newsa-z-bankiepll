@@ -38,6 +38,8 @@ jobs:
         run: npm run test:deployment-info
       - name: Deployment auth readiness tests
         run: npm run test:deployment-auth-readiness
+      - name: Authenticated SSE client tests
+        run: npm run test:stream-ticket-clients
       - name: Visual QA provider fallback tests
         run: npm run test:visual-qa-providers
       - name: Supabase job history tests
