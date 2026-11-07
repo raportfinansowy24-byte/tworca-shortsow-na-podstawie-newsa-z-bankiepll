@@ -123,7 +123,9 @@ log "Czekam na zdrowy endpoint $BASE_URL$HEALTH_PATH."
 for ((attempt=1; attempt<=POLL_ATTEMPTS; attempt++)); do
   if HEALTH_JSON="$(curl -fsS --max-time 10 "$BASE_URL$HEALTH_PATH" 2>/dev/null)"; then
     if printf '%s' "$HEALTH_JSON" | grep -q '"status"[[:space:]]*:[[:space:]]*"online"'; then
-      log "Aplikacja online po wdrożeniu."
+      AUTH_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "$BASE_URL/api/auth/status" 2>/dev/null || true)"
+      [[ "$AUTH_STATUS" == "200" ]] || fail "Aplikacja odpowiada, ale uwierzytelnianie nie jest gotowe (HTTP $AUTH_STATUS). Wymagane APP_AUTH_SECRET (min. 32 znaki) i APP_LOGIN_PASSWORD."
+      log "Aplikacja online; endpoint uwierzytelniania potwierdził poprawną konfigurację."
       printf '%s\n' "$HEALTH_JSON" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps({"status": d.get("status"), "service": d.get("service"), "activeJobsCount": d.get("activeJobsCount")}, ensure_ascii=False))' 2>/dev/null || true
       exit 0
     fi
