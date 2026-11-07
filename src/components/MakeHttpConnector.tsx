@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { openJobEventSource } from '../utils/jobEventSource';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Video,

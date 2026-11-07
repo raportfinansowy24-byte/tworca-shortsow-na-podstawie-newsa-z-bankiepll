@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { openJobEventSource } from '../utils/jobEventSource';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Activity,
@@ -81,36 +82,28 @@ export const RenderingQueue: React.FC<RenderingQueueProps> = ({
       return;
     }
 
+    let cancelled = false;
     if (liveStreamJobId !== activeProcessingJob.id) {
-      if (sseRef.current) {
-        sseRef.current.close();
-      }
-
+      if (sseRef.current) sseRef.current.close();
       setLiveStreamJobId(activeProcessingJob.id);
-      try {
-        const es = new EventSource(`/api/jobs/${activeProcessingJob.id}/stream`);
+      void openJobEventSource(activeProcessingJob.id).then((es) => {
+        if (cancelled) { es.close(); return; }
         sseRef.current = es;
-
         es.onmessage = (event) => {
           try {
             const data: JobStatusResponse = JSON.parse(event.data);
             setStreamData((prev) => ({ ...prev, [data.id]: data }));
-            if (data.status === 'completed' || data.status === 'failed') {
-              onRefresh();
-            }
+            if (data.status === 'completed' || data.status === 'failed') onRefresh();
           } catch {}
         };
-
         es.onerror = () => {
-          if (sseRef.current) {
-            sseRef.current.close();
-            sseRef.current = null;
-          }
+          es.close();
+          if (sseRef.current === es) sseRef.current = null;
         };
-      } catch {}
+      }).catch(() => {});
     }
-
     return () => {
+      cancelled = true;
       if (sseRef.current) {
         sseRef.current.close();
         sseRef.current = null;

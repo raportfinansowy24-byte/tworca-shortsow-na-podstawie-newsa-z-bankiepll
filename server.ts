@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import path from 'path';
+import { createHash, randomBytes } from 'node:crypto';
 import fs from 'fs';
 import https from 'https';
 import http from 'http';
@@ -5618,6 +5619,15 @@ router.get('/exports/:filename/download', (req, res) => {
   res.download(filePath, filename);
 });
 
+// Authenticated ticket issuance for native EventSource clients.
+router.post('/jobs/:jobId/stream-ticket', (req, res) => {
+  const { jobId } = req.params;
+  if (!jobsStore.has(jobId)) return res.sendStatus(404);
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Pragma', 'no-cache');
+  return res.json({ ticket: issueStreamTicket(jobId), expiresIn: STREAM_TICKET_TTL_MS / 1000 });
+});
+
 // Real-time Event Stream Endpoint (Server-Sent Events) (/api/jobs/:jobId/stream)
 router.get('/jobs/:jobId/stream', (req, res) => {
   const { jobId } = req.params;
@@ -5628,9 +5638,8 @@ router.get('/jobs/:jobId/stream', (req, res) => {
   }
 
   res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Connection', 'keep-alive');
-  res.setHeader('Access-Control-Allow-Origin', '*');
   if (typeof (res as any).flushHeaders === 'function') {
     (res as any).flushHeaders();
   }
@@ -7914,11 +7923,31 @@ app.post('/api/auth/login', (req, res) => {
   }
 });
 
+// Short-lived, one-use credentials let native EventSource connect without exposing session tokens.
+type StreamTicketEntry = { jobId: string; expiresAt: number };
+const streamTickets = new Map<string, StreamTicketEntry>();
+const STREAM_TICKET_TTL_MS = 60_000;
+function hashStreamTicket(ticket: string): string {
+  return createHash('sha256').update(ticket).digest('hex');
+}
+function issueStreamTicket(jobId: string): string {
+  const ticket = randomBytes(32).toString('base64url');
+  streamTickets.set(hashStreamTicket(ticket), { jobId, expiresAt: Date.now() + STREAM_TICKET_TTL_MS });
+  return ticket;
+}
+function consumeStreamTicket(jobId: string, ticket: string): boolean {
+  const key = hashStreamTicket(ticket);
+  const entry = streamTickets.get(key);
+  if (entry) streamTickets.delete(key);
+  return Boolean(entry && entry.jobId === jobId && entry.expiresAt > Date.now());
+}
+
 // Browser sessions use signed app tokens; unattended jobs keep their separate bearer token.
 app.use('/api', createApiAuthMiddleware({
   sessionSecret: getAppAuthConfiguration()?.secret,
   machineToken: process.env.BANKIER_SHORTS_API_TOKEN || '',
-  publicPaths: ['/health', '/telegram/webhook', '/auth/login', '/auth/status', '/jobs/:jobId/stream']
+  publicPaths: ['/health', '/telegram/webhook', '/auth/login', '/auth/status'],
+  consumeStreamTicket
 }));
 
 // Mount API router

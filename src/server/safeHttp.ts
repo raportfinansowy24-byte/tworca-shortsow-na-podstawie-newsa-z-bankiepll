@@ -8,8 +8,39 @@ type Validated = { url: URL; addresses: RemoteAddress[] };
 type Validator = (value: string) => Promise<Validated>;
 type Requester = typeof http;
 
-/** Download bounded data while revalidating and repinning every redirect hop. */
+/** Download with both a socket inactivity timeout and a hard end-to-end deadline. */
 export async function downloadRemoteFile(value: string, destination: string, options: {
+  maxBytes: number; maxRedirects?: number; timeoutMs?: number; signal?: AbortSignal; validate?: Validator; http?: Requester; https?: Requester;
+}): Promise<void> {
+  const controller = new AbortController();
+  let timedOut = false;
+  const abortFromCaller = () => controller.abort();
+  if (options.signal?.aborted) controller.abort();
+  else options.signal?.addEventListener('abort', abortFromCaller, { once: true });
+  const timeoutMs = options.timeoutMs ?? 12_000;
+  const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
+  let onAbort: (() => void) | undefined;
+  const aborted = new Promise<never>((_, reject) => {
+    onAbort = () => reject(new Error(timedOut ? 'Download total timeout' : 'Download aborted'));
+    if (controller.signal.aborted) onAbort();
+    else controller.signal.addEventListener('abort', onAbort, { once: true });
+  });
+  try {
+    await Promise.race([downloadRemoteFileImpl(value, destination, { ...options, timeoutMs, signal: controller.signal }), aborted]);
+  } catch (error) {
+    controller.abort();
+    await fs.promises.unlink(destination).catch(() => undefined);
+    if (timedOut) throw new Error('Download total timeout');
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    options.signal?.removeEventListener('abort', abortFromCaller);
+    if (onAbort) controller.signal.removeEventListener('abort', onAbort);
+  }
+}
+
+/** Download bounded data while revalidating and repinning every redirect hop. */
+async function downloadRemoteFileImpl(value: string, destination: string, options: {
   maxBytes: number; maxRedirects?: number; timeoutMs?: number; signal?: AbortSignal; validate?: Validator; http?: Requester; https?: Requester;
 }): Promise<void> {
   const validate = options.validate ?? validateRemoteUrl;
@@ -18,6 +49,7 @@ export async function downloadRemoteFile(value: string, destination: string, opt
     let current = value;
     for (let redirects = 0; ; redirects++) {
       const { url, addresses } = await validate(current);
+      if (options.signal?.aborted) throw new Error('Download aborted');
       const client = url.protocol === 'https:' ? (options.https ?? https) : (options.http ?? http);
       let redirected = false;
       await new Promise<void>((resolve, reject) => {

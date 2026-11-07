@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { createApiAuthMiddleware, createAppSessionToken, verifyAppSessionToken, SESSION_TTL_SECONDS, getAppAuthConfiguration } from '../src/server/apiAuth';
 
 function makeRequest(path: string, authorization?: string) {
-  return { path, get: (name: string) => name.toLowerCase() === 'authorization' ? authorization : undefined } as any;
+  const parsed = new URL(path, 'http://localhost');
+  return { path: parsed.pathname, query: Object.fromEntries(parsed.searchParams), get: (name: string) => name.toLowerCase() === 'authorization' ? authorization : undefined } as any;
 }
 function makeResponse() {
   return { statusCode: 200, body: undefined as unknown, status(code: number) { this.statusCode = code; return this; }, json(body: unknown) { this.body = body; return this; } };
@@ -32,7 +33,11 @@ async function main() {
   assert.equal((await invoke(middleware, '/private', 'Bearer invalid')).res.statusCode, 401);
   assert.equal((await invoke(middleware, '/health')).nextCalled, true);
   assert.equal((await invoke(middleware, '/auth/login')).nextCalled, true);
-  assert.equal((await invoke(middleware, '/jobs/job-123/stream')).nextCalled, true, 'native EventSource stream remains compatible');
+  assert.equal((await invoke(middleware, '/jobs/job-123/stream')).res.statusCode, 401, 'SSE requires a valid ticket or Bearer token');
+  let consumedTicket = false;
+  const ticketMiddleware = createApiAuthMiddleware({ consumeStreamTicket: (jobId, ticket) => { if (jobId !== 'job-123' || ticket !== 'one-use' || consumedTicket) return false; consumedTicket = true; return true; } });
+  assert.equal((await invoke(ticketMiddleware, '/jobs/job-123/stream?ticket=one-use')).nextCalled, true);
+  assert.equal((await invoke(ticketMiddleware, '/jobs/job-123/stream?ticket=one-use')).res.statusCode, 401, 'ticket is one-use');
   assert.equal((await invoke(middleware, '/telegram/webhook')).nextCalled, true);
   console.log('apiAuth tests passed');
 }

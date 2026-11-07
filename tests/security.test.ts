@@ -66,6 +66,7 @@ httpServer.on('request', (req, res) => {
   else if (req.url === '/loop') { res.writeHead(302, { Location: '/loop' }); res.end(); }
   else if (req.url === '/large') { res.writeHead(200, { 'Content-Length': '8' }); res.end('12345678'); }
   else if (req.url === '/slow') { setTimeout(() => res.end('late'), 250); }
+  else if (req.url === '/slow-drip') { res.write('x'); const timer = setInterval(() => res.write('x'), 10); setTimeout(() => { clearInterval(timer); res.end(); }, 250); }
   else if (req.url === '/redirect') { res.writeHead(302, { Location: '/hook-target' }); res.end(); }
   else { res.end(req.url === '/hook-target' ? 'target' : 'ok'); }
 });
@@ -83,6 +84,8 @@ await assert.rejects(downloadRemoteFile(`${base}/redirect-private`, path.join(ne
 assert.equal(fs.existsSync(path.join(netTemp, 'private')), false);
 await assert.rejects(downloadRemoteFile(`${base}/loop`, path.join(netTemp, 'loop'), { maxBytes: 100, maxRedirects: 2, validate: validateLocal, http: trackingHttp }), /Redirect limit/);
 await assert.rejects(downloadRemoteFile(`${base}/large`, path.join(netTemp, 'large'), { maxBytes: 4, validate: validateLocal, http: trackingHttp }));
+await assert.rejects(downloadRemoteFile(`${base}/slow-drip`, path.join(netTemp, 'slow-drip'), { maxBytes: 100, timeoutMs: 40, validate: validateLocal, http: trackingHttp }), /total timeout/i);
+assert.equal(fs.existsSync(path.join(netTemp, 'slow-drip')), false, 'total timeout removes partial file');
 assert.equal(fs.existsSync(path.join(netTemp, 'large')), false, 'oversized partial file is removed');
 let webhookRedirectTargetHit = false;
 const webhookServer = http.createServer((req, res) => {

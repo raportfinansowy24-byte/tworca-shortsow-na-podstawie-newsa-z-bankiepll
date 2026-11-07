@@ -53,13 +53,17 @@ export interface ApiAuthOptions {
   sessionSecret?: string;
   machineToken?: string;
   publicPaths?: string[];
+  consumeStreamTicket?: (jobId: string, ticket: string) => boolean;
 }
 
 export function createApiAuthMiddleware(options: ApiAuthOptions): RequestHandler {
   const publicPaths = new Set(options.publicPaths || ['/health', '/telegram/webhook', '/auth/login']);
 
   return (req, res, next) => {
-    if (publicPaths.has(req.path) || /^\/jobs\/[^/]+\/stream$/.test(req.path)) return next();
+    const streamMatch = /^\/jobs\/([^/]+)\/stream$/.exec(req.path);
+    const ticket = typeof req.query.ticket === 'string' ? req.query.ticket : '';
+    if (streamMatch && ticket && options.consumeStreamTicket?.(streamMatch[1], ticket)) return next();
+    if (publicPaths.has(req.path)) return next();
     const bearer = getBearerToken(req.get('authorization'));
     if (bearer && options.machineToken && constantTimeTokenMatch(bearer, options.machineToken)) return next();
     if (bearer && options.sessionSecret && verifyAppSessionToken(bearer, options.sessionSecret)) return next();
