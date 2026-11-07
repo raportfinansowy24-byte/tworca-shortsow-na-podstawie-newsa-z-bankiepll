@@ -1,8 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { RequestHandler } from 'express';
 
-// Keep the private panel signed in for 30 days unless the user explicitly logs out.
-const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
+export const SESSION_TTL_SECONDS = 60 * 60 * 12;
 
 export function constantTimeTokenMatch(candidate: string, expected: string): boolean {
   if (!candidate || !expected) return false;
@@ -22,6 +21,13 @@ export function createAppSessionToken(secret: string, now = Date.now()): string 
     exp: Math.floor(now / 1000) + SESSION_TTL_SECONDS
   })).toString('base64url');
   return payload + '.' + signature(payload, secret);
+}
+
+export function getAppAuthConfiguration(env: NodeJS.ProcessEnv = process.env): { password: string; secret: string } | null {
+  const password = env.APP_LOGIN_PASSWORD;
+  const secret = env.APP_AUTH_SECRET;
+  if (!password || !secret || secret.length < 32) return null;
+  return { password, secret };
 }
 
 export function verifyAppSessionToken(token: string, secret: string, now = Date.now()): boolean {
@@ -53,7 +59,7 @@ export function createApiAuthMiddleware(options: ApiAuthOptions): RequestHandler
   const publicPaths = new Set(options.publicPaths || ['/health', '/telegram/webhook', '/auth/login']);
 
   return (req, res, next) => {
-    if (publicPaths.has(req.path)) return next();
+    if (publicPaths.has(req.path) || /^\/jobs\/[^/]+\/stream$/.test(req.path)) return next();
     const bearer = getBearerToken(req.get('authorization'));
     if (bearer && options.machineToken && constantTimeTokenMatch(bearer, options.machineToken)) return next();
     if (bearer && options.sessionSecret && verifyAppSessionToken(bearer, options.sessionSecret)) return next();
