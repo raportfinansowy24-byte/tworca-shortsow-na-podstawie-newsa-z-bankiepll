@@ -8,6 +8,7 @@ import http from 'http';
 import { validateRemoteUrl, pinnedLookup } from './src/server/remoteUrlSecurity';
 import { downloadRemoteFile, postWebhook } from './src/server/safeHttp';
 import { isSafeExportPath, parseByteRange } from './src/server/byteRange';
+import { clearRenderDeadline } from './src/server/renderDeadline';
 import { exec, spawn, ChildProcess } from 'child_process';
 import { promisify } from 'util';
 import { createServer as createViteServer } from 'vite';
@@ -2860,6 +2861,8 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
       `✓ Plik wyjściowy MP4 utworzony pomyślnie: ${outputUrl} (${stats.size} bajtów)`
     );
 
+    // Rendering is complete: callback delivery must not be governed by the render deadline.
+    clearRenderDeadline(totalJobTimeout);
     console.log(`✓ Job ${jobId} completed successfully: ${outputUrl}`);
     if (payload.pipelinePlan) {
       void updatePipelineRunStatus(payload.pipelinePlan.planId, 'completed', jobId, { completed_at: new Date().toISOString() });
@@ -3093,7 +3096,7 @@ router.get('/supervisor/status', async (_req, res) => {
   const failedJobs = jobs.filter((job) => job.status === 'failed').length;
   const completedJobs = jobs.filter((job) => job.status === 'completed').length;
   const envReady = {
-    appAuth: Boolean(process.env.APP_AUTH_SECRET && process.env.APP_AUTH_SECRET.length >= 32),
+    appAuth: Boolean(getAppAuthConfiguration()),
     machineToken: Boolean(process.env.BANKIER_SHORTS_API_TOKEN),
     openai: Boolean(process.env.OPENAI_API_KEY),
     gemini: Boolean(process.env.GEMINI_API_KEY),
@@ -3116,7 +3119,7 @@ router.get('/supervisor/status', async (_req, res) => {
   }
 
   const missingRequired = [
-    !envReady.appAuth ? 'APP_AUTH_SECRET (minimum 32 characters)' : null,
+    !envReady.appAuth ? 'APP_AUTH_SECRET (minimum 32 characters) and APP_LOGIN_PASSWORD' : null,
     !envReady.machineToken ? 'BANKIER_SHORTS_API_TOKEN' : null,
     !(envReady.openai || envReady.gemini) ? 'OPENAI_API_KEY or GEMINI_API_KEY' : null,
     !envReady.pexels ? 'PEXELS_API_KEY' : null,
