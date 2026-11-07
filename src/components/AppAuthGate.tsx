@@ -59,11 +59,7 @@ export const AppAuthGate: React.FC<React.PropsWithChildren> = ({ children }) => 
 
     fetch('/api/auth/status')
       .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data?.hint) {
-          setAuthHint(data.hint);
-        }
-      })
+      .then((data) => { if (data?.configured === false) setAuthHint('Logowanie nie jest skonfigurowane na serwerze.'); })
       .catch(() => {});
   }, []);
 
@@ -114,11 +110,10 @@ export const AppAuthGate: React.FC<React.PropsWithChildren> = ({ children }) => 
         {authHint && (
           <button
             type="button"
-            onClick={() => setPassword('raportfinansowy24')}
+            disabled
             className="mt-4 w-full text-left rounded-xl border border-sky-500/30 bg-sky-500/10 p-3.5 text-xs text-sky-200 hover:bg-sky-500/20 transition cursor-pointer flex items-center justify-between gap-2"
           >
-            <span>💡 {authHint}</span>
-            <span className="font-semibold underline shrink-0">Wpisz automatycznie</span>
+            <span>{authHint}</span>
           </button>
         )}
 

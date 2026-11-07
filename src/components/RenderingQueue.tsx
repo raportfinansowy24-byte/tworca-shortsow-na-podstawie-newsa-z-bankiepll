@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { openJobEventSource } from '../utils/jobEventSource';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Activity,
@@ -50,11 +51,12 @@ export const RenderingQueue: React.FC<RenderingQueueProps> = ({
   const [expandedLogs, setExpandedLogs] = useState<Record<string, boolean>>({});
   const [previewJob, setPreviewJob] = useState<JobStatusResponse | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [liveStreamJobId, setLiveStreamJobId] = useState<string | null>(null);
   const [streamData, setStreamData] = useState<Record<string, JobStatusResponse>>({});
   const [isConfirmingClear, setIsConfirmingClear] = useState<boolean>(false);
 
   const sseRef = useRef<EventSource | null>(null);
+  const onRefreshRef = useRef(onRefresh);
+  onRefreshRef.current = onRefresh;
 
   // Auto Refresh Polling
   useEffect(() => {
@@ -72,51 +74,38 @@ export const RenderingQueue: React.FC<RenderingQueueProps> = ({
   }, [jobs]);
 
   useEffect(() => {
-    if (!activeProcessingJob) {
-      if (sseRef.current) {
-        sseRef.current.close();
-        sseRef.current = null;
-      }
-      setLiveStreamJobId(null);
+    const jobId = activeProcessingJob?.id;
+    if (!jobId) {
+      sseRef.current?.close();
+      sseRef.current = null;
       return;
     }
 
-    if (liveStreamJobId !== activeProcessingJob.id) {
-      if (sseRef.current) {
-        sseRef.current.close();
-      }
-
-      setLiveStreamJobId(activeProcessingJob.id);
-      try {
-        const es = new EventSource(`/api/jobs/${activeProcessingJob.id}/stream`);
-        sseRef.current = es;
-
-        es.onmessage = (event) => {
-          try {
-            const data: JobStatusResponse = JSON.parse(event.data);
-            setStreamData((prev) => ({ ...prev, [data.id]: data }));
-            if (data.status === 'completed' || data.status === 'failed') {
-              onRefresh();
-            }
-          } catch {}
-        };
-
-        es.onerror = () => {
-          if (sseRef.current) {
-            sseRef.current.close();
-            sseRef.current = null;
-          }
-        };
-      } catch {}
-    }
+    let cancelled = false;
+    sseRef.current?.close();
+    sseRef.current = null;
+    void openJobEventSource(jobId).then((es) => {
+      if (cancelled) { es.close(); return; }
+      sseRef.current = es;
+      es.onmessage = (event) => {
+        try {
+          const data: JobStatusResponse = JSON.parse(event.data);
+          setStreamData((prev) => ({ ...prev, [data.id]: data }));
+          if (data.status === 'completed' || data.status === 'failed') onRefreshRef.current();
+        } catch {}
+      };
+      es.onerror = () => {
+        es.close();
+        if (sseRef.current === es) sseRef.current = null;
+      };
+    }).catch(() => {});
 
     return () => {
-      if (sseRef.current) {
-        sseRef.current.close();
-        sseRef.current = null;
-      }
+      cancelled = true;
+      sseRef.current?.close();
+      sseRef.current = null;
     };
-  }, [activeProcessingJob, liveStreamJobId, onRefresh]);
+  }, [activeProcessingJob?.id]);
 
   // Combine props jobs with streaming updates
   const combinedJobs = useMemo(() => {

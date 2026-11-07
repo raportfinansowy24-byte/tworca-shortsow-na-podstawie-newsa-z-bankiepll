@@ -77,7 +77,7 @@ log "Sprawdzam dostęp do Fly.io dla aplikacji $APP_NAME."
 
 log "Sprawdzam nazwy wymaganych sekretów; wartości nie są wyświetlane."
 SECRET_LIST="$($FLY_BIN secrets list --app "$APP_NAME")" || fail "Nie udało się odczytać listy sekretów Fly.io."
-REQUIRED_SECRETS=(APP_AUTH_SECRET BANKIER_SHORTS_API_TOKEN GEMINI_API_KEY PEXELS_API_KEY ELEVENLABS_API_KEY SUPABASE_URL)
+REQUIRED_SECRETS=(APP_AUTH_SECRET APP_LOGIN_PASSWORD BANKIER_SHORTS_API_TOKEN GEMINI_API_KEY PEXELS_API_KEY ELEVENLABS_API_KEY SUPABASE_URL)
 MISSING=()
 for secret in "${REQUIRED_SECRETS[@]}"; do
   if ! grep -Eq "(^|[[:space:]])${secret}([[:space:]]|$)" <<<"$SECRET_LIST"; then
@@ -123,7 +123,9 @@ log "Czekam na zdrowy endpoint $BASE_URL$HEALTH_PATH."
 for ((attempt=1; attempt<=POLL_ATTEMPTS; attempt++)); do
   if HEALTH_JSON="$(curl -fsS --max-time 10 "$BASE_URL$HEALTH_PATH" 2>/dev/null)"; then
     if printf '%s' "$HEALTH_JSON" | grep -q '"status"[[:space:]]*:[[:space:]]*"online"'; then
-      log "Aplikacja online po wdrożeniu."
+      AUTH_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "$BASE_URL/api/auth/status" 2>/dev/null || true)"
+      [[ "$AUTH_STATUS" == "200" ]] || fail "Aplikacja odpowiada, ale uwierzytelnianie nie jest gotowe (HTTP $AUTH_STATUS). Wymagane APP_AUTH_SECRET (min. 32 znaki) i APP_LOGIN_PASSWORD."
+      log "Aplikacja online; endpoint uwierzytelniania potwierdził poprawną konfigurację."
       printf '%s\n' "$HEALTH_JSON" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps({"status": d.get("status"), "service": d.get("service"), "activeJobsCount": d.get("activeJobsCount")}, ensure_ascii=False))' 2>/dev/null || true
       exit 0
     fi

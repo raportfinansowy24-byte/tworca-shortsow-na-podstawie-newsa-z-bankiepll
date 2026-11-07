@@ -1,9 +1,14 @@
 import 'dotenv/config';
 import express from 'express';
 import path from 'path';
+import { createHash, randomBytes } from 'node:crypto';
 import fs from 'fs';
 import https from 'https';
 import http from 'http';
+import { validateRemoteUrl, pinnedLookup } from './src/server/remoteUrlSecurity';
+import { downloadRemoteFile, postWebhook } from './src/server/safeHttp';
+import { isSafeExportPath, parseByteRange } from './src/server/byteRange';
+import { runCompletionCallback } from './src/server/renderDeadline';
 import { exec, spawn, ChildProcess } from 'child_process';
 import { promisify } from 'util';
 import { createServer as createViteServer } from 'vite';
@@ -45,7 +50,7 @@ import { FINANCE_SHORT_SCENE_COUNT, getSceneCountError, hasCompleteFinanceSceneV
 import { buildCtaPolicyPrompt, selectFinanceCta } from './src/server/financeCtaStrategy';
 import { nextTelegramRevisionNumber, normalizeTelegramFeedback } from './src/server/telegramRevision';
 import { publishApprovedShortToPostiz } from './src/server/postizPublisher';
-import { constantTimeTokenMatch, createApiAuthMiddleware, createAppSessionToken } from './src/server/apiAuth';
+import { constantTimeTokenMatch, createApiAuthMiddleware, createAppSessionToken, getAppAuthConfiguration, SESSION_TTL_SECONDS } from './src/server/apiAuth';
 import { getPexelsSearchCache, hasSupabaseHistoryConfiguration, loadShortJobsFromSupabase, persistShortJobSnapshot, queueShortJobSnapshot, setPexelsSearchCache, upsertShortJobExport, upsertShortJobsBatch, type DriveExportStatus, type ShortJobSnapshot } from './src/server/supabaseJobStore';
 import { buildCreativeDirectorFallback, buildCreativeDirectorPrompt, loadBrandContext, mapCreativeDirectorPlanToRenderScenes, parseCreativeDirectorPlan, type CreativeDirectorArticle, type CreativeDirectorPlan } from './src/server/creativeDirector';
 import { buildFinanceSceneDataVisual, buildFinanceShortPlan, selectHookVariantFromLearningSignals, validateFinanceShortPlan, type FinanceShortPlan } from './src/server/shortPipeline';
@@ -927,6 +932,10 @@ const EXPORTS_DIR = path.join(WORK_DIR, 'exports');
 const FONTS_DIR = path.join(WORK_DIR, 'fonts');
 const TIKTOK_SANS_FONT_PATH = path.join(FONTS_DIR, 'TikTokSans-Bold.ttf');
 
+async function dispatchWebhook(value: string, body: string): Promise<void> {
+  await postWebhook(value, body);
+}
+
 // Ensure necessary directories exist
 [TEMP_DIR, EXPORTS_DIR, FONTS_DIR].forEach((dir) => {
   if (!fs.existsSync(dir)) {
@@ -955,6 +964,9 @@ app.use('/exports', (req, res, next) => {
   res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', '*');
   if (req.method === 'OPTIONS') return res.sendStatus(200);
+  let requestedPath: string;
+  try { requestedPath = path.resolve(EXPORTS_DIR, `.${decodeURIComponent(req.path)}`); } catch { return res.sendStatus(404); }
+  if (fs.existsSync(requestedPath) && !isSafeExportPath(EXPORTS_DIR, requestedPath)) return res.sendStatus(404);
   next();
 }, express.static(EXPORTS_DIR, {
   acceptRanges: true,
@@ -975,9 +987,10 @@ app.use('/exports', (req, res, next) => {
 // Dedicated Video Streaming Endpoint with HTTP 206 Partial Content support
 app.get('/api/exports/:filename', (req, res) => {
   const filename = req.params.filename;
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/.test(filename) || filename === '.' || filename === '..') return res.sendStatus(404);
   const filePath = path.join(EXPORTS_DIR, filename);
 
-  if (!fs.existsSync(filePath)) {
+  if (!isSafeExportPath(EXPORTS_DIR, filePath)) {
     return res.status(404).json({ error: 'Nie znaleziono pliku wideo' });
   }
 
@@ -988,9 +1001,9 @@ app.get('/api/exports/:filename', (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
 
   if (range) {
-    const parts = range.replace(/bytes=/, "").split("-");
-    const start = parseInt(parts[0], 10);
-    const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+    const parsedRange = parseByteRange(range, fileSize);
+    if (!parsedRange) return res.status(416).set('Content-Range', `bytes */${fileSize}`).end();
+    const { start, end } = parsedRange;
     const chunksize = (end - start) + 1;
     const file = fs.createReadStream(filePath, { start, end });
     const head = {
@@ -1510,204 +1523,40 @@ function generateLocalFallbackVideo(destPath: string, duration = 6): Promise<voi
 
 // Utility to download a file from HTTP/HTTPS URL. Local fallback is opt-in for legacy/manual flows.
 function downloadFile(fileUrl: string, destPath: string, jobId?: string, abortSignal?: AbortSignal, allowLocalFallback = true): Promise<void> {
-  if (abortSignal?.aborted) {
-    return Promise.reject(new Error('Pobieranie przerwane: zadanie zostało anulowane'));
-  }
-
+  if (abortSignal?.aborted) return Promise.reject(new Error('Pobieranie przerwane: zadanie zostało anulowane'));
   if (!fileUrl || typeof fileUrl !== 'string' || !fileUrl.startsWith('http')) {
-    if (!allowLocalFallback) {
-      return Promise.reject(new Error(`Brak dopasowanego klipu: nieprawidłowy adres URL (${String(fileUrl || 'pusty URL')}).`));
-    }
+    if (!allowLocalFallback) return Promise.reject(new Error(`Brak dopasowanego klipu: nieprawidłowy adres URL (${String(fileUrl || 'pusty URL')}).`));
     console.warn(`[Download] Nieprawidłowy adres URL: ${fileUrl}. Generowanie lokalnego tła...`);
     if (jobId) updateJobProgress(jobId, {}, 'Generowanie lokalnego tła wideo w 720p...');
     return generateLocalFallbackVideo(destPath, 6);
   }
 
-  return new Promise((resolve, reject) => {
-    let isSettled = false;
-    let timer: NodeJS.Timeout | null = null;
-    let req: http.ClientRequest | null = null;
-    let fileStream: fs.WriteStream | null = null;
-
-    const cleanup = () => {
-      if (timer) {
-        clearTimeout(timer);
-        timer = null;
-      }
-      if (abortSignal) {
-        abortSignal.removeEventListener('abort', onAbort);
-      }
-    };
-
-    const safeFallback = (reason: string) => {
-      if (isSettled) return;
-      isSettled = true;
-      cleanup();
-      if (req) {
-        try { req.destroy(); } catch {}
-      }
-      if (fileStream) {
-        try { fileStream.close(); } catch {}
-      }
-      if (fs.existsSync(destPath)) {
-        try { fs.unlinkSync(destPath); } catch {}
-      }
-      if (!allowLocalFallback) {
-        const strictError = new Error(`Brak dopasowanego klipu wideo: ${reason}`);
-        console.error(`[Download Strict Failure] ${strictError.message}`);
-        if (jobId) updateJobProgress(jobId, {}, `Przerwano: brak dopasowanego klipu (${reason})`);
-        reject(strictError);
-        return;
-      }
-      console.warn(`[Download Fallback] ${reason} -> Użycie lokalnego tła wideo...`);
-      if (jobId) updateJobProgress(jobId, {}, `Użyto lokalnego tła wideo: ${reason}`);
-      generateLocalFallbackVideo(destPath, 6).then(resolve).catch(reject);
-    };
-
-    const onAbort = () => {
-      if (isSettled) return;
-      isSettled = true;
-      cleanup();
-      if (req) {
-        try { req.destroy(); } catch {}
-      }
-      if (fileStream) {
-        try { fileStream.close(); } catch {}
-      }
-      if (fs.existsSync(destPath)) {
-        try { fs.unlinkSync(destPath); } catch {}
-      }
-      reject(new Error('Pobieranie przerwane: zadanie zostało anulowane'));
-    };
-
-    if (abortSignal) {
-      abortSignal.addEventListener('abort', onAbort);
+  return downloadRemoteFile(fileUrl, destPath, { maxBytes: 100 * 1024 * 1024, timeoutMs: 12000, signal: abortSignal }).catch((err: Error) => {
+    if (abortSignal?.aborted) throw new Error('Pobieranie przerwane: zadanie zostało anulowane');
+    if (!allowLocalFallback) {
+      const strictError = new Error(`Brak dopasowanego klipu wideo: ${err.message}`);
+      console.error(`[Download Strict Failure] ${strictError.message}`);
+      if (jobId) updateJobProgress(jobId, {}, `Przerwano: brak dopasowanego klipu (${err.message})`);
+      throw strictError;
     }
-
-    // Twardy limit czasu 15s na cały download pliku (zapobiega zawieszeniu serwera / CDN)
-    timer = setTimeout(() => {
-      safeFallback(`Przekroczono limit czasu 15s dla adresu ${fileUrl.slice(0, 60)}...`);
-    }, 15000);
-
-    let parsedUrl: URL;
-    try {
-      parsedUrl = new URL(fileUrl);
-    } catch {
-      return safeFallback('Niepoprawny format URL');
-    }
-
-    const client = parsedUrl.protocol === 'https:' ? https : http;
-    fileStream = fs.createWriteStream(destPath);
-
-    const headers: Record<string, string> = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      'Accept': '*/*'
-    };
-
-    try {
-      req = client.get(fileUrl, { headers }, (response) => {
-        if (response.statusCode && response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
-          cleanup();
-          if (fileStream) {
-            try { fileStream.close(); } catch {}
-          }
-          if (fs.existsSync(destPath)) {
-            try { fs.unlinkSync(destPath); } catch {}
-          }
-          const redirectUrl = new URL(response.headers.location, fileUrl).toString();
-          return downloadFile(redirectUrl, destPath, jobId, abortSignal, allowLocalFallback).then(resolve).catch(reject);
-        }
-
-        if (response.statusCode !== 200 && response.statusCode !== 206) {
-          return safeFallback(`Zewnętrzny serwer zwrócił HTTP ${response.statusCode}`);
-        }
-
-        if (fileStream) {
-          response.pipe(fileStream);
-
-          fileStream.on('finish', () => {
-            if (isSettled) return;
-            isSettled = true;
-            cleanup();
-            fileStream?.close(() => resolve());
-          });
-
-          fileStream.on('error', (err) => {
-            safeFallback(`Błąd zapisu pliku: ${err.message}`);
-          });
-        }
-      });
-
-      req.on('error', (err) => {
-        if (!isSettled) {
-          safeFallback(`Błąd sieci: ${err.message}`);
-        }
-      });
-
-      req.setTimeout(12000, () => {
-        safeFallback('Brak odpowiedzi socketu przez 12s');
-      });
-    } catch (err) {
-      safeFallback(`Błąd inicjalizacji zapytania: ${(err as Error).message}`);
-    }
+    console.warn(`[Download Fallback] ${err.message} -> Użycie lokalnego tła wideo...`);
+    if (jobId) updateJobProgress(jobId, {}, `Użyto lokalnego tła wideo: ${err.message}`);
+    return generateLocalFallbackVideo(destPath, 6);
   });
 }
 
 // Utility to safely download audio files (with strict timeout, without generating dummy video)
 async function downloadAudioFile(fileUrl: string, destPath: string, timeoutMs: number = 5000): Promise<boolean> {
-  if (!fileUrl || typeof fileUrl !== 'string' || !fileUrl.startsWith('http')) {
+  if (!fileUrl || typeof fileUrl !== 'string' || !fileUrl.startsWith('http')) return false;
+  try {
+    await downloadRemoteFile(fileUrl, destPath, { maxBytes: 25 * 1024 * 1024, timeoutMs });
+    const valid = fs.existsSync(destPath) && fs.statSync(destPath).size > 1000;
+    if (!valid) await fs.promises.unlink(destPath).catch(() => undefined);
+    return valid;
+  } catch {
+    await fs.promises.unlink(destPath).catch(() => undefined);
     return false;
   }
-
-  return new Promise((resolve) => {
-    try {
-      const file = fs.createWriteStream(destPath);
-      const client = fileUrl.startsWith('https') ? https : http;
-      const headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Accept': 'audio/*, */*'
-      };
-
-      const req = client.get(fileUrl, { headers }, (res) => {
-        if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          file.close();
-          if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
-          const redirectUrl = new URL(res.headers.location, fileUrl).toString();
-          return downloadAudioFile(redirectUrl, destPath, timeoutMs).then(resolve);
-        }
-
-        if (res.statusCode !== 200 && res.statusCode !== 206) {
-          file.close();
-          if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
-          return resolve(false);
-        }
-
-        res.pipe(file);
-        file.on('finish', () => {
-          file.close(() => {
-            const exists = fs.existsSync(destPath) && fs.statSync(destPath).size > 1000;
-            resolve(exists);
-          });
-        });
-      });
-
-      req.on('error', () => {
-        file.close();
-        if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
-        resolve(false);
-      });
-
-      req.setTimeout(timeoutMs, () => {
-        req.destroy();
-        file.close();
-        if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
-        resolve(false);
-      });
-    } catch {
-      if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
-      resolve(false);
-    }
-  });
 }
 
 // Interfaces for Scene Request Body
@@ -3012,6 +2861,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
       `✓ Plik wyjściowy MP4 utworzony pomyślnie: ${outputUrl} (${stats.size} bajtów)`
     );
 
+    // Rendering is complete: callback delivery must not be governed by the render deadline.
     console.log(`✓ Job ${jobId} completed successfully: ${outputUrl}`);
     if (payload.pipelinePlan) {
       void updatePipelineRunStatus(payload.pipelinePlan.planId, 'completed', jobId, { completed_at: new Date().toISOString() });
@@ -3045,19 +2895,8 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
           completedAt: new Date().toISOString()
         });
 
-        console.log(`📡 Sending completion webhook to Make.com: ${payload.webhookUrl}`);
-        const urlObj = new URL(payload.webhookUrl);
-        const reqClient = urlObj.protocol === 'https:' ? https : http;
-        const req = reqClient.request(payload.webhookUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Content-Length': Buffer.byteLength(webhookPayload)
-          }
-        });
-        req.on('error', (e) => console.warn('Webhook dispatch network error:', e.message));
-        req.write(webhookPayload);
-        req.end();
+        console.log('📡 Sending completion webhook');
+        await runCompletionCallback(totalJobTimeout, () => dispatchWebhook(payload.webhookUrl, webhookPayload));
       } catch (webhookErr) {
         console.warn('Webhook callback error:', (webhookErr as Error).message);
       }
@@ -3089,18 +2928,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
           error: errorMsg,
           completedAt: new Date().toISOString()
         });
-        const urlObj = new URL(payload.webhookUrl);
-        const reqClient = urlObj.protocol === 'https:' ? https : http;
-        const req = reqClient.request(payload.webhookUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Content-Length': Buffer.byteLength(failPayload)
-          }
-        });
-        req.on('error', (e) => console.warn('Error webhook dispatch network error:', e.message));
-        req.write(failPayload);
-        req.end();
+        await dispatchWebhook(payload.webhookUrl, failPayload);
       } catch (e) {
         console.warn('Failed to send error webhook:', (e as Error).message);
       }
@@ -3267,7 +3095,7 @@ router.get('/supervisor/status', async (_req, res) => {
   const failedJobs = jobs.filter((job) => job.status === 'failed').length;
   const completedJobs = jobs.filter((job) => job.status === 'completed').length;
   const envReady = {
-    appAuth: Boolean(process.env.APP_AUTH_SECRET && process.env.APP_AUTH_SECRET.length >= 32),
+    appAuth: Boolean(getAppAuthConfiguration()),
     machineToken: Boolean(process.env.BANKIER_SHORTS_API_TOKEN),
     openai: Boolean(process.env.OPENAI_API_KEY),
     gemini: Boolean(process.env.GEMINI_API_KEY),
@@ -3290,7 +3118,7 @@ router.get('/supervisor/status', async (_req, res) => {
   }
 
   const missingRequired = [
-    !envReady.appAuth ? 'APP_AUTH_SECRET (minimum 32 characters)' : null,
+    !envReady.appAuth ? 'APP_AUTH_SECRET (minimum 32 characters) and APP_LOGIN_PASSWORD' : null,
     !envReady.machineToken ? 'BANKIER_SHORTS_API_TOKEN' : null,
     !(envReady.openai || envReady.gemini) ? 'OPENAI_API_KEY or GEMINI_API_KEY' : null,
     !envReady.pexels ? 'PEXELS_API_KEY' : null,
@@ -5774,7 +5602,7 @@ router.get('/jobs/:jobId/download', (req, res) => {
   }
 
   const filePath = path.join(EXPORTS_DIR, job.outputFilename);
-  if (!fs.existsSync(filePath)) {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/.test(job.outputFilename) || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile() || path.dirname(path.resolve(filePath)) !== path.resolve(EXPORTS_DIR) || !fs.realpathSync(filePath).startsWith(`${fs.realpathSync(EXPORTS_DIR)}${path.sep}`)) {
     return res.status(404).json({ error: 'Plik fizyczny wideo wygasł lub został usunięty z serwera.' });
   }
 
@@ -5783,13 +5611,23 @@ router.get('/jobs/:jobId/download', (req, res) => {
 
 router.get('/exports/:filename/download', (req, res) => {
   const { filename } = req.params;
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/.test(filename) || filename === '.' || filename === '..') return res.sendStatus(404);
   const filePath = path.join(EXPORTS_DIR, filename);
 
-  if (!fs.existsSync(filePath)) {
+  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile() || path.dirname(path.resolve(filePath)) !== path.resolve(EXPORTS_DIR) || !fs.realpathSync(filePath).startsWith(`${fs.realpathSync(EXPORTS_DIR)}${path.sep}`)) {
     return res.status(404).json({ error: 'Plik nie istnieje na serwerze.' });
   }
 
   res.download(filePath, filename);
+});
+
+// Authenticated ticket issuance for native EventSource clients.
+router.post('/jobs/:jobId/stream-ticket', (req, res) => {
+  const { jobId } = req.params;
+  if (!jobsStore.has(jobId)) return res.sendStatus(404);
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Pragma', 'no-cache');
+  return res.json({ ticket: issueStreamTicket(jobId), expiresIn: STREAM_TICKET_TTL_MS / 1000 });
 });
 
 // Real-time Event Stream Endpoint (Server-Sent Events) (/api/jobs/:jobId/stream)
@@ -5802,9 +5640,8 @@ router.get('/jobs/:jobId/stream', (req, res) => {
   }
 
   res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Connection', 'keep-alive');
-  res.setHeader('Access-Control-Allow-Origin', '*');
   if (typeof (res as any).flushHeaders === 'function') {
     (res as any).flushHeaders();
   }
@@ -8069,42 +7906,50 @@ router.post('/telegram/webhook', async (req, res) => {
   return res.json({ ok: true });
 });
 
-const DEFAULT_APP_LOGIN_PASSWORD = 'raportfinansowy24';
-const DEFAULT_APP_AUTH_SECRET = 'raportfinansowy24_default_secret_key_minimum_32_characters_long';
-
 app.get('/api/auth/status', (_req, res) => {
-  const isDefaultPassword = !process.env.APP_LOGIN_PASSWORD;
-  return res.json({
-    configured: true,
-    isDefaultPassword,
-    hint: isDefaultPassword ? 'Domyślne hasło dostępowe: raportfinansowy24' : null
-  });
+  return res.status(getAppAuthConfiguration() ? 200 : 503).json({ configured: Boolean(getAppAuthConfiguration()) });
 });
 
 // Password login issues a short-lived signed app session; Firebase is not used for app access.
 app.post('/api/auth/login', (req, res) => {
-  const configuredPassword = process.env.APP_LOGIN_PASSWORD || DEFAULT_APP_LOGIN_PASSWORD;
-  const sessionSecret = (process.env.APP_AUTH_SECRET && process.env.APP_AUTH_SECRET.length >= 32)
-    ? process.env.APP_AUTH_SECRET
-    : DEFAULT_APP_AUTH_SECRET;
+  const config = getAppAuthConfiguration();
+  if (!config) return res.status(503).json({ error: 'Uwierzytelnianie aplikacji nie jest skonfigurowane.' });
   const suppliedPassword = typeof req.body?.password === 'string' ? req.body.password : '';
-  if (!suppliedPassword || !constantTimeTokenMatch(suppliedPassword, configuredPassword)) {
+  if (!suppliedPassword || !constantTimeTokenMatch(suppliedPassword, config.password)) {
     return res.status(401).json({ error: 'Nieprawidłowe hasło.' });
   }
   try {
-    return res.json({ token: createAppSessionToken(sessionSecret), expiresIn: 43200 });
+    return res.json({ token: createAppSessionToken(config.secret), expiresIn: SESSION_TTL_SECONDS });
   } catch {
     return res.status(503).json({ error: 'Nie udało się utworzyć sesji. Sprawdź APP_AUTH_SECRET.' });
   }
 });
 
+// Short-lived, one-use credentials let native EventSource connect without exposing session tokens.
+type StreamTicketEntry = { jobId: string; expiresAt: number };
+const streamTickets = new Map<string, StreamTicketEntry>();
+const STREAM_TICKET_TTL_MS = 60_000;
+function hashStreamTicket(ticket: string): string {
+  return createHash('sha256').update(ticket).digest('hex');
+}
+function issueStreamTicket(jobId: string): string {
+  const ticket = randomBytes(32).toString('base64url');
+  streamTickets.set(hashStreamTicket(ticket), { jobId, expiresAt: Date.now() + STREAM_TICKET_TTL_MS });
+  return ticket;
+}
+function consumeStreamTicket(jobId: string, ticket: string): boolean {
+  const key = hashStreamTicket(ticket);
+  const entry = streamTickets.get(key);
+  if (entry) streamTickets.delete(key);
+  return Boolean(entry && entry.jobId === jobId && entry.expiresAt > Date.now());
+}
+
 // Browser sessions use signed app tokens; unattended jobs keep their separate bearer token.
 app.use('/api', createApiAuthMiddleware({
-  sessionSecret: (process.env.APP_AUTH_SECRET && process.env.APP_AUTH_SECRET.length >= 32)
-    ? process.env.APP_AUTH_SECRET
-    : DEFAULT_APP_AUTH_SECRET,
+  sessionSecret: getAppAuthConfiguration()?.secret,
   machineToken: process.env.BANKIER_SHORTS_API_TOKEN || '',
-  publicPaths: ['/health', '/telegram/webhook', '/auth/login', '/auth/status']
+  publicPaths: ['/health', '/telegram/webhook', '/auth/login', '/auth/status'],
+  consumeStreamTicket
 }));
 
 // Mount API router

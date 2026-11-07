@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { openJobEventSource } from '../utils/jobEventSource';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Video,
@@ -566,13 +567,10 @@ export const MakeHttpConnector: React.FC = () => {
   };
 
   // SSE Real-time Subscription logic
-  const connectSSEStream = (jobId: string) => {
+  const connectSSEStream = async (jobId: string) => {
     try {
       setConnectionStatus('sse');
-      const sseUrl = `/api/jobs/${jobId}/stream`;
-      console.log('⚡ Łączenie ze strumieniem SSE:', sseUrl);
-
-      const es = new EventSource(sseUrl);
+      const es = await openJobEventSource(jobId);
       eventSourceRef.current = es;
 
       es.onmessage = (event) => {
@@ -594,10 +592,9 @@ export const MakeHttpConnector: React.FC = () => {
         console.warn('⚠️ Przerwanie połączenia SSE stream. Przełączanie na szybkie odpytywanie HTTP...', err);
         es.close();
         eventSourceRef.current = null;
-        // Fallback to high-frequency polling automatically
         startPollingStream(jobId);
       };
-    } catch (err) {
+    } catch {
       startPollingStream(jobId);
     }
   };
