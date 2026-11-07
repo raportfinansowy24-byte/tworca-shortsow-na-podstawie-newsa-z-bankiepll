@@ -2862,7 +2862,6 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
     );
 
     // Rendering is complete: callback delivery must not be governed by the render deadline.
-    clearRenderDeadline(totalJobTimeout);
     console.log(`✓ Job ${jobId} completed successfully: ${outputUrl}`);
     if (payload.pipelinePlan) {
       void updatePipelineRunStatus(payload.pipelinePlan.planId, 'completed', jobId, { completed_at: new Date().toISOString() });
