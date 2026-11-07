@@ -108,11 +108,11 @@ export async function postWebhook(value: string, body: string, options: {
   const timeoutMs = options.timeoutMs ?? 5000;
   await new Promise<void>((resolve, reject) => {
     let settled = false;
-    let timer: NodeJS.Timeout;
+    let timer: NodeJS.Timeout | undefined;
     const finish = (error?: Error) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       if (error) reject(error);
       else resolve();
     };
