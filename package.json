@@ -31,7 +31,8 @@
     "test:motion-sound": "tsx tests/motionSoundRenderer.test.ts",
     "deploy:production": "bash scripts/deploy-production.sh",
     "test:highlight-boards": "tsx tests/highlightBoards.test.ts",
-    "test:deployment-auth-readiness": "tsx tests/deploymentAuthReadiness.test.ts"
+    "test:deployment-auth-readiness": "tsx tests/deploymentAuthReadiness.test.ts",
+    "test:stream-ticket-clients": "tsx tests/streamTicketClients.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
