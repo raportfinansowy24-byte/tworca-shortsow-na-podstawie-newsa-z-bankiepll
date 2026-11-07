@@ -51,7 +51,6 @@ export const RenderingQueue: React.FC<RenderingQueueProps> = ({
   const [expandedLogs, setExpandedLogs] = useState<Record<string, boolean>>({});
   const [previewJob, setPreviewJob] = useState<JobStatusResponse | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [liveStreamJobId, setLiveStreamJobId] = useState<string | null>(null);
   const [streamData, setStreamData] = useState<Record<string, JobStatusResponse>>({});
   const [isConfirmingClear, setIsConfirmingClear] = useState<boolean>(false);
 
@@ -79,14 +78,12 @@ export const RenderingQueue: React.FC<RenderingQueueProps> = ({
     if (!jobId) {
       sseRef.current?.close();
       sseRef.current = null;
-      setLiveStreamJobId(null);
       return;
     }
 
     let cancelled = false;
     sseRef.current?.close();
     sseRef.current = null;
-    setLiveStreamJobId(jobId);
     void openJobEventSource(jobId).then((es) => {
       if (cancelled) { es.close(); return; }
       sseRef.current = es;
