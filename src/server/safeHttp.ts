@@ -105,12 +105,26 @@ export async function postWebhook(value: string, body: string, options: {
 } = {}): Promise<void> {
   const { url, addresses } = await (options.validate ?? validateRemoteUrl)(value);
   const client = url.protocol === 'https:' ? (options.https ?? https) : (options.http ?? http);
+  const timeoutMs = options.timeoutMs ?? 5000;
   await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    let timer: NodeJS.Timeout;
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (error) reject(error);
+      else resolve();
+    };
     const req = client.request(url, { method: 'POST', lookup: pinnedLookup(addresses), headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } }, (res) => {
-      res.resume(); res.on('end', resolve);
+      res.on('error', finish);
+      res.on('end', () => finish());
+      res.resume();
     });
-    req.setTimeout(options.timeoutMs ?? 5000, () => req.destroy(new Error('Webhook timeout')));
-    req.on('error', reject);
+    // Socket inactivity timeout is not an end-to-end deadline: enforce both.
+    timer = setTimeout(() => req.destroy(new Error('Webhook total deadline exceeded')), timeoutMs);
+    req.setTimeout(timeoutMs, () => req.destroy(new Error('Webhook inactivity timeout')));
+    req.on('error', finish);
     req.end(body);
   });
 }
