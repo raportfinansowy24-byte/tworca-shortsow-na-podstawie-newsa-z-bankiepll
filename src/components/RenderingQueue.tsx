@@ -56,6 +56,8 @@ export const RenderingQueue: React.FC<RenderingQueueProps> = ({
   const [isConfirmingClear, setIsConfirmingClear] = useState<boolean>(false);
 
   const sseRef = useRef<EventSource | null>(null);
+  const onRefreshRef = useRef(onRefresh);
+  onRefreshRef.current = onRefresh;
 
   // Auto Refresh Polling
   useEffect(() => {
@@ -73,43 +75,40 @@ export const RenderingQueue: React.FC<RenderingQueueProps> = ({
   }, [jobs]);
 
   useEffect(() => {
-    if (!activeProcessingJob) {
-      if (sseRef.current) {
-        sseRef.current.close();
-        sseRef.current = null;
-      }
+    const jobId = activeProcessingJob?.id;
+    if (!jobId) {
+      sseRef.current?.close();
+      sseRef.current = null;
       setLiveStreamJobId(null);
       return;
     }
 
     let cancelled = false;
-    if (liveStreamJobId !== activeProcessingJob.id) {
-      if (sseRef.current) sseRef.current.close();
-      setLiveStreamJobId(activeProcessingJob.id);
-      void openJobEventSource(activeProcessingJob.id).then((es) => {
-        if (cancelled) { es.close(); return; }
-        sseRef.current = es;
-        es.onmessage = (event) => {
-          try {
-            const data: JobStatusResponse = JSON.parse(event.data);
-            setStreamData((prev) => ({ ...prev, [data.id]: data }));
-            if (data.status === 'completed' || data.status === 'failed') onRefresh();
-          } catch {}
-        };
-        es.onerror = () => {
-          es.close();
-          if (sseRef.current === es) sseRef.current = null;
-        };
-      }).catch(() => {});
-    }
+    sseRef.current?.close();
+    sseRef.current = null;
+    setLiveStreamJobId(jobId);
+    void openJobEventSource(jobId).then((es) => {
+      if (cancelled) { es.close(); return; }
+      sseRef.current = es;
+      es.onmessage = (event) => {
+        try {
+          const data: JobStatusResponse = JSON.parse(event.data);
+          setStreamData((prev) => ({ ...prev, [data.id]: data }));
+          if (data.status === 'completed' || data.status === 'failed') onRefreshRef.current();
+        } catch {}
+      };
+      es.onerror = () => {
+        es.close();
+        if (sseRef.current === es) sseRef.current = null;
+      };
+    }).catch(() => {});
+
     return () => {
       cancelled = true;
-      if (sseRef.current) {
-        sseRef.current.close();
-        sseRef.current = null;
-      }
+      sseRef.current?.close();
+      sseRef.current = null;
     };
-  }, [activeProcessingJob, liveStreamJobId, onRefresh]);
+  }, [activeProcessingJob?.id]);
 
   // Combine props jobs with streaming updates
   const combinedJobs = useMemo(() => {
