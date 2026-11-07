@@ -122,7 +122,7 @@ export async function postWebhook(value: string, body: string, options: {
       res.resume();
     });
     // Socket inactivity timeout is not an end-to-end deadline: enforce both.
-    timer = setTimeout(() => req.destroy(new Error('Webhook total deadline exceeded')), timeoutMs);
+    timer = setTimeout(() => req.destroy(new Error('Webhook total timeout deadline exceeded')), timeoutMs);
     req.setTimeout(timeoutMs, () => req.destroy(new Error('Webhook inactivity timeout')));
     req.on('error', finish);
     req.end(body);
