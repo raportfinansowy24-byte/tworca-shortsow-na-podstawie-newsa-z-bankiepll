@@ -96,6 +96,7 @@ const webhookAddress = await listen(webhookServer);
 await postWebhook(`http://pinned.test:${webhookAddress.port}/redirect`, '{}', { validate: validateLocal, http: trackingHttp });
 assert.equal(webhookRedirectTargetHit, false, 'webhook must not follow redirects');
 await assert.rejects(postWebhook(`${base}/slow`, '{}', { timeoutMs: 30, validate: validateLocal, http: trackingHttp }), /timeout/i);
+await assert.rejects(postWebhook(`${base}/slow-drip`, '{}', { timeoutMs: 60, validate: validateLocal, http: trackingHttp }), /total deadline/i);
 const tlsServer = https.createServer({ key: fs.readFileSync(path.join(process.cwd(), 'tests/fixtures/local-test-key.pem')), cert: fs.readFileSync(path.join(process.cwd(), 'tests/fixtures/local-test-cert.pem')) }, (_req, res) => res.end('tls'));
 const tlsAddress = await listen(tlsServer);
 const tlsLookup = pinnedLookup(localAddress);
