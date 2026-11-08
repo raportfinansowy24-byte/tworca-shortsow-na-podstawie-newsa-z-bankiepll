@@ -22,6 +22,7 @@
     "test:telegram-chat": "tsx tests/telegramChatCommands.test.ts",
     "test:scene-contract": "tsx tests/sceneContract.test.ts",
     "test:creative-director": "tsx tests/creativeDirector.test.ts",
+    "test:campaign-tracking": "tsx tests/campaignTracking.test.ts",
     "test:render-optimizations": "tsx tests/renderOptimizations.test.ts",
     "test:qa-repair": "tsx tests/qaRepair.test.ts",
     "test:short-pipeline": "tsx tests/shortPipeline.test.ts",
