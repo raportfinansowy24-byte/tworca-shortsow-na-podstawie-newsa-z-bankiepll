@@ -1,11 +1,14 @@
 import fs from 'fs/promises';
 import path from 'path';
+import { buildCampaignTrackingLinks, type CampaignPlatform } from './campaignTracking';
 
 export interface PostizPublishInput {
   videoPath: string;
   title: string;
   description?: string;
   articleUrl?: string;
+  contentId?: string;
+  destinationPath?: string;
 }
 
 export interface PostizPublishResult {
@@ -13,6 +16,7 @@ export interface PostizPublishResult {
   published: boolean;
   reason?: string;
   postIds?: string[];
+  campaignTracking?: Record<string, ReturnType<typeof buildCampaignTrackingLinks>>;
 }
 
 function getPostizConfig() {
@@ -72,14 +76,27 @@ export async function publishApprovedShortToPostiz(input: PostizPublishInput): P
   }
   if (!media.path) throw new Error('Postiz media upload response did not include a media path.');
 
-  const content = [input.title.trim(), input.description?.trim(), input.articleUrl?.trim()]
-    .filter(Boolean)
-    .join('\n\n');
-  const posts = config.integrations.map((integration) => ({
-    integration: { id: integration.id },
-    value: [{ content, image: [{ id: media.id, path: media.path }] }],
-    settings: { __type: integration.provider }
-  }));
+  const campaignTracking: Record<string, ReturnType<typeof buildCampaignTrackingLinks>> = {};
+  const posts = config.integrations.map((integration) => {
+    const platform = integration.provider as CampaignPlatform;
+    const tracking = buildCampaignTrackingLinks({
+      platform: integration.provider,
+      contentId: input.contentId || path.parse(input.videoPath).name,
+      destinationPath: input.destinationPath || '/'
+    });
+    campaignTracking[integration.provider] = tracking;
+    const description = [input.description?.trim(), tracking.descriptionUrl]
+      .filter(Boolean)
+      .join('\n\n');
+    const content = [input.title.trim(), description, input.articleUrl?.trim()]
+      .filter(Boolean)
+      .join('\n\n');
+    return {
+      integration: { id: integration.id },
+      value: [{ content, image: [{ id: media.id, path: media.path }] }],
+      settings: { __type: platform }
+    };
+  });
 
   const response = await fetch(`${config.baseUrl}/posts`, {
     method: 'POST',
@@ -98,5 +115,5 @@ export async function publishApprovedShortToPostiz(input: PostizPublishInput): P
     : responseData && typeof responseData === 'object' && Array.isArray((responseData as { posts?: unknown[] }).posts)
       ? ((responseData as { posts: unknown[] }).posts).map((item) => item && typeof item === 'object' ? String((item as { id?: unknown }).id || '') : '').filter(Boolean)
       : [];
-  return { configured: true, published: true, postIds: ids };
+  return { configured: true, published: true, postIds: ids, campaignTracking };
 }

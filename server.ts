@@ -7932,11 +7932,19 @@ router.post('/telegram/webhook', async (req, res) => {
             videoPath,
             title: job.approvalTitle || job.title || job.articleTitle || 'RaportFinansowy24 — nowy materiał',
             description: typeof job.shortMetadata?.description === 'string' ? job.shortMetadata.description : undefined,
-            articleUrl: job.articleUrl || job.approvalSourceUrl
+            articleUrl: job.articleUrl || job.approvalSourceUrl,
+            contentId: job.id,
+            destinationPath: typeof job.shortMetadata?.ctaDestination === 'string' ? job.shortMetadata.ctaDestination : '/'
           });
           if (result.published) {
             publicationMessage = 'Short zaakceptowany i przekazany do publikacji przez Postiz.';
-            updateJobProgress(jobId, { telegramApprovalStatus: 'approved' }, 'Materiał zaakceptowany i przekazany do Postiz.');
+            updateJobProgress(jobId, {
+              telegramApprovalStatus: 'approved',
+              shortMetadata: {
+                ...job.shortMetadata,
+                campaignTracking: result.campaignTracking || {}
+              }
+            }, 'Materiał zaakceptowany i przekazany do Postiz. Przygotowano per-platform UTM URL-e oraz teksty komentarzy do przypięcia w metadanych zadania.');
           } else {
             publicationMessage = 'Short zaakceptowany. Postiz nie publikuje: ' + (result.reason || 'sprawdź konfigurację.');
           }

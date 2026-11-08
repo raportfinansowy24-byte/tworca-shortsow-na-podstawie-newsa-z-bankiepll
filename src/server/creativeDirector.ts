@@ -117,6 +117,7 @@ ZASADY RZETELNOŚCI:
 - Nie dopisuj liczb, dat, decyzji ani twierdzeń, których nie ma w źródle.
 - Jeśli fakt wymaga potwierdzenia, dodaj go do riskFlags.
 - Hook ma być mocny, ale nie może sugerować spisku ani wprowadzać w błąd.
+- Ostatnia scena musi zawierać jawne, wypowiadane CTA z adresem „raport-finansowy24.pl”; nie skracaj ani nie usuwaj domeny.
 - Odpowiedź zwróć wyłącznie jako poprawny JSON zgodny z wymaganym kształtem.
 
 REŻYSERIA UJĘĆ I WYSZUKIWANIE PEXELS:
@@ -138,7 +139,7 @@ Kategoria: ${article.category || 'Finanse'}
 Kluczowy wniosek: ${article.keyTakeaway || ''}
 Sugerowany hook: ${article.suggestedHook || ''}
 Źródło: ${article.link || ''}
-CTA wymagane przez politykę redakcyjną: ${ctaText || 'Sprawdź pełny kontekst.'}
+CTA wymagane przez politykę redakcyjną: ${ctaText || 'Wejdź na raport-finansowy24.pl i sprawdź pełny kontekst.'}
 
 PARAMETRY:
 Platforma: ${platform}
@@ -189,7 +190,7 @@ export function parseCreativeDirectorPlan(text: string, params: { platform?: str
     title: String(parsed.title).slice(0, 240),
     hook: String(parsed.hook).slice(0, 600),
     body: String(parsed.body || '').slice(0, 3000),
-    cta: String(params.ctaText || parsed.cta || 'Sprawdź pełny kontekst.').slice(0, 500),
+    cta: String(params.ctaText || parsed.cta || 'Wejdź na raport-finansowy24.pl i sprawdź pełny kontekst.').slice(0, 500),
     ctaDestination: params.ctaDestination,
     ctaUrl: params.ctaUrl,
     sourceTitle: params.article?.title,

@@ -32,6 +32,10 @@ jobs:
         run: npm run test:auth
       - name: Deployment info tests
         run: npm run test:deployment-info
+      - name: Campaign tracking and CTA tests
+        run: npm run test:campaign-tracking
+      - name: Creative Director tests
+        run: npm run test:creative-director
       - name: Visual QA provider fallback tests
         run: npm run test:visual-qa-providers
       - name: Supabase job history tests

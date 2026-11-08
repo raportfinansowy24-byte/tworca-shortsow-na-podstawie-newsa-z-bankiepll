@@ -23,9 +23,10 @@ for (const article of [
   { title: 'Bank zmienia opłaty za konto bankowe' }
 ]) {
   const cta = selectFinanceCta(article);
-  assert.ok(cta.spokenText.trim().split(' ').filter(Boolean).length <= 4);
+  assert.ok(cta.spokenText.trim().split(/\s+/).filter(Boolean).length <= 8);
+  assert.match(cta.spokenText, /\braport-finansowy24\.pl\b/);
   assert.ok(cta.destinationUrl.endsWith(cta.destinationPath));
-  assert.equal(cta.spokenText.includes('raport-finansowy24.pl'), false);
+  assert.doesNotMatch(cta.spokenText, /https?:\/\//);
   assert.equal(cta.spokenText.includes('http'), false);
 }
 
