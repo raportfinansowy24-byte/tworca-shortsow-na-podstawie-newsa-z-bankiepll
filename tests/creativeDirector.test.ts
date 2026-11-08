@@ -11,7 +11,7 @@ assert.match(directorPrompt, /jeden spójny ruch kamery/);
 assert.match(directorPrompt, /nie gwarantuje, że pobrany stock zawiera dokładnie taki ruch/);
 const fallback = buildCreativeDirectorFallback(article, {
   filesUsed: brand.filesUsed,
-  ctaText: 'Policz ratę kredytu.',
+  ctaText: 'Wejdź na raport-finansowy24.pl i policz ratę kredytu.',
   ctaDestination: '/loan',
   ctaUrl: 'https://raport-finansowy24.pl/loan'
 });
@@ -44,10 +44,10 @@ assert.match(fallback.scenes[0].visualQuery, /National Bank of Poland/i);
 assert.doesNotMatch(fallback.scenes[0].visualQuery, /crypto|cryptocurrency/i);
 assert.notEqual(buildArticleVisualQuery(article, 'RPP pozostaje w centrum sporu.', 0), 'financial market chart dynamic');
 
-const renderScenes = mapCreativeDirectorPlanToRenderScenes(fallback, 'Policz ratę kredytu.', 'SPRAWDŹ WPŁYW NA RATĘ\nRAPORT-FINANSOWY24.PL');
+const renderScenes = mapCreativeDirectorPlanToRenderScenes(fallback, 'Wejdź na raport-finansowy24.pl i policz ratę kredytu.', 'SPRAWDŹ WPŁYW NA RATĘ\nRAPORT-FINANSOWY24.PL');
 assert.equal(renderScenes.length, 8);
 assert.equal(renderScenes[0].voiceover_text, fallback.hook);
-assert.equal(renderScenes[7].voiceover_text, 'Policz ratę kredytu.');
+assert.equal(renderScenes[7].voiceover_text, 'Wejdź na raport-finansowy24.pl i policz ratę kredytu.');
 assert.match(renderScenes[7].subtitles, /RAPORT-FINANSOWY24\.PL/);
 assert.equal(renderScenes[0].visualQuery, fallback.scenes[0].visualQuery);
 assert.equal(renderScenes[0].motionSound.motion, 'hero-zoom');
