@@ -117,6 +117,7 @@ ZASADY RZETELNOŚCI:
 - Nie dopisuj liczb, dat, decyzji ani twierdzeń, których nie ma w źródle.
 - Jeśli fakt wymaga potwierdzenia, dodaj go do riskFlags.
 - Hook ma być mocny, ale nie może sugerować spisku ani wprowadzać w błąd.
+- Ostatnia scena musi zawierać jawne, wypowiadane CTA z adresem „raport-finansowy24.pl”; nie skracaj ani nie usuwaj domeny.
 - Odpowiedź zwróć wyłącznie jako poprawny JSON zgodny z wymaganym kształtem.
 
 REŻYSERIA UJĘĆ I WYSZUKIWANIE PEXELS:
