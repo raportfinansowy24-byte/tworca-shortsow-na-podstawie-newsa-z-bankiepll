@@ -11,7 +11,7 @@ assert.match(getSceneCountError(0, 0) || '', /expectedSceneCount musi być liczb
 assert.match(getSceneCountError(9, 9) || '', /expectedSceneCount musi być liczbą całkowitą/);
 
 assert.deepEqual(sceneDurationsForCount(8), [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5]);
-assert.equal(MAX_SHORT_DURATION_SECONDS, 23);
+assert.equal(MAX_SHORT_DURATION_SECONDS, 25);
 assert.equal(selectFinanceCta({ title: 'RPP obniża stopy, co z ratą kredytu?' }).destinationPath, '/loan');
 assert.equal(selectFinanceCta({ title: 'Nowe oprocentowanie lokat i oszczędności' }).destinationPath, '/savings');
 assert.equal(selectFinanceCta({ title: 'Spółka publikuje wyniki finansowe na GPW' }).destinationPath, '/firma');
@@ -38,7 +38,7 @@ assert.ok(Math.abs(naturalSceneDurations[0] - 6.02) < 0.001);
 assert.ok(naturalSceneDurations.reduce((sum, duration) => sum + duration, 0) < MAX_SHORT_DURATION_SECONDS);
 assert.throws(
   () => sceneDurationsWithNarration(sceneDurationsForCount(8), Array(8).fill(5.9)),
-  /Maksymalny czas Shorta to 23 s/
+  /Maksymalny czas Shorta to 25 s/
 );
 const repairBaseDurations = sceneDurationsForCount(8);
 const repairDurationsFromFreshTts = sceneDurationsWithNarration(
@@ -50,7 +50,7 @@ assert.ok(Math.abs(repairDurationsFromFreshTts[0] - 2.92) < 0.001, 'naprawa prze
 assert.ok(repairDurationsFromFreshTts.reduce((sum, duration) => sum + duration, 0) <= MAX_SHORT_DURATION_SECONDS);
 assert.throws(
   () => sceneDurationsWithNarration(repairBaseDurations, Array(8).fill(5.9), MAX_SHORT_DURATION_SECONDS),
-  /Maksymalny czas Shorta to 23 s/
+  /Maksymalny czas Shorta to 25 s/
 );
 
 assert.deepEqual(sceneDurationsForCount(4), [4.5, 4.5, 4.5, 4.5]);

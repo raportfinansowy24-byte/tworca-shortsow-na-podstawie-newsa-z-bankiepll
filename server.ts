@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+import { createHash } from 'crypto';
 import https from 'https';
 import http from 'http';
 import { exec, spawn, ChildProcess } from 'child_process';
@@ -1914,13 +1915,49 @@ async function generateElevenLabsAudio(
 ): Promise<number> {
   const actualVoiceId = resolveElevenLabsVoiceId(voiceId);
   const safeSpeed = Math.max(0.7, Math.min(Number.isFinite(speed) ? speed : 1.0, 1.2));
+  const modelId = process.env.ELEVENLABS_MODEL_ID?.trim() || 'eleven_multilingual_v2';
+  const voiceSettings = { stability: 0.75, similarity_boost: 0.8, style: 0, use_speaker_boost: true, speed: safeSpeed };
+  const cacheKey = createHash('sha256').update(JSON.stringify({
+    version: 1,
+    text: text.slice(0, 1000),
+    voiceId: actualVoiceId,
+    modelId,
+    outputFormat: 'mp3_44100_128',
+    voiceSettings,
+    previousText: previousText?.slice(-500) || '',
+    nextText: nextText?.slice(0, 500) || ''
+  })).digest('hex');
+  const cacheDir = process.env.TTS_CACHE_DIR?.trim() || path.join(process.env.SHORTS_EXPORTS_DIR?.trim() || '/app/exports', 'tts-cache');
+  const cacheAudioPath = path.join(cacheDir, `${cacheKey}.mp3`);
+  const cacheMetadataPath = path.join(cacheDir, `${cacheKey}.json`);
+
+  // The Fly volume mounted at /app/exports keeps successful scene audio across restarts.
+  try {
+    await fs.promises.mkdir(cacheDir, { recursive: true });
+    if (fs.existsSync(cacheAudioPath) && fs.existsSync(cacheMetadataPath)) {
+      const cached = JSON.parse(await fs.promises.readFile(cacheMetadataPath, 'utf8')) as {
+        duration?: number;
+        wordTimings?: CaptionWordTiming[];
+      };
+      if (Number.isFinite(cached.duration) && Number(cached.duration) > 0 &&
+          Array.isArray(cached.wordTimings)) {
+        await fs.promises.copyFile(cacheAudioPath, destPath);
+        if (wordTimingsOut) wordTimingsOut.splice(0, wordTimingsOut.length, ...cached.wordTimings);
+        console.info(`[TTS cache] HIT scene audio ${cacheKey.slice(0, 12)}`);
+        return Number(cached.duration);
+      }
+    }
+  } catch (error) {
+    console.warn(`[TTS cache] Cache read unavailable; generating fresh audio: ${(error as Error).message}`);
+  }
+
   const response = await requestElevenLabsApi(
     'POST',
     `/v1/text-to-speech/${encodeURIComponent(actualVoiceId)}/with-timestamps?output_format=mp3_44100_128`,
     {
       text: text.slice(0, 1000),
-      model_id: process.env.ELEVENLABS_MODEL_ID?.trim() || 'eleven_multilingual_v2',
-      voice_settings: { stability: 0.75, similarity_boost: 0.8, style: 0, use_speaker_boost: true, speed: safeSpeed },
+      model_id: modelId,
+      voice_settings: voiceSettings,
       ...(previousText ? { previous_text: previousText.slice(-500) } : {}),
       ...(nextText ? { next_text: nextText.slice(0, 500) } : {})
     },
@@ -1942,6 +1979,21 @@ async function generateElevenLabsAudio(
   }
   const duration = await getAudioDuration(destPath);
   if (!duration) throw new Error('Nie udało się zmierzyć długości audio ElevenLabs.');
+
+  // Cache only complete, validated audio and its exact caption alignment.
+  try {
+    await fs.promises.mkdir(cacheDir, { recursive: true });
+    const alignedTimings = wordTimingsOut ? [...wordTimingsOut] : wordTimingsFromElevenLabsAlignment(result.alignment || result.normalized_alignment);
+    const tempAudioPath = `${cacheAudioPath}.${process.pid}.tmp`;
+    const tempMetadataPath = `${cacheMetadataPath}.${process.pid}.tmp`;
+    await fs.promises.copyFile(destPath, tempAudioPath);
+    await fs.promises.writeFile(tempMetadataPath, JSON.stringify({ duration, wordTimings: alignedTimings }), 'utf8');
+    await fs.promises.rename(tempAudioPath, cacheAudioPath);
+    await fs.promises.rename(tempMetadataPath, cacheMetadataPath);
+    console.info(`[TTS cache] STORED scene audio ${cacheKey.slice(0, 12)}`);
+  } catch (error) {
+    console.warn(`[TTS cache] Could not persist audio cache: ${(error as Error).message}`);
+  }
   return duration;
 }
 
@@ -2475,7 +2527,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
         Number(scene.duration) || [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5][index] || 2.25
       );
     // Repair generates fresh TTS; extend each saved scene budget when the new audio is longer.
-    // Fail before encoding if the updated narration no longer fits the 23-second short limit.
+    // Fail before encoding if the updated narration no longer fits the 25-second hard limit.
     const plannedSceneDurations = sceneDurationsWithNarration(
       baseSceneDurations,
       preparedSceneTts.map((prepared) => prepared?.duration ?? null),
