@@ -1984,8 +1984,9 @@ async function generateElevenLabsAudio(
   try {
     await fs.promises.mkdir(cacheDir, { recursive: true });
     const alignedTimings = wordTimingsOut ? [...wordTimingsOut] : wordTimingsFromElevenLabsAlignment(result.alignment || result.normalized_alignment);
-    const tempAudioPath = `${cacheAudioPath}.${process.pid}.tmp`;
-    const tempMetadataPath = `${cacheMetadataPath}.${process.pid}.tmp`;
+    const cacheWriteToken = `${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
+    const tempAudioPath = `${cacheAudioPath}.${cacheWriteToken}.tmp`;
+    const tempMetadataPath = `${cacheMetadataPath}.${cacheWriteToken}.tmp`;
     await fs.promises.copyFile(destPath, tempAudioPath);
     await fs.promises.writeFile(tempMetadataPath, JSON.stringify({ duration, wordTimings: alignedTimings }), 'utf8');
     await fs.promises.rename(tempAudioPath, cacheAudioPath);
