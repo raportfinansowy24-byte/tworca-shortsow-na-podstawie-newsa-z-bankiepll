@@ -53,13 +53,13 @@ export function generateHighlightBoardAss(text: string, duration: number, timing
   const start = Math.max(0, timings[phrase.start].start);
   const end = Math.min(duration, timings[phrase.end - 1].end);
   if (end <= start) return '';
-  const position = options.position || 'bottom';
+  const position = options.position || 'center';
   const alignment = position === 'top' ? 8 : position === 'center' ? 5 : 2;
   // Platform-safe bottom region: keep clear of bottom UI and leave side margins.
   const marginV = position === 'top' ? 190 : position === 'center' ? 0 : 300;
-  const fontSize = Math.max(28, Math.min(90, Math.round(options.fontSize ?? 62)));
-  const outline = Math.max(1, Math.min(12, Math.round(options.outlineWidth ?? 5)));
-  const shadow = Math.max(0, Math.min(8, Math.round(options.shadow ?? 2)));
+  const fontSize = Math.max(28, Math.min(90, Math.round(options.fontSize ?? 78)));
+  const outline = Math.max(1, Math.min(12, Math.round(options.outlineWidth ?? 6)));
+  const shadow = Math.max(0, Math.min(8, Math.round(options.shadow ?? 4)));
   const normalColor = assColor(options.fontColor || '#ffffff', '&H00FFFFFF&');
   const redColor = assColor(options.highlightColor || '#ff3030', '&H003030FF&');
   const outlineColor = assColor(options.outlineColor || '#000000', '&H00000000&');
@@ -76,5 +76,5 @@ export function generateHighlightBoardAss(text: string, duration: number, timing
   for (let i = 0; i < displayTokens.length; i += perLine) lines.push(displayTokens.slice(i, i + perLine).join(' '));
   const wrapped = lines.join('\\N');
   const eventEnd = Math.max(start + 0.12, end);
-  return `[Script Info]\nScriptType: v4.00+\nPlayResX: 720\nPlayResY: 1280\nScaledBorderAndShadow: yes\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: FactBoard,TikTok Sans,${fontSize},${normalColor},${normalColor},${outlineColor},&H80000000&,-1,0,0,0,100,100,0,0,1,${outline},${shadow},${alignment},60,60,${marginV},1\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,${fmt(start)},${fmt(eventEnd)},FactBoard,,0,0,0,,${wrapped}\n`;
+  return `[Script Info]\nScriptType: v4.00+\nPlayResX: 720\nPlayResY: 1280\nScaledBorderAndShadow: yes\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: FactBoard,Anton,${fontSize},${normalColor},${normalColor},${outlineColor},&H80000000&,-1,0,0,0,100,100,0,0,1,${outline},${shadow},${alignment},60,60,${marginV},1\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,${fmt(start)},${fmt(eventEnd)},FactBoard,,0,0,0,,${wrapped}\n`;
 }
