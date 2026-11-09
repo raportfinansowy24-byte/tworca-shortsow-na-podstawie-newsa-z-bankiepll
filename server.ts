@@ -5689,6 +5689,7 @@ router.post('/combine-scenes', async (req, res) => {
     lockSceneDurations,
     captionAnimation: body.captionAnimation || body.animation || 'word-by-word',
     highlightColor: body.highlightColor || 'yellow',
+    highlightBoards: body.highlightBoards,
     telegramApproval: true
   };
 
