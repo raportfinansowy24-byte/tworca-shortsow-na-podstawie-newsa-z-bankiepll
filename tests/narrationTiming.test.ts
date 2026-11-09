@@ -148,4 +148,34 @@ const inflectedWordNumber = await fitNarrationBeforeTts({
 });
 assert.match(inflectedWordNumber.sceneTexts[0], /pięciu procent/, 'odmiana gramatyczna tej samej liczby pozostaje dozwolona');
 
+
+const digitFactsLongText = Array.from({ length: 30 }, () => 'konkret').join(' ') + ' Wynik: 5% wzrostu, 2% spadku.';
+await assert.rejects(() => fitNarrationBeforeTts({
+  sceneTexts: [digitFactsLongText, ...shortTexts.slice(1)],
+  baseSceneDurations: base,
+  secondsPerSpeechUnit: 0.4,
+  speed: 1,
+  targetDurationSeconds: 23,
+  maxTotalDurationSeconds: 25,
+  revise: async ({ sceneTexts }) => {
+    const candidate = [...sceneTexts];
+    candidate[0] = Array.from({ length: 12 }, () => 'konkret').join(' ') + ' Wynik: 2% wzrostu, 5% spadku.';
+    return candidate;
+  }
+}), /zmieniła lub usunęła wartość liczbową/);
+
+await assert.rejects(() => fitNarrationBeforeTts({
+  sceneTexts: [digitFactsLongText, ...shortTexts.slice(1)],
+  baseSceneDurations: base,
+  secondsPerSpeechUnit: 0.4,
+  speed: 1,
+  targetDurationSeconds: 23,
+  maxTotalDurationSeconds: 25,
+  revise: async ({ sceneTexts }) => {
+    const candidate = [...sceneTexts];
+    candidate[0] = Array.from({ length: 12 }, () => 'konkret').join(' ') + ' Wynik: 5% wzrostu, 2% spadku w 2027 roku.';
+    return candidate;
+  }
+}), /zmieniła lub usunęła wartość liczbową/);
+
 console.log('Narration timing tests passed');
