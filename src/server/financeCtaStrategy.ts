@@ -36,7 +36,16 @@ function normalize(value: unknown): string {
 }
 
 function hasAny(text: string, phrases: string[]): boolean {
+  return phrases.some((phrase) => {
+    const normalizedPhrase = normalize(phrase);
+    const escapedPhrase = normalizedPhrase.replace(/[.*+?^${}()|[\]\\]/g, '\\function hasAny(text: string, phrases: string[]): boolean {
   return phrases.some((phrase) => text.includes(normalize(phrase)));
+}');
+    const pattern = normalizedPhrase.length <= 4
+      ? new RegExp(`\\b${escapedPhrase}\\b`)
+      : new RegExp(`\\b${escapedPhrase}`);
+    return pattern.test(text);
+  });
 }
 
 export function selectFinanceCta(
@@ -79,7 +88,7 @@ export function selectFinanceCta(
     };
   }
 
-  if (hasAny(text, ['spółka', 'spółki', 'akcje', 'gpw', 'giełda', 'wyniki finansowe', 'dywidenda', 'kurs akcji', 'krs', 'nip', 'regon'])) {
+  if (hasAny(text, ['spółka', 'spółki', 'akcje', 'gpw', 'dywidenda', 'kurs akcji', 'wyniki finansowe', 'krs', 'nip', 'regon'])) {
     return {
       type: 'company_analysis',
       text: 'Sprawdź analizę spółki po NIP lub KRS na raport-finansowy24.pl/firma.',
