@@ -24,6 +24,10 @@ jobs:
         run: npm run build
       - name: Scene contract tests
         run: npm run test:scene-contract
+      - name: Narration timing, pre-TTS fit and calibration tests
+        run: npm run test:narration-timing
+      - name: Render optimization tests
+        run: npm run test:render-optimizations
       - name: Dynamic highlight board tests
         run: npm run test:highlight-boards
       - name: Telegram approval and revision tests

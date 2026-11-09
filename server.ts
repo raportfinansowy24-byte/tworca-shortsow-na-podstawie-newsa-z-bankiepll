@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+import { createHash } from 'crypto';
 import https from 'https';
 import http from 'http';
 import { exec, spawn, ChildProcess } from 'child_process';
@@ -41,7 +42,8 @@ import {
   updateTelegramApprovalMessage
 } from './src/server/telegramApproval';
 import { classifyTelegramChatMessage } from './src/server/telegramChatCommands';
-import { FINANCE_SHORT_SCENE_COUNT, getSceneCountError, hasCompleteFinanceSceneVisualAssets, isSafeFinanceDataVisualSvg, MAX_SHORT_DURATION_SECONDS, sceneDurationsForCount, sceneDurationsWithNarration, sceneRequestMetadata } from './src/server/sceneContract';
+import { FINANCE_SHORT_SCENE_COUNT, getSceneCountError, hasCompleteFinanceSceneVisualAssets, isSafeFinanceDataVisualSvg, MAX_SHORT_DURATION_SECONDS, TARGET_SHORT_DURATION_SECONDS, sceneDurationsForCount, sceneDurationsWithNarration, sceneRequestMetadata } from './src/server/sceneContract';
+import { emptyNarrationCalibrationStore, fitNarrationBeforeTts, getCalibratedSecondsPerSpeechUnit, getNarrationCalibrationProfileKey, parseNarrationCalibrationStore, recordNarrationCalibrationSamples, type NarrationCalibrationSample } from './src/server/narrationTiming';
 import { buildCtaPolicyPrompt, selectFinanceCta } from './src/server/financeCtaStrategy';
 import { nextTelegramRevisionNumber, normalizeTelegramFeedback } from './src/server/telegramRevision';
 import { publishApprovedShortToPostiz } from './src/server/postizPublisher';
@@ -61,6 +63,32 @@ import { requestOpenAiVisualQa, retryVisualQa, runVisualQaWithFallback } from '.
 
 const execPromise = promisify(exec);
 const serverStartedAt = new Date().toISOString();
+let narrationCalibrationWriteQueue: Promise<void> = Promise.resolve();
+
+async function loadNarrationCalibration(calibrationPath: string) {
+  try {
+    const raw = await fs.promises.readFile(calibrationPath, 'utf8');
+    return parseNarrationCalibrationStore(JSON.parse(raw));
+  } catch {
+    return emptyNarrationCalibrationStore();
+  }
+}
+
+async function persistNarrationCalibration(
+  calibrationPath: string,
+  profileKey: string,
+  samples: NarrationCalibrationSample[]
+): Promise<void> {
+  narrationCalibrationWriteQueue = narrationCalibrationWriteQueue.catch(() => undefined).then(async () => {
+    const latest = await loadNarrationCalibration(calibrationPath);
+    const updated = recordNarrationCalibrationSamples(latest, profileKey, samples);
+    await fs.promises.mkdir(path.dirname(calibrationPath), { recursive: true });
+    const tempPath = `${calibrationPath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.tmp`;
+    await fs.promises.writeFile(tempPath, JSON.stringify(updated), 'utf8');
+    await fs.promises.rename(tempPath, calibrationPath);
+  });
+  await narrationCalibrationWriteQueue;
+}
 
 async function analyzeRenderedVisualFit(
   videoPath: string,
@@ -1908,21 +1936,55 @@ async function generateElevenLabsAudio(
   destPath: string,
   speed: number = 1.0,
   wordTimingsOut?: CaptionWordTiming[],
-  previousText?: string,
-  nextText?: string,
   signal?: AbortSignal
 ): Promise<number> {
   const actualVoiceId = resolveElevenLabsVoiceId(voiceId);
   const safeSpeed = Math.max(0.7, Math.min(Number.isFinite(speed) ? speed : 1.0, 1.2));
+  const modelId = process.env.ELEVENLABS_MODEL_ID?.trim() || 'eleven_multilingual_v2';
+  const voiceSettings = { stability: 0.75, similarity_boost: 0.8, style: 0, use_speaker_boost: true, speed: safeSpeed };
+  const cacheKey = createHash('sha256').update(JSON.stringify({
+    version: 1,
+    text: text.slice(0, 1000),
+    voiceId: actualVoiceId,
+    modelId,
+    outputFormat: 'mp3_44100_128',
+    voiceSettings
+  })).digest('hex');
+  const cacheDir = process.env.TTS_CACHE_DIR?.trim() || path.join(process.env.SHORTS_EXPORTS_DIR?.trim() || '/app/exports', 'tts-cache');
+  const cacheAudioPath = path.join(cacheDir, `${cacheKey}.mp3`);
+  const cacheMetadataPath = path.join(cacheDir, `${cacheKey}.json`);
+
+  // The Fly volume mounted at /app/exports keeps successful scene audio across restarts.
+  try {
+    await fs.promises.mkdir(cacheDir, { recursive: true });
+    if (fs.existsSync(cacheAudioPath) && fs.existsSync(cacheMetadataPath)) {
+      const cached = JSON.parse(await fs.promises.readFile(cacheMetadataPath, 'utf8')) as {
+        duration?: number;
+        wordTimings?: CaptionWordTiming[];
+      };
+      const cachedAudioStats = await fs.promises.stat(cacheAudioPath);
+      const measuredCachedDuration = cachedAudioStats.size >= 300 ? await getAudioDuration(cacheAudioPath) : 0;
+      if (Number.isFinite(cached.duration) && Number(cached.duration) > 0 &&
+          Array.isArray(cached.wordTimings) && measuredCachedDuration > 0 &&
+          Math.abs(measuredCachedDuration - Number(cached.duration)) <= 0.5) {
+        await fs.promises.copyFile(cacheAudioPath, destPath);
+        if (wordTimingsOut) wordTimingsOut.splice(0, wordTimingsOut.length, ...cached.wordTimings);
+        console.info(`[TTS cache] HIT scene audio ${cacheKey.slice(0, 12)}`);
+        return measuredCachedDuration;
+      }
+      console.warn(`[TTS cache] Ignored invalid or incomplete audio entry ${cacheKey.slice(0, 12)}.`);
+    }
+  } catch (error) {
+    console.warn(`[TTS cache] Cache read unavailable; generating fresh audio: ${(error as Error).message}`);
+  }
+
   const response = await requestElevenLabsApi(
     'POST',
     `/v1/text-to-speech/${encodeURIComponent(actualVoiceId)}/with-timestamps?output_format=mp3_44100_128`,
     {
       text: text.slice(0, 1000),
-      model_id: process.env.ELEVENLABS_MODEL_ID?.trim() || 'eleven_multilingual_v2',
-      voice_settings: { stability: 0.75, similarity_boost: 0.8, style: 0, use_speaker_boost: true, speed: safeSpeed },
-      ...(previousText ? { previous_text: previousText.slice(-500) } : {}),
-      ...(nextText ? { next_text: nextText.slice(0, 500) } : {})
+      model_id: modelId,
+      voice_settings: voiceSettings,
     },
     signal
   );
@@ -1942,6 +2004,22 @@ async function generateElevenLabsAudio(
   }
   const duration = await getAudioDuration(destPath);
   if (!duration) throw new Error('Nie udało się zmierzyć długości audio ElevenLabs.');
+
+  // Cache only complete, validated audio and its exact caption alignment.
+  try {
+    await fs.promises.mkdir(cacheDir, { recursive: true });
+    const alignedTimings = wordTimingsOut ? [...wordTimingsOut] : wordTimingsFromElevenLabsAlignment(result.alignment || result.normalized_alignment);
+    const cacheWriteToken = `${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
+    const tempAudioPath = `${cacheAudioPath}.${cacheWriteToken}.tmp`;
+    const tempMetadataPath = `${cacheMetadataPath}.${cacheWriteToken}.tmp`;
+    await fs.promises.copyFile(destPath, tempAudioPath);
+    await fs.promises.writeFile(tempMetadataPath, JSON.stringify({ duration, wordTimings: alignedTimings }), 'utf8');
+    await fs.promises.rename(tempAudioPath, cacheAudioPath);
+    await fs.promises.rename(tempMetadataPath, cacheMetadataPath);
+    console.info(`[TTS cache] STORED scene audio ${cacheKey.slice(0, 12)}`);
+  } catch (error) {
+    console.warn(`[TTS cache] Could not persist audio cache: ${(error as Error).message}`);
+  }
   return duration;
 }
 
@@ -2047,8 +2125,6 @@ async function generateTtsAudio(
   requestedVoice?: string,
   speedMultiplier: number = 1.0,
   wordTimingsOut?: CaptionWordTiming[],
-  previousText?: string,
-  nextText?: string,
   signal?: AbortSignal
 ): Promise<number> {
   const cleanText = text.replace(/[\r\n]+/g, ' ').trim();
@@ -2061,7 +2137,7 @@ async function generateTtsAudio(
   if (!process.env.ELEVENLABS_API_KEY?.trim()) {
     throw new Error('Brak ELEVENLABS_API_KEY. Render finansowego shorta wymaga lektora ElevenLabs; Google TTS jest wyłączony.');
   }
-  return await generateElevenLabsAudio(cleanText, selectedVoice, destPath, safeSpeed, wordTimingsOut, previousText, nextText, signal);
+  return await generateElevenLabsAudio(cleanText, selectedVoice, destPath, safeSpeed, wordTimingsOut, signal);
 }
 
 // Convert seconds to ASS time format (h:mm:ss.cc)
@@ -2362,26 +2438,6 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
     }
     const scenes = rawScenes.map((scene, idx) => ({ ...scene, duration: renderSceneDurations[idx] }));
 
-    const renderPreflightQa = evaluateShortStoryboard(scenes, {
-      expectedSceneCount,
-      maxDurationSeconds: MAX_SHORT_DURATION_SECONDS,
-      requireCta: ['scheduler', 'test-render'].includes(payload.source || ''),
-      requireCaptionAlignment: !payload.pipelinePlan,
-      skipCaptionAlignment: Boolean(payload.pipelinePlan),
-      skipNarrationLengthChecks: Boolean(payload.pipelinePlan),
-      maxNarrationWordsExcludingLast: payload.pipelinePlan ? undefined : 32,
-      maxWordsPerScene: payload.pipelinePlan ? undefined : (index: number) => index < 4 ? 5 : index < 7 ? 6 : 9
-    });
-    const existingEditorQa = job.shortMetadata?.editorQa && typeof job.shortMetadata.editorQa === 'object'
-      ? job.shortMetadata.editorQa as Record<string, unknown>
-      : {};
-    updateJobProgress(jobId, {
-      shortMetadata: { ...job.shortMetadata, editorQa: { ...existingEditorQa, renderPreflight: renderPreflightQa } }
-    }, `[Shorts Editor QA] Kontrola przed renderem: ${renderPreflightQa.status} (${renderPreflightQa.score}/100).${renderPreflightQa.findings.length ? ` ${renderPreflightQa.findings.map((finding) => finding.message).join(' ')}` : ''}`);
-    if (renderPreflightQa.status === 'blocked') {
-      throw new Error(`Shorts Editor QA zablokowało render: ${renderPreflightQa.findings.filter((finding) => finding.severity === 'blocker').map((finding) => finding.message).join(' | ')}`);
-    }
-
     const getSceneSpeech = (scene: any): string => String(
       scene.voiceover_text || scene.subtitles || scene.caption || scene.text ||
       scene.tekst_głosowy || scene.voiceover || ''
@@ -2402,7 +2458,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
     updateJobProgress(
       jobId,
       { step: `Przygotowanie lektora i ${scenes.length} scen (dynamiczny budżet do ${MAX_SHORT_DURATION_SECONDS}s)`, progress: 10 },
-      `Rozpoczynanie syntezy jednego głosu ElevenLabs dla całego Shorta...`
+      `Szacowanie czasu narracji przed pierwszym wywołaniem ElevenLabs...`
     );
 
     const processedScenePaths: string[] = [];
@@ -2416,7 +2472,12 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
     const defaultCaptionAnim = 'single-word';
     const defaultHighlightCol = 'red';
 
-    const sceneSpeechTexts = scenes.map((scene) => (
+    const baseSceneDurations = payload.qaRepairAttempt === 1 && payload.qaRepairSceneDurations?.length === scenes.length
+      ? payload.qaRepairSceneDurations.slice()
+      : scenes.map((scene, index) =>
+        Number(scene.duration) || [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5][index] || 2.25
+      );
+    let sceneSpeechTexts = scenes.map((scene) => (
       scene.voiceover_text ||
       scene.subtitles ||
       scene.caption ||
@@ -2427,6 +2488,150 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
     ).trim());
     type PreparedSceneTts = { path: string; duration: number; wordTimings: CaptionWordTiming[] };
     const preparedSceneTts: Array<PreparedSceneTts | null> = new Array(scenes.length).fill(null);
+
+    // Estimate narration before spending ElevenLabs credits. Calibration is persisted on the Fly volume.
+    const ttsModelId = process.env.ELEVENLABS_MODEL_ID?.trim() || 'eleven_multilingual_v2';
+    const ttsCacheDir = process.env.TTS_CACHE_DIR?.trim() ||
+      path.join(process.env.SHORTS_EXPORTS_DIR?.trim() || '/app/exports', 'tts-cache');
+    const calibrationPath = path.join(ttsCacheDir, 'narration-calibration.json');
+    const calibrationStore = await loadNarrationCalibration(calibrationPath);
+    const calibrationProfileKey = getNarrationCalibrationProfileKey({
+      language: ttsLanguage,
+      voiceId: lockedTtsVoiceId,
+      modelId: ttsModelId
+    });
+    const calibratedSecondsPerUnit = getCalibratedSecondsPerSpeechUnit(calibrationStore, calibrationProfileKey);
+
+    if (ttsEnabled) {
+      const hasEditorialModel = Boolean(process.env.OPENAI_API_KEY?.trim() || process.env.GEMINI_API_KEY?.trim());
+      const fit = await fitNarrationBeforeTts({
+        sceneTexts: sceneSpeechTexts,
+        baseSceneDurations,
+        secondsPerSpeechUnit: calibratedSecondsPerUnit,
+        speed: ttsSpeed,
+        targetDurationSeconds: TARGET_SHORT_DURATION_SECONDS,
+        maxTotalDurationSeconds: MAX_SHORT_DURATION_SECONDS,
+        maxRevisionAttempts: 2,
+        revise: hasEditorialModel ? async (revision) => {
+          const lastSceneIndex = revision.sceneTexts.length - 1;
+          const editableSceneIndexes = revision.sceneTexts
+            .map((_text, index) => index)
+            .filter((index) => index < lastSceneIndex &&
+              revision.estimatedSceneDurations[index] > baseSceneDurations[index] + 0.05);
+          const targetIndexes = editableSceneIndexes.length
+            ? editableSceneIndexes
+            : revision.sceneTexts.map((_text, index) => index).filter((index) => index < lastSceneIndex);
+          const sourceContext = [
+            (job as any).articleTitle,
+            job.title,
+            (job as any).articleUrl,
+            (payload as any).articleContext,
+            (payload as any).bankierArticle?.description,
+            (payload as any).bankierArticle?.summary
+          ].filter((value) => typeof value === 'string' && value.trim()).join('\\n').slice(0, 5000);
+          const scenePayload = targetIndexes.map((sceneIndex) => ({
+            sceneIndex,
+            voiceover_text: revision.sceneTexts[sceneIndex],
+            estimatedDurationSeconds: Number(revision.estimatedSceneDurations[sceneIndex].toFixed(2)),
+            baseBudgetSeconds: baseSceneDurations[sceneIndex]
+          }));
+          const prompt = `Poprawiasz polski lektor do finansowego Shorta. Szacowany łączny czas narracji wynosi ${revision.totalEstimatedDurationSeconds.toFixed(2)} s; cel to ${revision.targetDurationSeconds} s, absolutny limit to ${revision.maxTotalDurationSeconds} s. To próba redakcyjna ${revision.attemptNumber}/2.
+
+Zadanie: skróć WYŁĄCZNIE przekazane kwestie lektora tak, aby zmniejszyć przewidywany czas. Zachowaj najważniejszy sens, kierunek zmian (wzrost/spadek), nazwy podmiotów i wszystkie liczby, daty oraz wartości występujące w tekście. Nie dodawaj faktów, ocen, obietnic ani nowych zależności. Nie dopisuj wypełniaczy. Używaj naturalnego, mówionego polskiego. Tekst każdej zmienionej sceny musi być krótszy od oryginału. Nie zmieniaj kolejności scen.
+CTA ostatniej sceny jest zablokowane i nie wolno go zmieniać. Nie zwracaj go w odpowiedzi.
+
+Kontekst źródłowy (wyłącznie do kontroli faktów):
+${sourceContext || '[brak dodatkowego kontekstu; nie dodawaj żadnych faktów]'}
+
+Sceny do poprawy:
+${JSON.stringify(scenePayload)}
+
+Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"krótszy tekst"}]}. Wymień tylko sceny, które rzeczywiście skróciłeś.`;
+          try {
+            const modelResult = await callModelRouter({
+              contents: prompt,
+              config: {
+                responseMimeType: 'application/json',
+                responseSchema: {
+                  type: Type.OBJECT,
+                  properties: {
+                    revisions: {
+                      type: Type.ARRAY,
+                      items: {
+                        type: Type.OBJECT,
+                        properties: {
+                          sceneIndex: { type: Type.NUMBER },
+                          voiceover_text: { type: Type.STRING }
+                        },
+                        required: ['sceneIndex', 'voiceover_text']
+                      }
+                    }
+                  },
+                  required: ['revisions']
+                }
+              }
+            });
+            if (!modelResult?.text) return null;
+            const parsed = JSON.parse(modelResult.text) as {
+              revisions?: Array<{ sceneIndex?: number; voiceover_text?: string }>;
+            };
+            if (!Array.isArray(parsed.revisions) || parsed.revisions.length === 0) return null;
+            const nextTexts = [...revision.sceneTexts];
+            const allowedIndexes = new Set(targetIndexes);
+            const updatedIndexes = new Set<number>();
+            for (const item of parsed.revisions) {
+              const sceneIndex = Number(item.sceneIndex);
+              if (!Number.isInteger(sceneIndex) || !allowedIndexes.has(sceneIndex) ||
+                  updatedIndexes.has(sceneIndex) || typeof item.voiceover_text !== 'string' ||
+                  !item.voiceover_text.trim()) return null;
+              updatedIndexes.add(sceneIndex);
+              nextTexts[sceneIndex] = item.voiceover_text.trim();
+            }
+            return nextTexts;
+          } catch (error) {
+            console.warn(`[Narration preflight] Redakcja ${revision.attemptNumber}/2 nie powiodła się: ${(error as Error).message}`);
+            return null;
+          }
+        } : undefined
+      });
+      sceneSpeechTexts = fit.sceneTexts;
+      for (let index = 0; index < scenes.length; index++) {
+        const previousText = String(scenes[index].voiceover_text || scenes[index].subtitles || scenes[index].caption || scenes[index].text || (scenes[index] as any).tekst_głosowy || (scenes[index] as any).voiceover || '').trim();
+        scenes[index].voiceover_text = sceneSpeechTexts[index];
+        if (typeof scenes[index].subtitles === 'string' && scenes[index].subtitles.trim() === previousText) {
+          scenes[index].subtitles = sceneSpeechTexts[index];
+        }
+      }
+      console.info(`[Narration preflight] estimate=${fit.totalEstimatedDurationSeconds.toFixed(2)}s; target=${TARGET_SHORT_DURATION_SECONDS}s; hardCap=${MAX_SHORT_DURATION_SECONDS}s; revisions=${fit.revisionAttempts}/2; calibration=${calibratedSecondsPerUnit.toFixed(3)}s/unit; profileSamples=${calibrationStore.profiles[calibrationProfileKey]?.length || 0}.`);
+      updateJobProgress(
+        jobId,
+        { step: 'Estymacja narracji przed TTS', progress: 11 },
+        fit.reachedTargetDuration
+          ? `Szacowana narracja: ${fit.totalEstimatedDurationSeconds.toFixed(2)} s. CTA zachowane; korekty tekstu: ${fit.revisionAttempts}/2. Dopiero teraz rozpocznie się TTS.`
+          : `Szacowana narracja: ${fit.totalEstimatedDurationSeconds.toFixed(2)} s. Używam awaryjnego zapasu do ${MAX_SHORT_DURATION_SECONDS} s po ${fit.revisionAttempts}/2 korektach. Dopiero teraz rozpocznie się TTS.`
+      );
+    }
+
+    const renderPreflightQa = evaluateShortStoryboard(scenes, {
+      expectedSceneCount,
+      maxDurationSeconds: MAX_SHORT_DURATION_SECONDS,
+      requireCta: ['scheduler', 'test-render'].includes(payload.source || ''),
+      requireCaptionAlignment: !payload.pipelinePlan,
+      skipCaptionAlignment: Boolean(payload.pipelinePlan),
+      skipNarrationLengthChecks: Boolean(payload.pipelinePlan),
+      maxNarrationWordsExcludingLast: payload.pipelinePlan ? undefined : 32,
+      maxWordsPerScene: payload.pipelinePlan ? undefined : (index: number) => index < 4 ? 5 : index < 7 ? 6 : 9
+    });
+    const existingEditorQa = job.shortMetadata?.editorQa && typeof job.shortMetadata.editorQa === 'object'
+      ? job.shortMetadata.editorQa as Record<string, unknown>
+      : {};
+    updateJobProgress(jobId, {
+      shortMetadata: { ...job.shortMetadata, editorQa: { ...existingEditorQa, renderPreflight: renderPreflightQa } }
+    }, `[Shorts Editor QA] Kontrola przed renderem: ${renderPreflightQa.status} (${renderPreflightQa.score}/100).${renderPreflightQa.findings.length ? ` ${renderPreflightQa.findings.map((finding) => finding.message).join(' ')}` : ''}`);
+    if (renderPreflightQa.status === 'blocked') {
+      throw new Error(`Shorts Editor QA zablokowało render: ${renderPreflightQa.findings.filter((finding) => finding.severity === 'blocker').map((finding) => finding.message).join(' | ')}`);
+    }
+
 
     // Generate every scene with the same ElevenLabs voice and requested speed.
     // Scene video duration is then expanded to contain the full unsped narration.
@@ -2452,8 +2657,6 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
           lockedTtsVoiceId,
           ttsSpeed,
           wordTimings,
-          sceneSpeechTexts[index - 1],
-          sceneSpeechTexts[index + 1],
           abortController.signal
         );
         if (duration <= 0 || !fs.existsSync(ttsPath)) {
@@ -2467,15 +2670,22 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
           `Wygenerowano lektora TTS dla ${completedTtsScenes}/${scenes.length} scen.`
         );
       });
+
+      const calibrationSamples = sceneSpeechTexts.map((text, index) => ({
+        text,
+        durationSeconds: preparedSceneTts[index]?.duration || 0,
+        speed: ttsSpeed
+      }));
+      try {
+        await persistNarrationCalibration(calibrationPath, calibrationProfileKey, calibrationSamples);
+        console.info(`[Narration calibration] Stored ${calibrationSamples.length} measured scene durations for profile ${calibrationProfileKey}.`);
+      } catch (error) {
+        console.warn(`[Narration calibration] Could not persist measured durations: ${(error as Error).message}`);
+      }
     }
 
-    const baseSceneDurations = payload.qaRepairAttempt === 1 && payload.qaRepairSceneDurations?.length === scenes.length
-      ? payload.qaRepairSceneDurations.slice()
-      : scenes.map((scene, index) =>
-        Number(scene.duration) || [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5][index] || 2.25
-      );
     // Repair generates fresh TTS; extend each saved scene budget when the new audio is longer.
-    // Fail before encoding if the updated narration no longer fits the 23-second short limit.
+    // Fail before encoding if the updated narration no longer fits the 25-second hard limit.
     const plannedSceneDurations = sceneDurationsWithNarration(
       baseSceneDurations,
       preparedSceneTts.map((prepared) => prepared?.duration ?? null),
