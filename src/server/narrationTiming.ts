@@ -125,7 +125,27 @@ export function estimateNarrationDurationSeconds(
 }
 
 function numericTokens(text: string): string[] {
-  return (String(text || '').match(/\d+(?:[.,]\d+)?/gu) || []).map((token) => token.replace(',', '.'));
+  const source = String(text || '');
+  const matches = [...source.matchAll(/\d+(?:[.,]\d+)?/gu)];
+  return matches.map((match) => {
+    const rawNumber = match[0];
+    const index = match.index ?? 0;
+    const previous = source[index - 1] || '';
+    const beforePrevious = source[index - 2] || '';
+    const sign = /[+\-−]/u.test(previous) &&
+      (!beforePrevious || /[\s([{=:;,]/u.test(beforePrevious))
+      ? (previous === '−' ? '-' : previous)
+      : '';
+    const prefixMatch = source.slice(0, index).match(/(?:^|[\s([{])([+\-−]?)\s*(€|£|\$|PLN|EUR|USD|GBP|CHF)\s*$/iu);
+    const prefixCurrency = prefixMatch
+      ? `${prefixMatch[1] || ''}${prefixMatch[2].toLowerCase()}`
+      : '';
+    const suffixMatch = source.slice(index + rawNumber.length).match(
+      /^\s*(%|‰|zł(?:ot(?:y|ych|e|ego|emu|ym|ą|ej))?|PLN|EUR|USD|GBP|CHF|CAD|CZK|HUF|JPY|euro|dolar(?:ów|y|a|em|ze)?|funt(?:ów|y|a|em)?|frank(?:ów|i|a|iem)?|proc\.?|procent(?:u|y|ów|a|em|ach)?|pkt\.?\s*proc\.?|punkt(?:y|ów)?\s+procentow(?:y|e|ych|ego|ym|ymi)?|tys\.?|mln|mld|bln)(?![\p{L}])/iu
+    );
+    const suffixUnit = suffixMatch ? suffixMatch[1].toLowerCase().replace(/\s+/gu, ' ').replace(/\.$/u, '') : '';
+    return `${prefixCurrency}${sign}${rawNumber.replace(',', '.')}|${suffixUnit}`;
+  });
 }
 
 const POLISH_NUMBER_WORD_ALIASES: Record<string, string> = {
@@ -178,11 +198,27 @@ const POLISH_NUMBER_WORD_ALIASES: Record<string, string> = {
   czwarty: 'ordinal-4', czwarta: 'ordinal-4', czwarte: 'ordinal-4', czwartą: 'ordinal-4', czwartego: 'ordinal-4', czwartej: 'ordinal-4', czwartym: 'ordinal-4'
 };
 
+const POLISH_ORDINAL_PREFIXES: Array<[string, string]> = [
+  ['pierwsz', 'ordinal-1'], ['drug', 'ordinal-2'], ['trzeci', 'ordinal-3'], ['czwart', 'ordinal-4'],
+  ['piąt', 'ordinal-5'], ['szóst', 'ordinal-6'], ['siódm', 'ordinal-7'], ['ósm', 'ordinal-8'],
+  ['dziewiąt', 'ordinal-9'], ['dziesiąt', 'ordinal-10'], ['jedenast', 'ordinal-11'],
+  ['dwunast', 'ordinal-12'], ['trzynast', 'ordinal-13'], ['czternast', 'ordinal-14'],
+  ['piętnast', 'ordinal-15'], ['szesnast', 'ordinal-16'], ['siedemnast', 'ordinal-17'],
+  ['osiemnast', 'ordinal-18'], ['dziewiętnast', 'ordinal-19'], ['dwudziest', 'ordinal-20'],
+  ['trzydziest', 'ordinal-30'], ['czterdziest', 'ordinal-40'], ['pięćdziesiąt', 'ordinal-50'],
+  ['sześćdziesiąt', 'ordinal-60'], ['siedemdziesiąt', 'ordinal-70'],
+  ['osiemdziesiąt', 'ordinal-80'], ['dziewięćdziesiąt', 'ordinal-90']
+];
+
 function wordNumberTokens(text: string): string[] {
   const words = String(text || '').toLowerCase().match(/[a-ząćęłńóśźż]+/gu) || [];
-  return words
-    .map((word) => POLISH_NUMBER_WORD_ALIASES[word])
-    .filter((value): value is string => Boolean(value));
+  return words.flatMap((word) => {
+    const knownNumber = POLISH_NUMBER_WORD_ALIASES[word];
+    if (knownNumber) return [knownNumber];
+    // Keep inflected Polish ordinal forms (e.g. dwudziestym, siódmym) in the fact signature.
+    const ordinal = POLISH_ORDINAL_PREFIXES.find(([prefix]) => word.startsWith(prefix));
+    return ordinal ? [ordinal[1]] : [];
+  });
 }
 
 function preservesNumericFacts(originalText: string, revisedText: string): boolean {
