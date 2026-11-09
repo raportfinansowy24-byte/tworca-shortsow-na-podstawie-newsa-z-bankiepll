@@ -53,7 +53,10 @@ const draftWithPlaceholderCta = [
 ];
 const substitutedCta = 'Wejdź na raport-finansowy24.pl i sprawdź ofertę.';
 assert.equal(hasNarrationWithinWordRanges(draftWithPlaceholderCta, generatedNarrationRanges, { min: 30, max: 36 }), true, 'szkic z 35 słowami wraz z placeholderem mieści się w zakresie');
-assert.equal(hasNarrationWithinWordRanges(draftWithPlaceholderCta, generatedNarrationRanges, { min: 30, max: 36 }, substitutedCta), false, 'docelowe 6-wyrazowe CTA musi być uwzględnione w limicie całkowitym');
+assert.equal(hasNarrationWithinWordRanges(draftWithPlaceholderCta, generatedNarrationRanges, { min: 37, max: 44 }, substitutedCta), true, '31 słów scen 1–7 plus docelowe 6-wyrazowe CTA powinny przejść zakres 37–44');
+const sevenWordCta = 'Wejdź na raport-finansowy24.pl i porównaj konta bankowe.';
+assert.equal(hasNarrationWithinWordRanges(draftWithPlaceholderCta, generatedNarrationRanges, { min: 38, max: 45 }, sevenWordCta), true, 'ten sam szkic z 7-wyrazowym CTA powinien przejść zakres 38–45');
+assert.equal(hasNarrationWithinWordRanges(draftWithPlaceholderCta, generatedNarrationRanges, { min: 39, max: 45 }, sevenWordCta), false, 'całość poniżej minimum wynikającego z minimów scen i CTA powinna zostać odrzucona');
 
 const sevenFiveWordScenes = Array.from({ length: 7 }, (_, index) => ({
   duration: 2.5,
