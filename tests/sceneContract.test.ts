@@ -12,11 +12,7 @@ assert.match(getSceneCountError(9, 9) || '', /expectedSceneCount musi być liczb
 
 assert.deepEqual(sceneDurationsForCount(8), [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5]);
 assert.equal(TARGET_SHORT_DURATION_SECONDS, 23);
-assert.equal(TARGET_SHORT_DURATION_SECONDS, 23);
 assert.equal(MAX_SHORT_DURATION_SECONDS, 25);
-const durationAtHardCap = sceneDurationsWithNarration(sceneDurationsForCount(8), [7.38, null, null, null, null, null, null, null]);
-assert.ok(Math.abs(durationAtHardCap.reduce((sum, duration) => sum + duration, 0) - 25) < 0.001, 'dopuszcza pełną narrację do twardego limitu 25 s');
-assert.throws(() => sceneDurationsWithNarration(sceneDurationsForCount(8), [7.39, null, null, null, null, null, null, null]), /Maksymalny czas Shorta to 25 s/);
 const durationAtHardCap = sceneDurationsWithNarration(sceneDurationsForCount(8), [7.38, null, null, null, null, null, null, null]);
 assert.ok(Math.abs(durationAtHardCap.reduce((sum, duration) => sum + duration, 0) - 25) < 0.001, 'dopuszcza pełną narrację do twardego limitu 25 s');
 assert.throws(() => sceneDurationsWithNarration(sceneDurationsForCount(8), [7.39, null, null, null, null, null, null, null]), /Maksymalny czas Shorta to 25 s/);

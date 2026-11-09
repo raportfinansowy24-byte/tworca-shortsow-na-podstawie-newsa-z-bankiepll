@@ -13,7 +13,7 @@ import {
 
 assert.equal(countNarrationSpeechUnits(''), 0);
 assert.ok(countNarrationSpeechUnits('RPP obniża stopy, a banki zmieniają raty.') > 6);
-assert.equal(estimateNarrationDurationSeconds('Dzień dobry.', DEFAULT_SECONDS_PER_SPEECH_UNIT, 1), 0.928);
+assert.ok(Math.abs(estimateNarrationDurationSeconds('Dzień dobry.', DEFAULT_SECONDS_PER_SPEECH_UNIT, 1) - 0.928) < 0.001);
 assert.ok(estimateNarrationDurationSeconds('Dzień dobry.', 0.4, 1.2) < estimateNarrationDurationSeconds('Dzień dobry.', 0.4, 1));
 
 const profileKey = getNarrationCalibrationProfileKey({ language: 'pl', voiceId: 'voice-1', modelId: 'eleven_multilingual_v2' });
@@ -66,7 +66,7 @@ const revised = await fitNarrationBeforeTts({
 assert.equal(revisionCalls, 2);
 assert.equal(revised.revisionAttempts, 2);
 assert.ok(revised.totalEstimatedDurationSeconds <= 25);
-assert.equal(revised.sceneTexts.at(-1), longTexts.at(-1), 'CTA ostatniej sceny pozostaje bez zmian');
+assert.equal(revised.sceneTexts[revised.sceneTexts.length - 1], longTexts[longTexts.length - 1], 'CTA ostatniej sceny pozostaje bez zmian');
 
 let revisionAttemptsForHardFail = 0;
 await assert.rejects(() => fitNarrationBeforeTts({
