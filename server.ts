@@ -1936,8 +1936,6 @@ async function generateElevenLabsAudio(
   destPath: string,
   speed: number = 1.0,
   wordTimingsOut?: CaptionWordTiming[],
-  previousText?: string,
-  nextText?: string,
   signal?: AbortSignal
 ): Promise<number> {
   const actualVoiceId = resolveElevenLabsVoiceId(voiceId);
@@ -1950,9 +1948,7 @@ async function generateElevenLabsAudio(
     voiceId: actualVoiceId,
     modelId,
     outputFormat: 'mp3_44100_128',
-    voiceSettings,
-    previousText: previousText?.slice(-500) || '',
-    nextText: nextText?.slice(0, 500) || ''
+    voiceSettings
   })).digest('hex');
   const cacheDir = process.env.TTS_CACHE_DIR?.trim() || path.join(process.env.SHORTS_EXPORTS_DIR?.trim() || '/app/exports', 'tts-cache');
   const cacheAudioPath = path.join(cacheDir, `${cacheKey}.mp3`);
@@ -1966,13 +1962,17 @@ async function generateElevenLabsAudio(
         duration?: number;
         wordTimings?: CaptionWordTiming[];
       };
+      const cachedAudioStats = await fs.promises.stat(cacheAudioPath);
+      const measuredCachedDuration = cachedAudioStats.size >= 300 ? await getAudioDuration(cacheAudioPath) : 0;
       if (Number.isFinite(cached.duration) && Number(cached.duration) > 0 &&
-          Array.isArray(cached.wordTimings)) {
+          Array.isArray(cached.wordTimings) && measuredCachedDuration > 0 &&
+          Math.abs(measuredCachedDuration - Number(cached.duration)) <= 0.5) {
         await fs.promises.copyFile(cacheAudioPath, destPath);
         if (wordTimingsOut) wordTimingsOut.splice(0, wordTimingsOut.length, ...cached.wordTimings);
         console.info(`[TTS cache] HIT scene audio ${cacheKey.slice(0, 12)}`);
-        return Number(cached.duration);
+        return measuredCachedDuration;
       }
+      console.warn(`[TTS cache] Ignored invalid or incomplete audio entry ${cacheKey.slice(0, 12)}.`);
     }
   } catch (error) {
     console.warn(`[TTS cache] Cache read unavailable; generating fresh audio: ${(error as Error).message}`);
@@ -1985,8 +1985,6 @@ async function generateElevenLabsAudio(
       text: text.slice(0, 1000),
       model_id: modelId,
       voice_settings: voiceSettings,
-      ...(previousText ? { previous_text: previousText.slice(-500) } : {}),
-      ...(nextText ? { next_text: nextText.slice(0, 500) } : {})
     },
     signal
   );
@@ -2127,8 +2125,6 @@ async function generateTtsAudio(
   requestedVoice?: string,
   speedMultiplier: number = 1.0,
   wordTimingsOut?: CaptionWordTiming[],
-  previousText?: string,
-  nextText?: string,
   signal?: AbortSignal
 ): Promise<number> {
   const cleanText = text.replace(/[\r\n]+/g, ' ').trim();
@@ -2141,7 +2137,7 @@ async function generateTtsAudio(
   if (!process.env.ELEVENLABS_API_KEY?.trim()) {
     throw new Error('Brak ELEVENLABS_API_KEY. Render finansowego shorta wymaga lektora ElevenLabs; Google TTS jest wyłączony.');
   }
-  return await generateElevenLabsAudio(cleanText, selectedVoice, destPath, safeSpeed, wordTimingsOut, previousText, nextText, signal);
+  return await generateElevenLabsAudio(cleanText, selectedVoice, destPath, safeSpeed, wordTimingsOut, signal);
 }
 
 // Convert seconds to ASS time format (h:mm:ss.cc)
@@ -2661,8 +2657,6 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"króts
           lockedTtsVoiceId,
           ttsSpeed,
           wordTimings,
-          sceneSpeechTexts[index - 1],
-          sceneSpeechTexts[index + 1],
           abortController.signal
         );
         if (duration <= 0 || !fs.existsSync(ttsPath)) {
