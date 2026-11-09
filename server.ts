@@ -3484,7 +3484,7 @@ async function getMediaRuntimeDiagnostics() {
   return {
     ffmpegVersion,
     ffmpegReady: ffmpegVersion !== 'Not installed or error running ffmpeg',
-    fontReady: fs.existsSync(TIKTOK_SANS_FONT_PATH)
+    fontReady: fs.existsSync(ANTON_FONT_PATH) && fs.statSync(ANTON_FONT_PATH).size > 10000
   };
 }
 
@@ -3509,9 +3509,9 @@ router.get('/health', async (req, res) => {
     service: 'Make.com HTTP Video Scene Combiner Connector',
     ffmpeg: ffmpegVersion,
     fontStatus: {
-      name: 'TikTokSans-Bold.ttf',
+      name: 'Anton-Regular.ttf',
       ready: fontReady,
-      path: TIKTOK_SANS_FONT_PATH
+      path: ANTON_FONT_PATH
     },
     activeJobsCount,
     retainedJobsCount: jobsStore.size,
