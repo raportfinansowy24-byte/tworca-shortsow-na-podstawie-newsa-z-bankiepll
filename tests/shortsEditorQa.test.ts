@@ -53,10 +53,14 @@ const draftWithPlaceholderCta = [
 ];
 const substitutedCta = 'Wejdź na raport-finansowy24.pl i sprawdź ofertę.';
 assert.equal(hasNarrationWithinWordRanges(draftWithPlaceholderCta, generatedNarrationRanges, { min: 30, max: 36 }), true, 'szkic z 35 słowami wraz z placeholderem mieści się w zakresie');
-assert.equal(hasNarrationWithinWordRanges(draftWithPlaceholderCta, generatedNarrationRanges, { min: 37, max: 44 }, substitutedCta), true, '31 słów scen 1–7 plus docelowe 6-wyrazowe CTA powinny przejść zakres 37–44');
+assert.equal(hasNarrationWithinWordRanges(draftWithPlaceholderCta, generatedNarrationRanges, { min: 37, max: 38 }, substitutedCta), true, '31 słów scen 1–7 plus docelowe 6-wyrazowe CTA powinny przejść zakres 37–38');
+const draftAtRendererCap = draftWithPlaceholderCta.map((scene) => ({ ...scene }));
+draftAtRendererCap[6].voiceover_text += ' dodatkowo';
+assert.equal(hasNarrationWithinWordRanges(draftAtRendererCap, generatedNarrationRanges, { min: 37, max: 38 }, substitutedCta), true, '32 słowa scen 1–7 plus 6-wyrazowe CTA powinny przejść na górnej granicy');
+assert.equal(hasNarrationWithinWordRanges(draftAtRendererCap, generatedNarrationRanges, { min: 37, max: 38 }, `${substitutedCta} dodatkowo`), false, '33 słowa scen 1–7 plus CTA nie mogą przekroczyć limitu renderera 32+CTA');
 const sevenWordCta = 'Wejdź na raport-finansowy24.pl i porównaj konta bankowe.';
-assert.equal(hasNarrationWithinWordRanges(draftWithPlaceholderCta, generatedNarrationRanges, { min: 38, max: 45 }, sevenWordCta), true, 'ten sam szkic z 7-wyrazowym CTA powinien przejść zakres 38–45');
-assert.equal(hasNarrationWithinWordRanges(draftWithPlaceholderCta, generatedNarrationRanges, { min: 39, max: 45 }, sevenWordCta), false, 'całość poniżej minimum wynikającego z minimów scen i CTA powinna zostać odrzucona');
+assert.equal(hasNarrationWithinWordRanges(draftWithPlaceholderCta, generatedNarrationRanges, { min: 38, max: 39 }, sevenWordCta), true, 'ten sam szkic z 7-wyrazowym CTA powinien przejść zakres 38–39');
+assert.equal(hasNarrationWithinWordRanges(draftWithPlaceholderCta, generatedNarrationRanges, { min: 39, max: 39 }, sevenWordCta), false, 'całość poniżej minimum wynikającego z minimów scen i CTA powinna zostać odrzucona');
 
 const sevenFiveWordScenes = Array.from({ length: 7 }, (_, index) => ({
   duration: 2.5,
