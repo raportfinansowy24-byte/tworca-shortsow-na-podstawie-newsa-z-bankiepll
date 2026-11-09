@@ -178,4 +178,50 @@ await assert.rejects(() => fitNarrationBeforeTts({
   }
 }), /zmieniła lub usunęła wartość liczbową/);
 
+
+const signedUnitLongText = Array.from({ length: 30 }, () => 'konkret').join(' ') + ' Zmiana wyniosła -5%.';
+await assert.rejects(() => fitNarrationBeforeTts({
+  sceneTexts: [signedUnitLongText, ...shortTexts.slice(1)],
+  baseSceneDurations: base,
+  secondsPerSpeechUnit: 0.4,
+  speed: 1,
+  targetDurationSeconds: 23,
+  maxTotalDurationSeconds: 25,
+  revise: async ({ sceneTexts }) => {
+    const candidate = [...sceneTexts];
+    candidate[0] = Array.from({ length: 12 }, () => 'konkret').join(' ') + ' Zmiana wyniosła 5%.';
+    return candidate;
+  }
+}), /zmieniła lub usunęła wartość liczbową/);
+
+const changedUnitLongText = Array.from({ length: 30 }, () => 'konkret').join(' ') + ' Zmiana wyniosła 5%.';
+await assert.rejects(() => fitNarrationBeforeTts({
+  sceneTexts: [changedUnitLongText, ...shortTexts.slice(1)],
+  baseSceneDurations: base,
+  secondsPerSpeechUnit: 0.4,
+  speed: 1,
+  targetDurationSeconds: 23,
+  maxTotalDurationSeconds: 25,
+  revise: async ({ sceneTexts }) => {
+    const candidate = [...sceneTexts];
+    candidate[0] = Array.from({ length: 12 }, () => 'konkret').join(' ') + ' Zmiana wyniosła 5 zł.';
+    return candidate;
+  }
+}), /zmieniła lub usunęła wartość liczbową/);
+
+const ordinalYearLongText = Array.from({ length: 30 }, () => 'konkret').join(' ') + ' Zmiana nastąpiła w dwa tysiące dwudziestym siódmym roku.';
+await assert.rejects(() => fitNarrationBeforeTts({
+  sceneTexts: [ordinalYearLongText, ...shortTexts.slice(1)],
+  baseSceneDurations: base,
+  secondsPerSpeechUnit: 0.4,
+  speed: 1,
+  targetDurationSeconds: 23,
+  maxTotalDurationSeconds: 25,
+  revise: async ({ sceneTexts }) => {
+    const candidate = [...sceneTexts];
+    candidate[0] = Array.from({ length: 12 }, () => 'konkret').join(' ') + ' Zmiana nastąpiła w dwa tysiące dwudziestym ósmym roku.';
+    return candidate;
+  }
+}), /zmieniła lub usunęła wartość liczbową/);
+
 console.log('Narration timing tests passed');
