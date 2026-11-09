@@ -114,4 +114,38 @@ await assert.rejects(() => fitNarrationBeforeTts({
   }
 }), /nie może zmieniać końcowego CTA/);
 
+
+const wordNumberLongTexts = [
+  Array.from({ length: 30 }, () => 'konkret').join(' ') + ' Wartość wyniosła pięć procent.',
+  ...shortTexts.slice(1)
+];
+await assert.rejects(() => fitNarrationBeforeTts({
+  sceneTexts: wordNumberLongTexts,
+  baseSceneDurations: base,
+  secondsPerSpeechUnit: 0.4,
+  speed: 1,
+  targetDurationSeconds: 23,
+  maxTotalDurationSeconds: 25,
+  revise: async ({ sceneTexts }) => {
+    const candidate = [...sceneTexts];
+    candidate[0] = Array.from({ length: 12 }, () => 'konkret').join(' ') + ' Wartość wyniosła siedem procent.';
+    return candidate;
+  }
+}), /zmieniła lub usunęła wartość liczbową/);
+
+const inflectedWordNumber = await fitNarrationBeforeTts({
+  sceneTexts: wordNumberLongTexts,
+  baseSceneDurations: base,
+  secondsPerSpeechUnit: 0.4,
+  speed: 1,
+  targetDurationSeconds: 23,
+  maxTotalDurationSeconds: 25,
+  revise: async ({ sceneTexts }) => {
+    const candidate = [...sceneTexts];
+    candidate[0] = Array.from({ length: 12 }, () => 'konkret').join(' ') + ' Wartość wyniosła pięciu procent.';
+    return candidate;
+  }
+});
+assert.match(inflectedWordNumber.sceneTexts[0], /pięciu procent/, 'odmiana gramatyczna tej samej liczby pozostaje dozwolona');
+
 console.log('Narration timing tests passed');
