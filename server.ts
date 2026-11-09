@@ -4637,16 +4637,17 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
           let textContent = sc.voiceover_text || sc.subtitles || '';
           const isLast = idx === parsed.scenes.length - 1;
           if (isLast) textContent = ctaPlan.spokenText;
+          const captionContent = isLast ? `${ctaPlan.caption}\nRAPORT-FINANSOWY24.PL` : textContent;
           const financeDataVisual = buildFinanceSceneDataVisual(
             financeCardSource,
             String(textContent),
-            String(sc.subtitles || '')
+            String(captionContent)
           );
           if (financeDataVisual) {
             scenesWithVideo.push({
               ...sc,
               ...financeDataVisual,
-              subtitles: textContent,
+              subtitles: captionContent,
               voiceover_text: textContent,
               duration: sceneDurations[idx],
               videoUrl: '',
@@ -4682,7 +4683,7 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
 
           scenesWithVideo.push({
             ...sc,
-            subtitles: textContent,
+            subtitles: captionContent,
             voiceover_text: textContent,
             duration: sceneDurations[idx],
             videoUrl: resolved.videoUrl,
@@ -4748,7 +4749,7 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
   if (fallbackCtaIndex >= 0) {
     fallbackScript.scenes[fallbackCtaIndex] = {
       ...fallbackScript.scenes[fallbackCtaIndex],
-      subtitles: ctaPlan.spokenText,
+      subtitles: `${ctaPlan.caption}\nRAPORT-FINANSOWY24.PL`,
       voiceover_text: ctaPlan.spokenText
     };
   }
