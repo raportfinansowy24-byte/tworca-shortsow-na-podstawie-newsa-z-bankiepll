@@ -128,6 +128,63 @@ function numericTokens(text: string): string[] {
   return (String(text || '').match(/\d+(?:[.,]\d+)?/gu) || []).map((token) => token.replace(',', '.'));
 }
 
+const POLISH_NUMBER_WORD_ALIASES: Record<string, string> = {
+  zero: '0',
+  jeden: '1', jedna: '1', jedno: '1', jedną: '1', jednej: '1', jednego: '1', jednemu: '1', jednym: '1', jedni: '1', jednych: '1', jednymi: '1',
+  dwa: '2', dwie: '2', dwóch: '2', dwu: '2', dwoma: '2',
+  trzy: '3', trzech: '3', trzema: '3',
+  cztery: '4', czterech: '4', czterema: '4',
+  pięć: '5', pięciu: '5', pięcioma: '5',
+  sześć: '6', sześciu: '6', sześcioma: '6',
+  siedem: '7', siedmiu: '7', siedmioma: '7',
+  osiem: '8', ośmiu: '8', ośmioma: '8',
+  dziewięć: '9', dziewięciu: '9', dziewięcioma: '9',
+  dziesięć: '10', dziesięciu: '10', dziesięcioma: '10',
+  jedenaście: '11', jedenastu: '11', jedenastoma: '11',
+  dwanaście: '12', dwunastu: '12', dwunastoma: '12',
+  trzynaście: '13', trzynastu: '13', trzynastoma: '13',
+  czternaście: '14', czternastu: '14', czternastoma: '14',
+  piętnaście: '15', piętnastu: '15', piętnastoma: '15',
+  szesnaście: '16', szesnastu: '16', szesnastoma: '16',
+  siedemnaście: '17', siedemnastu: '17', siedemnastoma: '17',
+  osiemnaście: '18', osiemnastu: '18', osiemnastoma: '18',
+  dziewiętnaście: '19', dziewiętnastu: '19', dziewiętnastoma: '19',
+  dwadzieścia: '20', dwudziestu: '20',
+  trzydzieści: '30', trzydziestu: '30',
+  czterdzieści: '40', czterdziestu: '40',
+  pięćdziesiąt: '50', pięćdziesięciu: '50',
+  sześćdziesiąt: '60', sześćdziesięciu: '60',
+  siedemdziesiąt: '70', siedemdziesięciu: '70',
+  osiemdziesiąt: '80', osiemdziesięciu: '80',
+  dziewięćdziesiąt: '90', dziewięćdziesięciu: '90',
+  sto: '100', stu: '100',
+  dwieście: '200', dwustu: '200',
+  trzysta: '300', trzystu: '300',
+  czterysta: '400', czterystu: '400',
+  pięćset: '500', pięciuset: '500',
+  sześćset: '600', sześciuset: '600',
+  siedemset: '700', siedmiuset: '700',
+  osiemset: '800', ośmiuset: '800',
+  dziewięćset: '900', dziewięciuset: '900',
+  tysiąc: '1000', tysiące: '1000', tysięcy: '1000',
+  milion: '1000000', miliony: '1000000', milionów: '1000000',
+  miliard: '1000000000', miliardy: '1000000000', miliardów: '1000000000',
+  bilion: '1000000000000', biliony: '1000000000000', bilionów: '1000000000000',
+  pół: '1/2', półtora: '3/2', półtorej: '3/2', ćwierć: '1/4',
+  kilkanaście: 'approx-11-19', kilkadziesiąt: 'approx-20-90', kilkaset: 'approx-100-900',
+  pierwszy: 'ordinal-1', pierwsza: 'ordinal-1', pierwsze: 'ordinal-1', pierwszą: 'ordinal-1', pierwszego: 'ordinal-1', pierwszej: 'ordinal-1', pierwszym: 'ordinal-1',
+  drugi: 'ordinal-2', druga: 'ordinal-2', drugie: 'ordinal-2', drugą: 'ordinal-2', drugiego: 'ordinal-2', drugiej: 'ordinal-2', drugim: 'ordinal-2',
+  trzeci: 'ordinal-3', trzecia: 'ordinal-3', trzecie: 'ordinal-3', trzecią: 'ordinal-3', trzeciego: 'ordinal-3', trzeciej: 'ordinal-3', trzecim: 'ordinal-3',
+  czwarty: 'ordinal-4', czwarta: 'ordinal-4', czwarte: 'ordinal-4', czwartą: 'ordinal-4', czwartego: 'ordinal-4', czwartej: 'ordinal-4', czwartym: 'ordinal-4'
+};
+
+function wordNumberTokens(text: string): string[] {
+  const words = String(text || '').toLowerCase().match(/[a-ząćęłńóśźż]+/gu) || [];
+  return words
+    .map((word) => POLISH_NUMBER_WORD_ALIASES[word])
+    .filter((value): value is string => Boolean(value));
+}
+
 function preservesNumericFacts(originalText: string, revisedText: string): boolean {
   const remaining = new Map<string, number>();
   for (const token of numericTokens(revisedText)) remaining.set(token, (remaining.get(token) || 0) + 1);
@@ -136,7 +193,12 @@ function preservesNumericFacts(originalText: string, revisedText: string): boole
     if (count <= 0) return false;
     remaining.set(token, count - 1);
   }
-  return true;
+
+  // Also protect financial figures, percentages, dates and quantities written out in Polish words.
+  const originalWordNumbers = wordNumberTokens(originalText);
+  const revisedWordNumbers = wordNumberTokens(revisedText);
+  return originalWordNumbers.length === revisedWordNumbers.length &&
+    originalWordNumbers.every((token, index) => token === revisedWordNumbers[index]);
 }
 
 export async function fitNarrationBeforeTts(input: {
