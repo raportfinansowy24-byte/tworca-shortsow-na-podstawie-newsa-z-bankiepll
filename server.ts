@@ -42,7 +42,8 @@ import {
   updateTelegramApprovalMessage
 } from './src/server/telegramApproval';
 import { classifyTelegramChatMessage } from './src/server/telegramChatCommands';
-import { FINANCE_SHORT_SCENE_COUNT, getSceneCountError, hasCompleteFinanceSceneVisualAssets, isSafeFinanceDataVisualSvg, MAX_SHORT_DURATION_SECONDS, sceneDurationsForCount, sceneDurationsWithNarration, sceneRequestMetadata } from './src/server/sceneContract';
+import { FINANCE_SHORT_SCENE_COUNT, getSceneCountError, hasCompleteFinanceSceneVisualAssets, isSafeFinanceDataVisualSvg, MAX_SHORT_DURATION_SECONDS, TARGET_SHORT_DURATION_SECONDS, sceneDurationsForCount, sceneDurationsWithNarration, sceneRequestMetadata } from './src/server/sceneContract';
+import { emptyNarrationCalibrationStore, fitNarrationBeforeTts, getCalibratedSecondsPerSpeechUnit, getNarrationCalibrationProfileKey, parseNarrationCalibrationStore, recordNarrationCalibrationSamples, type NarrationCalibrationSample } from './src/server/narrationTiming';
 import { buildCtaPolicyPrompt, selectFinanceCta } from './src/server/financeCtaStrategy';
 import { nextTelegramRevisionNumber, normalizeTelegramFeedback } from './src/server/telegramRevision';
 import { publishApprovedShortToPostiz } from './src/server/postizPublisher';
@@ -62,6 +63,32 @@ import { requestOpenAiVisualQa, retryVisualQa, runVisualQaWithFallback } from '.
 
 const execPromise = promisify(exec);
 const serverStartedAt = new Date().toISOString();
+let narrationCalibrationWriteQueue: Promise<void> = Promise.resolve();
+
+async function loadNarrationCalibration(calibrationPath: string) {
+  try {
+    const raw = await fs.promises.readFile(calibrationPath, 'utf8');
+    return parseNarrationCalibrationStore(JSON.parse(raw));
+  } catch {
+    return emptyNarrationCalibrationStore();
+  }
+}
+
+async function persistNarrationCalibration(
+  calibrationPath: string,
+  profileKey: string,
+  samples: NarrationCalibrationSample[]
+): Promise<void> {
+  narrationCalibrationWriteQueue = narrationCalibrationWriteQueue.catch(() => undefined).then(async () => {
+    const latest = await loadNarrationCalibration(calibrationPath);
+    const updated = recordNarrationCalibrationSamples(latest, profileKey, samples);
+    await fs.promises.mkdir(path.dirname(calibrationPath), { recursive: true });
+    const tempPath = `${calibrationPath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.tmp`;
+    await fs.promises.writeFile(tempPath, JSON.stringify(updated), 'utf8');
+    await fs.promises.rename(tempPath, calibrationPath);
+  });
+  await narrationCalibrationWriteQueue;
+}
 
 async function analyzeRenderedVisualFit(
   videoPath: string,
@@ -2469,7 +2496,12 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
     const defaultCaptionAnim = 'single-word';
     const defaultHighlightCol = 'red';
 
-    const sceneSpeechTexts = scenes.map((scene) => (
+    const baseSceneDurations = payload.qaRepairAttempt === 1 && payload.qaRepairSceneDurations?.length === scenes.length
+      ? payload.qaRepairSceneDurations.slice()
+      : scenes.map((scene, index) =>
+        Number(scene.duration) || [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5][index] || 2.25
+      );
+    let sceneSpeechTexts = scenes.map((scene) => (
       scene.voiceover_text ||
       scene.subtitles ||
       scene.caption ||
@@ -2480,6 +2512,129 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
     ).trim());
     type PreparedSceneTts = { path: string; duration: number; wordTimings: CaptionWordTiming[] };
     const preparedSceneTts: Array<PreparedSceneTts | null> = new Array(scenes.length).fill(null);
+
+    // Estimate narration before spending ElevenLabs credits. Calibration is persisted on the Fly volume.
+    const ttsModelId = process.env.ELEVENLABS_MODEL_ID?.trim() || 'eleven_multilingual_v2';
+    const ttsCacheDir = process.env.TTS_CACHE_DIR?.trim() ||
+      path.join(process.env.SHORTS_EXPORTS_DIR?.trim() || '/app/exports', 'tts-cache');
+    const calibrationPath = path.join(ttsCacheDir, 'narration-calibration.json');
+    const calibrationStore = await loadNarrationCalibration(calibrationPath);
+    const calibrationProfileKey = getNarrationCalibrationProfileKey({
+      language: ttsLanguage,
+      voiceId: lockedTtsVoiceId,
+      modelId: ttsModelId
+    });
+    const calibratedSecondsPerUnit = getCalibratedSecondsPerSpeechUnit(calibrationStore, calibrationProfileKey);
+
+    if (ttsEnabled) {
+      const hasEditorialModel = Boolean(process.env.OPENAI_API_KEY?.trim() || process.env.GEMINI_API_KEY?.trim());
+      const fit = await fitNarrationBeforeTts({
+        sceneTexts: sceneSpeechTexts,
+        baseSceneDurations,
+        secondsPerSpeechUnit: calibratedSecondsPerUnit,
+        speed: ttsSpeed,
+        targetDurationSeconds: TARGET_SHORT_DURATION_SECONDS,
+        maxTotalDurationSeconds: MAX_SHORT_DURATION_SECONDS,
+        maxRevisionAttempts: 2,
+        revise: hasEditorialModel ? async (revision) => {
+          const lastSceneIndex = revision.sceneTexts.length - 1;
+          const editableSceneIndexes = revision.sceneTexts
+            .map((_text, index) => index)
+            .filter((index) => index < lastSceneIndex &&
+              revision.estimatedSceneDurations[index] > baseSceneDurations[index] + 0.05);
+          const targetIndexes = editableSceneIndexes.length
+            ? editableSceneIndexes
+            : revision.sceneTexts.map((_text, index) => index).filter((index) => index < lastSceneIndex);
+          const sourceContext = [
+            (job as any).articleTitle,
+            job.title,
+            (job as any).articleUrl,
+            (payload as any).articleContext,
+            (payload as any).bankierArticle?.description,
+            (payload as any).bankierArticle?.summary
+          ].filter((value) => typeof value === 'string' && value.trim()).join('\\n').slice(0, 5000);
+          const scenePayload = targetIndexes.map((sceneIndex) => ({
+            sceneIndex,
+            voiceover_text: revision.sceneTexts[sceneIndex],
+            estimatedDurationSeconds: Number(revision.estimatedSceneDurations[sceneIndex].toFixed(2)),
+            baseBudgetSeconds: baseSceneDurations[sceneIndex]
+          }));
+          const prompt = `Poprawiasz polski lektor do finansowego Shorta. Szacowany łączny czas narracji wynosi ${revision.totalEstimatedDurationSeconds.toFixed(2)} s; cel to ${revision.targetDurationSeconds} s, absolutny limit to ${revision.maxTotalDurationSeconds} s. To próba redakcyjna ${revision.attemptNumber}/2.
+
+Zadanie: skróć WYŁĄCZNIE przekazane kwestie lektora tak, aby zmniejszyć przewidywany czas. Zachowaj najważniejszy sens, kierunek zmian (wzrost/spadek), nazwy podmiotów i wszystkie liczby, daty oraz wartości występujące w tekście. Nie dodawaj faktów, ocen, obietnic ani nowych zależności. Nie dopisuj wypełniaczy. Używaj naturalnego, mówionego polskiego. Tekst każdej zmienionej sceny musi być krótszy od oryginału. Nie zmieniaj kolejności scen.
+CTA ostatniej sceny jest zablokowane i nie wolno go zmieniać. Nie zwracaj go w odpowiedzi.
+
+Kontekst źródłowy (wyłącznie do kontroli faktów):
+${sourceContext || '[brak dodatkowego kontekstu; nie dodawaj żadnych faktów]'}
+
+Sceny do poprawy:
+${JSON.stringify(scenePayload)}
+
+Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"krótszy tekst"}]}. Wymień tylko sceny, które rzeczywiście skróciłeś.`;
+          try {
+            const modelResult = await callModelRouter({
+              contents: prompt,
+              config: {
+                responseMimeType: 'application/json',
+                responseSchema: {
+                  type: Type.OBJECT,
+                  properties: {
+                    revisions: {
+                      type: Type.ARRAY,
+                      items: {
+                        type: Type.OBJECT,
+                        properties: {
+                          sceneIndex: { type: Type.NUMBER },
+                          voiceover_text: { type: Type.STRING }
+                        },
+                        required: ['sceneIndex', 'voiceover_text']
+                      }
+                    }
+                  },
+                  required: ['revisions']
+                }
+              }
+            });
+            if (!modelResult?.text) return null;
+            const parsed = JSON.parse(modelResult.text) as {
+              revisions?: Array<{ sceneIndex?: number; voiceover_text?: string }>;
+            };
+            if (!Array.isArray(parsed.revisions) || parsed.revisions.length === 0) return null;
+            const nextTexts = [...revision.sceneTexts];
+            const allowedIndexes = new Set(targetIndexes);
+            const updatedIndexes = new Set<number>();
+            for (const item of parsed.revisions) {
+              const sceneIndex = Number(item.sceneIndex);
+              if (!Number.isInteger(sceneIndex) || !allowedIndexes.has(sceneIndex) ||
+                  updatedIndexes.has(sceneIndex) || typeof item.voiceover_text !== 'string' ||
+                  !item.voiceover_text.trim()) return null;
+              updatedIndexes.add(sceneIndex);
+              nextTexts[sceneIndex] = item.voiceover_text.trim();
+            }
+            return nextTexts;
+          } catch (error) {
+            console.warn(`[Narration preflight] Redakcja ${revision.attemptNumber}/2 nie powiodła się: ${(error as Error).message}`);
+            return null;
+          }
+        } : undefined
+      });
+      sceneSpeechTexts = fit.sceneTexts;
+      for (let index = 0; index < scenes.length; index++) {
+        const previousText = String(scenes[index].voiceover_text || scenes[index].subtitles || scenes[index].caption || scenes[index].text || (scenes[index] as any).tekst_głosowy || (scenes[index] as any).voiceover || '').trim();
+        scenes[index].voiceover_text = sceneSpeechTexts[index];
+        if (typeof scenes[index].subtitles === 'string' && scenes[index].subtitles.trim() === previousText) {
+          scenes[index].subtitles = sceneSpeechTexts[index];
+        }
+      }
+      console.info(`[Narration preflight] estimate=${fit.totalEstimatedDurationSeconds.toFixed(2)}s; target=${TARGET_SHORT_DURATION_SECONDS}s; hardCap=${MAX_SHORT_DURATION_SECONDS}s; revisions=${fit.revisionAttempts}/2; calibration=${calibratedSecondsPerUnit.toFixed(3)}s/unit; profileSamples=${calibrationStore.profiles[calibrationProfileKey]?.length || 0}.`);
+      updateJobProgress(
+        jobId,
+        { step: 'Estymacja narracji przed TTS', progress: 11 },
+        fit.reachedTargetDuration
+          ? `Szacowana narracja: ${fit.totalEstimatedDurationSeconds.toFixed(2)} s. CTA zachowane; korekty tekstu: ${fit.revisionAttempts}/2. Dopiero teraz rozpocznie się TTS.`
+          : `Szacowana narracja: ${fit.totalEstimatedDurationSeconds.toFixed(2)} s. Używam awaryjnego zapasu do ${MAX_SHORT_DURATION_SECONDS} s po ${fit.revisionAttempts}/2 korektach. Dopiero teraz rozpocznie się TTS.`
+      );
+    }
 
     // Generate every scene with the same ElevenLabs voice and requested speed.
     // Scene video duration is then expanded to contain the full unsped narration.
@@ -2520,13 +2675,20 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
           `Wygenerowano lektora TTS dla ${completedTtsScenes}/${scenes.length} scen.`
         );
       });
+
+      const calibrationSamples = sceneSpeechTexts.map((text, index) => ({
+        text,
+        durationSeconds: preparedSceneTts[index]?.duration || 0,
+        speed: ttsSpeed
+      }));
+      try {
+        await persistNarrationCalibration(calibrationPath, calibrationProfileKey, calibrationSamples);
+        console.info(`[Narration calibration] Stored ${calibrationSamples.length} measured scene durations for profile ${calibrationProfileKey}.`);
+      } catch (error) {
+        console.warn(`[Narration calibration] Could not persist measured durations: ${(error as Error).message}`);
+      }
     }
 
-    const baseSceneDurations = payload.qaRepairAttempt === 1 && payload.qaRepairSceneDurations?.length === scenes.length
-      ? payload.qaRepairSceneDurations.slice()
-      : scenes.map((scene, index) =>
-        Number(scene.duration) || [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5][index] || 2.25
-      );
     // Repair generates fresh TTS; extend each saved scene budget when the new audio is longer.
     // Fail before encoding if the updated narration no longer fits the 25-second hard limit.
     const plannedSceneDurations = sceneDurationsWithNarration(
