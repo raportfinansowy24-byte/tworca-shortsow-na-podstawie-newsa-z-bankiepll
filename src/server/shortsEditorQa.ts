@@ -15,6 +15,30 @@ export interface ShortsEditorQaReport {
   checkedAt: string;
 }
 
+export interface NarrationWordRange {
+  min: number;
+  max: number;
+}
+
+export function hasNarrationWithinWordRanges(
+  rawScenes: unknown,
+  sceneRanges: NarrationWordRange[],
+  totalRange?: NarrationWordRange
+): boolean {
+  if (!Array.isArray(rawScenes) || rawScenes.length !== sceneRanges.length) return false;
+  const counts = rawScenes.map((value) => {
+    const scene = sceneObject(value);
+    const narration = firstText(scene, ['voiceover_text', 'voiceoverText', 'voiceover', 'narration', 'speech', 'subtitles', 'caption', 'text']);
+    return countWords(narration);
+  });
+  if (counts.some((count, index) => count < sceneRanges[index].min || count > sceneRanges[index].max)) return false;
+  if (totalRange) {
+    const total = counts.reduce((sum, count) => sum + count, 0);
+    if (total < totalRange.min || total > totalRange.max) return false;
+  }
+  return true;
+}
+
 export interface ShortsEditorQaOptions {
   expectedSceneCount?: number;
   maxDurationSeconds?: number;
@@ -24,6 +48,9 @@ export interface ShortsEditorQaOptions {
   requireUniquePexelsIds?: boolean;
   requireCaptionAlignment?: boolean;
   maxWordsPerScene?: (sceneIndex: number) => number;
+  maxNarrationWordsExcludingLast?: number;
+  skipCaptionAlignment?: boolean;
+  skipNarrationLengthChecks?: boolean;
 }
 
 export interface RenderedShortMetrics {
@@ -98,6 +125,7 @@ export function evaluateShortStoryboard(rawScenes: unknown, options: ShortsEdito
   const visualQueries: string[] = [];
   const visualIds: number[] = [];
   let totalDuration = 0;
+  let narrationWordsExcludingLast = 0;
 
   scenes.forEach((scene, index) => {
     const sceneNumber = index + 1;
@@ -121,7 +149,7 @@ export function evaluateShortStoryboard(rawScenes: unknown, options: ShortsEdito
     }
     if (!caption) {
       addFinding({ code: 'missing_caption', severity: 'warning', message: `Scena ${sceneNumber} nie ma tekstu napisów.`, scene: sceneNumber });
-    } else if (narration && normalizeText(caption) !== normalizeText(narration)) {
+    } else if (!options.skipCaptionAlignment && narration && normalizeText(caption) !== normalizeText(narration)) {
       addFinding({
         code: 'caption_voiceover_mismatch',
         severity: options.requireCaptionAlignment ? 'blocker' : 'warning',
@@ -137,11 +165,13 @@ export function evaluateShortStoryboard(rawScenes: unknown, options: ShortsEdito
     }
 
     const wordCount = countWords(narration);
+    const isFinalCta = options.requireCta === true && index === scenes.length - 1;
+    if (index < scenes.length - 1) narrationWordsExcludingLast += wordCount;
     const maxWords = options.maxWordsPerScene?.(index);
-    if (typeof maxWords === 'number' && wordCount > maxWords) {
+    if (!options.skipNarrationLengthChecks && !isFinalCta && typeof maxWords === 'number' && wordCount > maxWords) {
       addFinding({ code: 'scene_copy_too_long', severity: 'warning', message: `Scena ${sceneNumber} ma ${wordCount} słów; zalecane maksimum to ${maxWords}.`, scene: sceneNumber });
     }
-    if (duration > 0 && wordCount / duration > 3.2) {
+    if (!options.skipNarrationLengthChecks && !isFinalCta && duration > 0 && wordCount / duration > 3.2) {
       addFinding({ code: 'narration_too_dense', severity: 'warning', message: `Tekst sceny ${sceneNumber} jest zbyt gęsty względem jej czasu.`, scene: sceneNumber });
     }
     if (index === 0 && duration > 3.2) {
@@ -156,6 +186,9 @@ export function evaluateShortStoryboard(rawScenes: unknown, options: ShortsEdito
     }
   });
 
+  if (!options.skipNarrationLengthChecks && typeof options.maxNarrationWordsExcludingLast === 'number' && narrationWordsExcludingLast > options.maxNarrationWordsExcludingLast) {
+    addFinding({ code: 'total_words_over_limit', severity: 'blocker', message: `Lektor scen 1–${Math.max(1, scenes.length - 1)} ma ${narrationWordsExcludingLast} słów; limit to ${options.maxNarrationWordsExcludingLast}.` });
+  }
   if (totalDuration > maxDurationSeconds + 0.001) {
     addFinding({ code: 'duration_over_limit', severity: 'blocker', message: `Plan ma ${totalDuration.toFixed(2)} s; limit wynosi ${maxDurationSeconds} s.` });
   }

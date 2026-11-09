@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { buildFinanceSceneDataVisual, buildFinanceShortPlan, selectHookVariantFromLearningSignals, validateFinanceShortPlan } from '../src/server/shortPipeline';
 import { isSafeFinanceDataVisualSvg } from '../src/server/sceneContract';
+import { selectFinanceCta } from '../src/server/financeCtaStrategy';
+import { evaluateShortStoryboard } from '../src/server/shortsEditorQa';
 
 const plan = buildFinanceShortPlan({
   title: 'Dramat na akcjach Cyfrowego Polsatu i Eurocashu. Szeroki rynek pędzi dzięki bankom',
@@ -22,9 +24,35 @@ assert.match(plan.scenes[0].visualSvg || '', /FAKT Z ARTYKUŁU BANKIER\.PL/);
 assert.equal(plan.qualityGate.publishable, true);
 assert.equal(validateFinanceShortPlan(plan).publishable, true);
 assert.match(plan.hook, /Cyfrowy Polsat/);
-assert.equal(plan.scenes[7].voiceover_text, 'Sprawdź spółkę po NIP.');
-assert.match(plan.scenes[7].caption, /RAPORT-FINANSOWY24\.PL/);
+assert.match(plan.scenes[7].caption, /raport-finansowy24\.pl/);
 assert.equal(plan.ctaUrl, 'https://raport-finansowy24.pl/firma');
+assert.equal(plan.scenes[7].voiceover_text, 'Wejdź na raport-finansowy24.pl, sprawdź spółkę po NIP.');
+assert.equal(plan.scenes[7].caption, plan.scenes[7].voiceover_text);
+assert.equal(plan.scenes[7].visualTitle, 'SPRAWDŹ SPÓŁKĘ');
+assert.ok((plan.scenes[7].visualTitle || '').length < plan.scenes[7].voiceover_text.length);
+const financeRenderScenes = plan.scenes.map((scene) => ({
+  ...scene,
+  subtitles: scene.caption,
+  searchKeyword: scene.visualQuery || scene.visualTitle
+}));
+const financePreflight = evaluateShortStoryboard(financeRenderScenes, {
+  expectedSceneCount: 8,
+  requireCta: true,
+  requireCaptionAlignment: false,
+  skipCaptionAlignment: true,
+  skipNarrationLengthChecks: true
+});
+assert.ok(!financePreflight.findings.some((finding) => finding.code === 'caption_voiceover_mismatch'), 'napisy overlayowe finance nie są napisywane jako lektor i nie powinny generować findings alignment');
+assert.ok(!financePreflight.findings.some((finding) => finding.code === 'total_words_over_limit' || finding.code === 'scene_copy_too_long' || finding.code === 'narration_too_dense'), 'FinanceShortPlan korzysta z własnego Quality Gate zamiast limitu narracji storyboardu ogólnego');
+assert.notEqual(financePreflight.status, 'blocked', 'różnica między krótkim overlayem finance a narracją nie może blokować renderu');
+const strictCaptionPreflight = evaluateShortStoryboard(financeRenderScenes, {
+  expectedSceneCount: 8,
+  requireCta: true,
+  requireCaptionAlignment: true
+});
+assert.ok(strictCaptionPreflight.findings.some((finding) => finding.code === 'caption_voiceover_mismatch' && finding.severity === 'blocker'), 'standardowy pipeline nadal wymaga ścisłej zgodności napisów i lektora');
+assert.equal(selectFinanceCta({ title: 'Konto osobiste: promocja i bonus' }).type === 'verified_partner_offer', false);
+assert.equal(selectFinanceCta({ title: 'Promocja lokaty' }, { promotionalCtaAllowed: true, catalogStatus: 'fresh', observedOfferCount: 1, candidateOfferNamesAllowed: true }).spokenText, 'Wejdź na raport-finansowy24.pl i sprawdź ofertę.');
 
 const wig20Card = buildFinanceSceneDataVisual(
   { title: 'GPW: sesja zakończyła się spadkiem', description: 'WIG20 zakończył sesję spadkiem o 0,68 proc.' },

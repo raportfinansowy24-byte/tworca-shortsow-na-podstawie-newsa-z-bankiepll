@@ -93,7 +93,7 @@ export function buildVisualSemanticReport(
     }
     if (result.match) continue;
 
-    const severity = result.confidence >= 0.8 ? 'blocker' : 'warning';
+    const severity = result.confidence >= 0.6 ? 'blocker' : 'warning';
     findings.push({
       code: 'visual_narration_mismatch',
       severity,

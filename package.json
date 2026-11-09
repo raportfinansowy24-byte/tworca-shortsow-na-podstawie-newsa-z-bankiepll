@@ -12,6 +12,7 @@
     "lint": "tsc --noEmit",
     "test:e2e": "node test-e2e.js",
     "test:scene-matching": "tsx test-finance-scene-matching.ts",
+    "test:cta-strategy": "tsx ./test-finance-cta-strategy.ts",
     "test:offer-matching": "tsx test-finance-offer-matching.ts",
     "test:auth": "tsx tests/apiAuth.test.ts",
     "test:deployment-info": "tsx tests/deploymentInfo.test.ts",
