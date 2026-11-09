@@ -124,6 +124,21 @@ export function estimateNarrationDurationSeconds(
   return speechUnits * secondsPerSpeechUnit / Math.min(1.2, Math.max(0.7, speed));
 }
 
+function numericTokens(text: string): string[] {
+  return (String(text || '').match(/\\d+(?:[.,]\\d+)?/gu) || []).map((token) => token.replace(',', '.'));
+}
+
+function preservesNumericFacts(originalText: string, revisedText: string): boolean {
+  const remaining = new Map<string, number>();
+  for (const token of numericTokens(revisedText)) remaining.set(token, (remaining.get(token) || 0) + 1);
+  for (const token of numericTokens(originalText)) {
+    const count = remaining.get(token) || 0;
+    if (count <= 0) return false;
+    remaining.set(token, count - 1);
+  }
+  return true;
+}
+
 export async function fitNarrationBeforeTts(input: {
   sceneTexts: string[];
   baseSceneDurations: number[];
@@ -192,6 +207,9 @@ export async function fitNarrationBeforeTts(input: {
       if (typeof text !== 'string' || !text.trim()) throw new Error(`Korekta narracji pozostawiła pustą scenę ${index + 1}.`);
       if (index === currentTexts.length - 1 && text.trim() !== currentTexts[index].trim()) {
         throw new Error('Korekta narracji nie może zmieniać końcowego CTA.');
+      }
+      if (!preservesNumericFacts(currentTexts[index], text)) {
+        throw new Error(`Korekta narracji zmieniła lub usunęła wartość liczbową w scenie ${index + 1}; zmiana została odrzucona.`);
       }
       if (countNarrationSpeechUnits(text) > countNarrationSpeechUnits(currentTexts[index]) + 0.001) {
         throw new Error(`Korekta narracji zwiększyła długość sceny ${index + 1}; zmiana została odrzucona.`);

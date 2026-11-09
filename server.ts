@@ -2462,7 +2462,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
     updateJobProgress(
       jobId,
       { step: `Przygotowanie lektora i ${scenes.length} scen (dynamiczny budżet do ${MAX_SHORT_DURATION_SECONDS}s)`, progress: 10 },
-      `Rozpoczynanie syntezy jednego głosu ElevenLabs dla całego Shorta...`
+      `Szacowanie czasu narracji przed pierwszym wywołaniem ElevenLabs...`
     );
 
     const processedScenePaths: string[] = [];

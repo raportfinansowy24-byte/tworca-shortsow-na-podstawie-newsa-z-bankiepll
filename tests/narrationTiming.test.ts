@@ -43,7 +43,7 @@ assert.equal(noEdit.revisionAttempts, 0);
 assert.equal(noEdit.reachedTargetDuration, true);
 
 const longTexts = [
-  Array.from({ length: 30 }, (_, index) => `ważne${index}`).join(' ') + '.',
+  Array.from({ length: 30 }, () => 'konkret').join(' ') + '.',
   ...shortTexts.slice(1)
 ];
 let revisionCalls = 0;
@@ -58,8 +58,8 @@ const revised = await fitNarrationBeforeTts({
     revisionCalls++;
     const candidate = [...sceneTexts];
     candidate[0] = attemptNumber === 1
-      ? Array.from({ length: 24 }, (_, index) => `ważne${index}`).join(' ') + '.'
-      : Array.from({ length: 18 }, (_, index) => `ważne${index}`).join(' ') + '.';
+      ? Array.from({ length: 24 }, () => 'konkret').join(' ') + '.'
+      : Array.from({ length: 18 }, () => 'konkret').join(' ') + '.';
     return candidate;
   }
 });
@@ -67,6 +67,23 @@ assert.equal(revisionCalls, 2);
 assert.equal(revised.revisionAttempts, 2);
 assert.ok(revised.totalEstimatedDurationSeconds <= 25);
 assert.equal(revised.sceneTexts[revised.sceneTexts.length - 1], longTexts[longTexts.length - 1], 'CTA ostatniej sceny pozostaje bez zmian');
+
+await assert.rejects(() => fitNarrationBeforeTts({
+  sceneTexts: [
+    Array.from({ length: 30 }, () => 'konkret').join(' ') + ' Wartość wyniosła 5,2%.',
+    ...shortTexts.slice(1)
+  ],
+  baseSceneDurations: base,
+  secondsPerSpeechUnit: 0.4,
+  speed: 1,
+  targetDurationSeconds: 23,
+  maxTotalDurationSeconds: 25,
+  revise: async ({ sceneTexts }) => {
+    const candidate = [...sceneTexts];
+    candidate[0] = 'Konkretna zmiana bez liczby.';
+    return candidate;
+  }
+}), /zmieniła lub usunęła wartość liczbową/);
 
 let revisionAttemptsForHardFail = 0;
 await assert.rejects(() => fitNarrationBeforeTts({
