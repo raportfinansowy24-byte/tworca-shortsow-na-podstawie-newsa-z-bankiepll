@@ -2442,26 +2442,6 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
     }
     const scenes = rawScenes.map((scene, idx) => ({ ...scene, duration: renderSceneDurations[idx] }));
 
-    const renderPreflightQa = evaluateShortStoryboard(scenes, {
-      expectedSceneCount,
-      maxDurationSeconds: MAX_SHORT_DURATION_SECONDS,
-      requireCta: ['scheduler', 'test-render'].includes(payload.source || ''),
-      requireCaptionAlignment: !payload.pipelinePlan,
-      skipCaptionAlignment: Boolean(payload.pipelinePlan),
-      skipNarrationLengthChecks: Boolean(payload.pipelinePlan),
-      maxNarrationWordsExcludingLast: payload.pipelinePlan ? undefined : 32,
-      maxWordsPerScene: payload.pipelinePlan ? undefined : (index: number) => index < 4 ? 5 : index < 7 ? 6 : 9
-    });
-    const existingEditorQa = job.shortMetadata?.editorQa && typeof job.shortMetadata.editorQa === 'object'
-      ? job.shortMetadata.editorQa as Record<string, unknown>
-      : {};
-    updateJobProgress(jobId, {
-      shortMetadata: { ...job.shortMetadata, editorQa: { ...existingEditorQa, renderPreflight: renderPreflightQa } }
-    }, `[Shorts Editor QA] Kontrola przed renderem: ${renderPreflightQa.status} (${renderPreflightQa.score}/100).${renderPreflightQa.findings.length ? ` ${renderPreflightQa.findings.map((finding) => finding.message).join(' ')}` : ''}`);
-    if (renderPreflightQa.status === 'blocked') {
-      throw new Error(`Shorts Editor QA zablokowało render: ${renderPreflightQa.findings.filter((finding) => finding.severity === 'blocker').map((finding) => finding.message).join(' | ')}`);
-    }
-
     const getSceneSpeech = (scene: any): string => String(
       scene.voiceover_text || scene.subtitles || scene.caption || scene.text ||
       scene.tekst_głosowy || scene.voiceover || ''
@@ -2635,6 +2615,27 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"króts
           : `Szacowana narracja: ${fit.totalEstimatedDurationSeconds.toFixed(2)} s. Używam awaryjnego zapasu do ${MAX_SHORT_DURATION_SECONDS} s po ${fit.revisionAttempts}/2 korektach. Dopiero teraz rozpocznie się TTS.`
       );
     }
+
+    const renderPreflightQa = evaluateShortStoryboard(scenes, {
+      expectedSceneCount,
+      maxDurationSeconds: MAX_SHORT_DURATION_SECONDS,
+      requireCta: ['scheduler', 'test-render'].includes(payload.source || ''),
+      requireCaptionAlignment: !payload.pipelinePlan,
+      skipCaptionAlignment: Boolean(payload.pipelinePlan),
+      skipNarrationLengthChecks: Boolean(payload.pipelinePlan),
+      maxNarrationWordsExcludingLast: payload.pipelinePlan ? undefined : 32,
+      maxWordsPerScene: payload.pipelinePlan ? undefined : (index: number) => index < 4 ? 5 : index < 7 ? 6 : 9
+    });
+    const existingEditorQa = job.shortMetadata?.editorQa && typeof job.shortMetadata.editorQa === 'object'
+      ? job.shortMetadata.editorQa as Record<string, unknown>
+      : {};
+    updateJobProgress(jobId, {
+      shortMetadata: { ...job.shortMetadata, editorQa: { ...existingEditorQa, renderPreflight: renderPreflightQa } }
+    }, `[Shorts Editor QA] Kontrola przed renderem: ${renderPreflightQa.status} (${renderPreflightQa.score}/100).${renderPreflightQa.findings.length ? ` ${renderPreflightQa.findings.map((finding) => finding.message).join(' ')}` : ''}`);
+    if (renderPreflightQa.status === 'blocked') {
+      throw new Error(`Shorts Editor QA zablokowało render: ${renderPreflightQa.findings.filter((finding) => finding.severity === 'blocker').map((finding) => finding.message).join(' | ')}`);
+    }
+
 
     // Generate every scene with the same ElevenLabs voice and requested speed.
     // Scene video duration is then expanded to contain the full unsped narration.
