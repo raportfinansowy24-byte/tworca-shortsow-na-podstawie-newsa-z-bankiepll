@@ -15,6 +15,30 @@ export interface ShortsEditorQaReport {
   checkedAt: string;
 }
 
+export interface NarrationWordRange {
+  min: number;
+  max: number;
+}
+
+export function hasNarrationWithinWordRanges(
+  rawScenes: unknown,
+  sceneRanges: NarrationWordRange[],
+  totalRange?: NarrationWordRange
+): boolean {
+  if (!Array.isArray(rawScenes) || rawScenes.length !== sceneRanges.length) return false;
+  const counts = rawScenes.map((value) => {
+    const scene = sceneObject(value);
+    const narration = firstText(scene, ['voiceover_text', 'voiceoverText', 'voiceover', 'narration', 'speech', 'subtitles', 'caption', 'text']);
+    return countWords(narration);
+  });
+  if (counts.some((count, index) => count < sceneRanges[index].min || count > sceneRanges[index].max)) return false;
+  if (totalRange) {
+    const total = counts.reduce((sum, count) => sum + count, 0);
+    if (total < totalRange.min || total > totalRange.max) return false;
+  }
+  return true;
+}
+
 export interface ShortsEditorQaOptions {
   expectedSceneCount?: number;
   maxDurationSeconds?: number;

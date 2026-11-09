@@ -52,7 +52,7 @@ import { buildFinanceSceneDataVisual, buildFinanceShortPlan, selectHookVariantFr
 import { generateHighlightBoardAss, type HighlightBoardOptions } from './src/server/highlightBoards';
 import { buildAudioMixFilter, buildMotionFilter, generateSceneSoundEffect, motionSoundSpecForBeat } from './src/server/motionSoundRenderer';
 import { getLearningSignals, recordHookVariants, recordPipelineEvent, recordPipelineRun, recordRetentionMetric, updatePipelineRunStatus } from './src/server/pipelineTelemetry';
-import { buildShortsEditorQaRevisionInstruction, evaluateRenderedShort, evaluateShortStoryboard } from './src/server/shortsEditorQa';
+import { buildShortsEditorQaRevisionInstruction, evaluateRenderedShort, evaluateShortStoryboard, hasNarrationWithinWordRanges } from './src/server/shortsEditorQa';
 import { buildVisualAnalysisUnavailableReport, buildVisualSemanticReport, parseCompleteVisualSemanticResponse, type VisualSemanticReport, type VisualSemanticSample } from './src/server/shortsVisualSemanticQa';
 import { applyQaRepairAssets, buildQaRepairFailureReport, executeQaRepairOnce, QaRepairCancelledError, resolveUniqueQaRepairAssets, selectQaRepairCandidates, validatedPexelsRepairMetadata } from './src/server/qaRepair';
 import { buildConcatArgs, FAST_H264_OPTIONS, isValidConcatenatedVideo, mapWithConcurrency, SCENE_TTS_CONCURRENCY } from './src/server/renderOptimizations';
@@ -4626,12 +4626,15 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
     if (modelResult && modelResult.text) {
       const parsed = JSON.parse(modelResult.text);
       const hasExpectedSceneCount = parsed && Array.isArray(parsed.scenes) && parsed.scenes.length === count;
-      const hasConciseSceneCopy = hasExpectedSceneCount && parsed.scenes.every((scene: any, idx: number) => {
-        const spokenText = String(scene?.voiceover_text || scene?.subtitles || '').trim();
-        const wordCount = spokenText.split(/\s+/).filter(Boolean).length;
-        const maxWords = idx < 4 ? 3 : 4;
-        return wordCount > 0 && wordCount <= maxWords;
-      });
+      const hasConciseSceneCopy = hasExpectedSceneCount && hasNarrationWithinWordRanges(
+        parsed.scenes,
+        [
+          ...Array.from({ length: 4 }, () => ({ min: 4, max: 5 })),
+          ...Array.from({ length: 3 }, () => ({ min: 5, max: 6 })),
+          { min: 1, max: 4 }
+        ],
+        { min: 30, max: 36 }
+      );
       if (hasExpectedSceneCount && hasConciseSceneCopy) {
         const usedPexelsIds: number[] = [];
         const scenesWithVideo = [];
@@ -4905,12 +4908,10 @@ Wymagania JSON:
     if (modelResult && modelResult.text) {
       const parsed = JSON.parse(modelResult.text);
       const hasExpectedSceneCount = parsed && Array.isArray(parsed.scenes) && parsed.scenes.length === count;
-      const hasConciseSceneCopy = hasExpectedSceneCount && parsed.scenes.every((scene: any, idx: number) => {
-        const spokenText = String(scene?.voiceover_text || scene?.subtitles || '').trim();
-        const wordCount = spokenText.split(/\s+/).filter(Boolean).length;
-        const maxWords = sceneDurations[idx] <= 2 ? 5 : 6;
-        return wordCount > 0 && wordCount <= maxWords;
-      });
+      const hasConciseSceneCopy = hasExpectedSceneCount && hasNarrationWithinWordRanges(
+        parsed.scenes,
+        sceneDurations.map((duration) => ({ min: 1, max: duration <= 2 ? 5 : 6 }))
+      );
       if (hasExpectedSceneCount && hasConciseSceneCopy) {
         const usedPexelsIds: number[] = [];
         const scenesWithVideo = [];

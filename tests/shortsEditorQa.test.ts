@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { buildShortsEditorQaRevisionInstruction, evaluateRenderedShort, evaluateShortStoryboard } from '../src/server/shortsEditorQa';
+import { buildShortsEditorQaRevisionInstruction, evaluateRenderedShort, evaluateShortStoryboard, hasNarrationWithinWordRanges } from '../src/server/shortsEditorQa';
 import { buildVisualAnalysisUnavailableReport, buildVisualSemanticReport, parseVisualSemanticResponse } from '../src/server/shortsVisualSemanticQa';
 import { selectFinanceCta } from '../src/server/financeCtaStrategy';
 
@@ -27,6 +27,25 @@ const validStoryboard = evaluateShortStoryboard(scenes, {
 assert.equal(validStoryboard.status, 'pass');
 
 assert.equal(validStoryboard.score, 100);
+
+const generatedNarrationAt32Words = [
+  'Hook ma cztery słowa',
+  'Bank zmienia ważne zasady',
+  'Klienci sprawdzają nowe warunki banku',
+  'Decyzja dotyczy wielu klientów',
+  'Opłaty mogą teraz wzrosnąć znacznie',
+  'Warto porównać dostępne oferty bankowe',
+  'Sprawdź szczegóły przed ważną decyzją',
+  'Działaj teraz'
+].map((voiceover_text) => ({ voiceover_text }));
+const generatedNarrationRanges = [
+  ...Array.from({ length: 4 }, () => ({ min: 4, max: 5 })),
+  ...Array.from({ length: 3 }, () => ({ min: 5, max: 6 })),
+  { min: 1, max: 4 }
+];
+assert.equal(hasNarrationWithinWordRanges(generatedNarrationAt32Words, generatedNarrationRanges, { min: 30, max: 36 }), true);
+assert.equal(hasNarrationWithinWordRanges(generatedNarrationAt32Words, Array.from({ length: 8 }, (_, index) => ({ min: 1, max: index < 4 ? 3 : 4 })), { min: 30, max: 36 }), false, 'nowy target ma być akceptowany zamiast starego limitu 28 słów');
+assert.equal(hasNarrationWithinWordRanges(generatedNarrationAt32Words, generatedNarrationRanges, { min: 35, max: 36 }), false, 'łączny limit narracji ma być egzekwowany');
 
 const sevenFiveWordScenes = Array.from({ length: 7 }, (_, index) => ({
   duration: 2.5,
@@ -59,6 +78,8 @@ for (const [article, expected, offer] of ctaCases) {
   assert.equal(cta.spokenText, expected);
   assert.equal(cta.caption, expected);
   assert.ok(cta.spokenText.includes('raport-finansowy24.pl'));
+  assert.ok(cta.displayTitle.length <= 16);
+  assert.notEqual(cta.displayTitle, cta.spokenText);
 }
 const unverifiedPartnerCta = selectFinanceCta({ title: 'Promocja bonusowa banku' });
 assert.notEqual(unverifiedPartnerCta.type, 'verified_partner_offer');

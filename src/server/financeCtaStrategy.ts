@@ -11,6 +11,7 @@ export interface FinanceCtaPlan {
   text: string;
   spokenText: string;
   caption: string;
+  displayTitle: string;
   destinationPath: string;
   destinationUrl: string;
   requiresVerifiedOffer: boolean;
@@ -80,6 +81,7 @@ export function selectFinanceCta(
       text: `Sprawdź zweryfikowaną ofertę partnera na ${destinationPath.replace(/^\//, '') || 'RaportFinansowy24'}.`,
       spokenText: 'Wejdź na raport-finansowy24.pl i sprawdź ofertę.',
       caption: 'Wejdź na raport-finansowy24.pl i sprawdź ofertę.',
+      displayTitle: 'SPRAWDŹ OFERTĘ',
       destinationPath,
       destinationUrl: `${BASE_URL}${destinationPath}`,
       requiresVerifiedOffer: true,
@@ -93,6 +95,7 @@ export function selectFinanceCta(
       text: 'Sprawdź analizę spółki po NIP lub KRS na raport-finansowy24.pl/firma.',
       spokenText: 'Wejdź na raport-finansowy24.pl, sprawdź spółkę po NIP.',
       caption: 'Wejdź na raport-finansowy24.pl, sprawdź spółkę po NIP.',
+      displayTitle: 'SPRAWDŹ SPÓŁKĘ',
       destinationPath: '/firma',
       destinationUrl: `${BASE_URL}/firma`,
       requiresVerifiedOffer: false,
@@ -106,6 +109,7 @@ export function selectFinanceCta(
       text: 'Sprawdź, ile mogą urosnąć Twoje oszczędności na raport-finansowy24.pl/savings.',
       spokenText: 'Wejdź na raport-finansowy24.pl, policz zysk z lokaty.',
       caption: 'Wejdź na raport-finansowy24.pl, policz zysk z lokaty.',
+      displayTitle: 'POLICZ ZYSK',
       destinationPath: '/savings',
       destinationUrl: `${BASE_URL}/savings`,
       requiresVerifiedOffer: false,
@@ -119,6 +123,7 @@ export function selectFinanceCta(
       text: 'Porównaj aktualne konta i warunki na raport-finansowy24.pl/konta.',
       spokenText: 'Wejdź na raport-finansowy24.pl i porównaj konta bankowe.',
       caption: 'Wejdź na raport-finansowy24.pl i porównaj konta bankowe.',
+      displayTitle: 'PORÓWNAJ KONTA',
       destinationPath: '/konta',
       destinationUrl: `${BASE_URL}/konta`,
       requiresVerifiedOffer: false,
@@ -132,6 +137,7 @@ export function selectFinanceCta(
       text: 'Sprawdź wpływ tej zmiany na ratę w kalkulatorze: raport-finansowy24.pl/loan.',
       spokenText: 'Wejdź na raport-finansowy24.pl, policz ratę kredytu.',
       caption: 'Wejdź na raport-finansowy24.pl, policz ratę kredytu.',
+      displayTitle: 'POLICZ RATĘ',
       destinationPath: '/loan',
       destinationUrl: `${BASE_URL}/loan`,
       requiresVerifiedOffer: false,
@@ -144,6 +150,7 @@ export function selectFinanceCta(
     text: 'Sprawdź pełny kontekst i źródła na raport-finansowy24.pl.',
     spokenText: 'Wejdź na raport-finansowy24.pl, sprawdź, co to zmienia.',
     caption: 'Wejdź na raport-finansowy24.pl, sprawdź, co to zmienia.',
+    displayTitle: 'CO TO ZMIENIA?',
     destinationPath: '/',
     destinationUrl: BASE_URL,
     requiresVerifiedOffer: false,

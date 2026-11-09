@@ -27,6 +27,8 @@ assert.match(plan.scenes[7].caption, /raport-finansowy24\.pl/);
 assert.equal(plan.ctaUrl, 'https://raport-finansowy24.pl/firma');
 assert.equal(plan.scenes[7].voiceover_text, 'Wejdź na raport-finansowy24.pl, sprawdź spółkę po NIP.');
 assert.equal(plan.scenes[7].caption, plan.scenes[7].voiceover_text);
+assert.equal(plan.scenes[7].visualTitle, 'SPRAWDŹ SPÓŁKĘ');
+assert.ok((plan.scenes[7].visualTitle || '').length < plan.scenes[7].voiceover_text.length);
 assert.equal(selectFinanceCta({ title: 'Konto osobiste: promocja i bonus' }).type === 'verified_partner_offer', false);
 assert.equal(selectFinanceCta({ title: 'Promocja lokaty' }, { promotionalCtaAllowed: true, catalogStatus: 'fresh', observedOfferCount: 1, candidateOfferNamesAllowed: true }).spokenText, 'Wejdź na raport-finansowy24.pl i sprawdź ofertę.');
 
