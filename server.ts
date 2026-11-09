@@ -3244,6 +3244,12 @@ async function getMediaRuntimeDiagnostics() {
 }
 
 // Health Check Endpoint
+// Lightweight liveness endpoint for Fly.io. Do not run subprocesses or dependency checks here.
+router.get('/healthz', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
+  return res.status(200).json({ status: 'ok' });
+});
+
 router.get('/health', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store, max-age=0');
   const mediaRuntime = await getMediaRuntimeDiagnostics();

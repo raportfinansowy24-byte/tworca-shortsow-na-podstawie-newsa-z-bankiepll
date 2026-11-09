@@ -26,6 +26,7 @@ async function main() {
   assert.equal((await invoke(middleware, '/private')).res.statusCode, 401);
   assert.equal((await invoke(middleware, '/private', 'Bearer invalid')).res.statusCode, 401);
   assert.equal((await invoke(middleware, '/health')).nextCalled, true);
+  assert.equal((await invoke(middleware, '/healthz')).nextCalled, true);
   assert.equal((await invoke(middleware, '/auth/login')).nextCalled, true);
   assert.equal((await invoke(middleware, '/telegram/webhook')).nextCalled, true);
   console.log('apiAuth tests passed');

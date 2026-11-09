@@ -50,7 +50,7 @@ export interface ApiAuthOptions {
 }
 
 export function createApiAuthMiddleware(options: ApiAuthOptions): RequestHandler {
-  const publicPaths = new Set(options.publicPaths || ['/health', '/telegram/webhook', '/auth/login']);
+  const publicPaths = new Set(options.publicPaths || ['/health', '/healthz', '/telegram/webhook', '/auth/login']);
 
   return (req, res, next) => {
     if (publicPaths.has(req.path)) return next();

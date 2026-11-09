@@ -33,7 +33,7 @@ kill_timeout = "30s"
     interval = "30s"
     method = "GET"
     timeout = "5s"
-    path = "/api/health"
+    path = "/api/healthz"
 
 [[vm]]
   size = "shared-cpu-8x"
