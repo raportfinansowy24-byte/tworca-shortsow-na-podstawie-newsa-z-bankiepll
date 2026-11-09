@@ -24,6 +24,8 @@ jobs:
         run: npm run build
       - name: Scene contract tests
         run: npm run test:scene-contract
+      - name: Dynamic highlight board tests
+        run: npm run test:highlight-boards
       - name: Telegram approval and revision tests
         run: npm run test:telegram-review
       - name: Telegram chat command tests
