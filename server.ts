@@ -4635,7 +4635,8 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
           ...Array.from({ length: 3 }, () => ({ min: 5, max: 6 })),
           { min: 1, max: 4 }
         ],
-        { min: 30, max: 36 }
+        { min: 30, max: 36 },
+        ctaPlan.spokenText
       );
       if (hasExpectedSceneCount && hasConciseSceneCopy) {
         const usedPexelsIds: number[] = [];

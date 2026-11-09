@@ -46,6 +46,14 @@ const generatedNarrationRanges = [
 assert.equal(hasNarrationWithinWordRanges(generatedNarrationAt32Words, generatedNarrationRanges, { min: 30, max: 36 }), true);
 assert.equal(hasNarrationWithinWordRanges(generatedNarrationAt32Words, Array.from({ length: 8 }, (_, index) => ({ min: 1, max: index < 4 ? 3 : 4 })), { min: 30, max: 36 }), false, 'nowy target ma być akceptowany zamiast starego limitu 28 słów');
 assert.equal(hasNarrationWithinWordRanges(generatedNarrationAt32Words, generatedNarrationRanges, { min: 35, max: 36 }), false, 'łączny limit narracji ma być egzekwowany');
+const draftWithPlaceholderCta = [
+  ...Array.from({ length: 4 }, (_, index) => ({ voiceover_text: `Hook numer ${index + 1} dziś` })),
+  ...Array.from({ length: 3 }, (_, index) => ({ voiceover_text: `Ważny fakt numer ${index + 1} teraz` })),
+  { voiceover_text: 'Sprawdź pełny CTA teraz' }
+];
+const substitutedCta = 'Wejdź na raport-finansowy24.pl i sprawdź ofertę.';
+assert.equal(hasNarrationWithinWordRanges(draftWithPlaceholderCta, generatedNarrationRanges, { min: 30, max: 36 }), true, 'szkic z 35 słowami wraz z placeholderem mieści się w zakresie');
+assert.equal(hasNarrationWithinWordRanges(draftWithPlaceholderCta, generatedNarrationRanges, { min: 30, max: 36 }, substitutedCta), false, 'docelowe 6-wyrazowe CTA musi być uwzględnione w limicie całkowitym');
 
 const sevenFiveWordScenes = Array.from({ length: 7 }, (_, index) => ({
   duration: 2.5,
