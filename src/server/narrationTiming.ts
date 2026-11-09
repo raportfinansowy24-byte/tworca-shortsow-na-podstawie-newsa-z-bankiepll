@@ -125,7 +125,7 @@ export function estimateNarrationDurationSeconds(
 }
 
 function numericTokens(text: string): string[] {
-  return (String(text || '').match(/\\d+(?:[.,]\\d+)?/gu) || []).map((token) => token.replace(',', '.'));
+  return (String(text || '').match(/\d+(?:[.,]\d+)?/gu) || []).map((token) => token.replace(',', '.'));
 }
 
 function preservesNumericFacts(originalText: string, revisedText: string): boolean {
