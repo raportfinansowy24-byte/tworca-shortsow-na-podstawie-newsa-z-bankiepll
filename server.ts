@@ -52,7 +52,7 @@ import { buildFinanceSceneDataVisual, buildFinanceShortPlan, selectHookVariantFr
 import { generateHighlightBoardAss, type HighlightBoardOptions } from './src/server/highlightBoards';
 import { buildAudioMixFilter, buildMotionFilter, generateSceneSoundEffect, motionSoundSpecForBeat } from './src/server/motionSoundRenderer';
 import { getLearningSignals, recordHookVariants, recordPipelineEvent, recordPipelineRun, recordRetentionMetric, updatePipelineRunStatus } from './src/server/pipelineTelemetry';
-import { buildShortsEditorQaRevisionInstruction, evaluateRenderedShort, evaluateShortStoryboard } from './src/server/shortsEditorQa';
+import { buildShortsEditorQaRevisionInstruction, evaluateRenderedShort, evaluateShortStoryboard, hasNarrationWithinWordRanges } from './src/server/shortsEditorQa';
 import { buildVisualAnalysisUnavailableReport, buildVisualSemanticReport, parseCompleteVisualSemanticResponse, type VisualSemanticReport, type VisualSemanticSample } from './src/server/shortsVisualSemanticQa';
 import { applyQaRepairAssets, buildQaRepairFailureReport, executeQaRepairOnce, QaRepairCancelledError, resolveUniqueQaRepairAssets, selectQaRepairCandidates, validatedPexelsRepairMetadata } from './src/server/qaRepair';
 import { buildConcatArgs, FAST_H264_OPTIONS, isValidConcatenatedVideo, mapWithConcurrency, SCENE_TTS_CONCURRENCY } from './src/server/renderOptimizations';
@@ -98,8 +98,9 @@ async function analyzeRenderedVisualFit(
 
     const instructions = [
       'Jesteś niezależnym kontrolerem montażu krótkiego filmu. Porównaj KAŻDĄ załączoną klatkę z tekstem lektora przypisanym do tej samej sceny.',
-      'Oceń to, co rzeczywiście widać: główny obiekt/czynność, kontekst i czy klatka semantycznie wspiera wypowiedź. Nie uznawaj za dopasowanie samego podobnego nastroju ani generycznego stocku finansowego.',
-      'Nie wnioskuj o szczegółach niewidocznych w jednej klatce. Jeśli obraz jest nieczytelny, neutralny albo dowód jest za słaby, ustaw match=true tylko gdy nie ma wyraźnej sprzeczności; obniż confidence i krótko opisz niepewność.',
+      'Dla każdej klatki sprawdź rzeczywistą widoczną zawartość: główny obiekt, widoczną czynność, kontekst oraz semantyczne dopasowanie do przypisanego lektora. Podobny nastrój ani generyczny stock finansowy nie oznacza dopasowania.',
+      'Odrzuć wykres, budynek, parkiet giełdowy lub banknot, jeśli nie mają konkretnego związku z narracją. Brak wyraźnego głównego obiektu lub czynności oznacza match=false i confidence poniżej 0.5.',
+      'Wyłącznie ostatnia scena, jeśli jej lektor jest wezwaniem CTA, może zaakceptować ogólne tło, o ile obraz wyraźnie nie przeczy treści wezwania. Nie wnioskuj o szczegółach niewidocznych w klatce.',
       'Zwróć wyłącznie JSON: {"results":[{"scene":1,"match":true,"confidence":0.0,"reason":"krótkie uzasadnienie po polsku"}]}.',
       `Uwzględnij dokładnie ${samples.length} scen i zwróć jeden wynik dla każdej, z numerami 1–${samples.length}. Confidence to liczba 0..1. match=false oznacza wyraźnie niepasujący obraz.`
     ].join('\n');
@@ -111,7 +112,7 @@ async function analyzeRenderedVisualFit(
           const response = await ai.models.generateContent({
             model: 'gemini-3.8-flash',
             contents: [{ role: 'user', parts: [{ text: instructions }, ...imageParts] }],
-            config: { responseMimeType: 'application/json', temperature: 0.1 }
+            config: { responseMimeType: 'application/json' }
           });
           if (!response.text?.trim()) throw new Error('Gemini zwróciło pustą odpowiedź.');
           return parseCompleteVisualSemanticResponse(response.text, samples.length);
@@ -2364,7 +2365,12 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
     const renderPreflightQa = evaluateShortStoryboard(scenes, {
       expectedSceneCount,
       maxDurationSeconds: MAX_SHORT_DURATION_SECONDS,
-      requireCta: ['scheduler', 'test-render'].includes(payload.source || '')
+      requireCta: ['scheduler', 'test-render'].includes(payload.source || ''),
+      requireCaptionAlignment: !payload.pipelinePlan,
+      skipCaptionAlignment: Boolean(payload.pipelinePlan),
+      skipNarrationLengthChecks: Boolean(payload.pipelinePlan),
+      maxNarrationWordsExcludingLast: payload.pipelinePlan ? undefined : 32,
+      maxWordsPerScene: payload.pipelinePlan ? undefined : (index: number) => index < 4 ? 5 : index < 7 ? 6 : 9
     });
     const existingEditorQa = job.shortMetadata?.editorQa && typeof job.shortMetadata.editorQa === 'object'
       ? job.shortMetadata.editorQa as Record<string, unknown>
@@ -2900,10 +2906,13 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
     const previousEditorQa = jobBeforeQaUpdate?.shortMetadata?.editorQa && typeof jobBeforeQaUpdate.shortMetadata.editorQa === 'object'
       ? jobBeforeQaUpdate.shortMetadata.editorQa as Record<string, unknown>
       : {};
+    const previousPostRender = previousEditorQa.postRender && typeof previousEditorQa.postRender === 'object'
+      ? previousEditorQa.postRender as Record<string, unknown>
+      : {};
     updateJobProgress(jobId, {
       shortMetadata: {
         ...jobBeforeQaUpdate?.shortMetadata,
-        editorQa: { ...previousEditorQa, postRender: combinedQa }
+        editorQa: { ...previousEditorQa, postRender: { ...previousPostRender, ...combinedQa, visualAnalysis: visualSemanticQa } }
       }
     }, `[Shorts Editor QA] MP4 ${renderedQa.status}; analiza obrazu ${visualSemanticQa.status} (${visualSemanticQa.analyzedScenes}/${scenes.length} scen); wynik łączny ${combinedQa.status} (${combinedQa.score}/100).${combinedQa.findings.length ? ` ${combinedQa.findings.map((finding) => finding.message).join(' ')}` : ''}`);
     if (combinedQa.status === 'blocked') {
@@ -4453,6 +4462,18 @@ async function generateSmartOrGeminiViralScript({
   const offerMatch = getNewsOfferMatch(bankierArticle || { title: cleanTopic, category: niche }, articleContext);
   const offerMatchPrompt = buildOfferMatchPromptInstructions(offerMatch);
   const ctaPlan = selectFinanceCta(bankierArticle || { title: cleanTopic, category: niche }, offerMatch);
+  const narrationSceneWordRanges = [
+    ...Array.from({ length: 4 }, () => ({ min: 4, max: 5 })),
+    ...Array.from({ length: 3 }, () => ({ min: 5, max: 6 }))
+  ];
+  const ctaWordCount = ctaPlan.spokenText.trim().split(/\s+/).filter(Boolean).length;
+  const narrationWordRangeWithCta = {
+    min: narrationSceneWordRanges.reduce((total, range) => total + range.min, 0) + ctaWordCount,
+    max: Math.min(
+      narrationSceneWordRanges.reduce((total, range) => total + range.max, 0),
+      32
+    ) + ctaWordCount
+  };
   const financeCardSource = {
     title: String(bankierArticle?.title || cleanTopic),
     description: String(bankierArticle?.description || articleContext || ''),
@@ -4466,20 +4487,8 @@ async function generateSmartOrGeminiViralScript({
     console.warn(`[Viral Script] Wymuszam ${count} scen o łącznym czasie 18s (odebrano sceneCount=${sceneCount}).`);
   }
 
-  // Auto-pair keywords from news analysis if bankierArticle is provided but no manual pairedKeywords
   const hasManualPairedKeywords = Array.isArray(pairedKeywords) && pairedKeywords.some((keyword) => typeof keyword === 'string' && keyword.trim());
-  let effectivePairedKeywords = pairedKeywords;
-  if ((!effectivePairedKeywords || effectivePairedKeywords.length === 0) && bankierArticle) {
-    try {
-      const autoAnalysis = buildHeuristicSceneKeywords(
-        bankierArticle.title || cleanTopic,
-        bankierArticle.description || '',
-        bankierArticle.category || niche,
-        count
-      );
-      effectivePairedKeywords = autoAnalysis.segments.map((s) => s.primaryKeyword);
-    } catch (_) {}
-  }
+  const effectivePairedKeywords = pairedKeywords;
 
   // Construct structured Bankier.pl news context
   let bankierNewsSection = '';
@@ -4505,7 +4514,7 @@ ${articleContext.trim()}
     pairedKeywordsInstruction = `
 DOPASOWANE SŁOWA KLUCZOWE WIDEO PEXELS DLA POSZCZEGÓLNYCH SCEN:
 ${effectivePairedKeywords.map((kw, i) => `Scena #${i + 1}: "${kw}"`).join('\n')}
-Dla każdej sceny w polu "searchKeyword" MUSISZ użyć odpowiadającego jej wyżej podanego słowa kluczowego!`;
+Jeśli powyżej podano słowo kluczowe dla sceny, użyj go jako punktu wyjścia i uzupełnij o element z artykułu.`;
   }
 
   const nichePromptInstructions = buildNichePromptInstructions(
@@ -4545,10 +4554,11 @@ DOKŁADNIE 8 SCEN. STANDARDOWY UKŁAD TO 18 SEKUND; SCENY MOGĄ ZOSTAĆ WYDŁUŻ
 8. CTA: krótka wypowiedź podana przez backend.
 
 REŻYSERIA I LIMIT NARRACJI:
-- Sceny 1–4: MAKSYMALNIE 3 wypowiadane słowa na scenę.
-- Sceny 5–7: MAKSYMALNIE 4 wypowiadane słowa na scenę.
-- Scena 8: MAKSYMALNIE 4 słowa; backend zastąpi ją zatwierdzonym, tematycznym CTA.
-- Łącznie maksymalnie 28 wypowiadanych słów w całym Shortcie. Preferuj 24–26.
+- Sceny 1–4: 4–5 wypowiadanych słów na scenę.
+- Sceny 5–7: 5–6 wypowiadanych słów na scenę.
+- Scena 8: maks. 4 słowa; backend zastąpi ją zatwierdzonym CTA.
+- Łącznie po zastąpieniu placeholdera docelowym CTA: ${narrationWordRangeWithCta.min}–${narrationWordRangeWithCta.max} wypowiadanych słów. Zakres uwzględnia faktyczną długość CTA; nie skracaj scen poniżej podanych minimów ani nie dodawaj wypełniaczy.
+- Pisz pełnymi frazami i zdaniami, nie hasłami. Jedna myśl (fakt z newsa) rozłożona na sceny; zdanie może obejmować dwie sceny.
 - Nie czytaj adresów URL, domen, ścieżek ani hashtagów lektorem. Link docelowy znajduje się w opisie publikacji.
 - Zachowaj najważniejsze fakty; usuń powtórzenia, wstępy i zbędne łączniki zamiast dodawać słowa.
 - Każda scena wymagająca klipu ma osobny, unikalny, konkretny prompt Pexels po angielsku, bezpośrednio związany z wypowiedzią. Dla scen o indeksie GPW z potwierdzoną wartością z artykułu backend może zamiast klipu utworzyć kartę danych SVG.
@@ -4560,7 +4570,7 @@ REŻYSERIA I LIMIT NARRACJI:
 
 SHORTS EDITOR QA:
 - Hook i obraz zaczynają się od pierwszego ujęcia; nie dodawaj powitania, intro ani pustej planszy.
-- Każda scena wnosi nowy szczegół. Nie powtarzaj zdania lektora ani tego samego zapytania wizualnego.
+- Scena rozwija jedną myśl. Nie powtarzaj zdań lektora ani zapytań wizualnych.
 - Pokaż konkretny podmiot działania zgodny z wypowiadaną kwestią; nie używaj generycznego stocku jako wypełniacza.
 - Wypowiedź, napis i zapytanie wizualne muszą opisywać tę samą myśl; ostatnia scena zachowuje zatwierdzone CTA.
 - Przygotuj plan tak, aby dało się go zmontować w jeden krótki film bez zmiany prędkości głosu pomiędzy scenami.
@@ -4630,12 +4640,12 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
     if (modelResult && modelResult.text) {
       const parsed = JSON.parse(modelResult.text);
       const hasExpectedSceneCount = parsed && Array.isArray(parsed.scenes) && parsed.scenes.length === count;
-      const hasConciseSceneCopy = hasExpectedSceneCount && parsed.scenes.every((scene: any, idx: number) => {
-        const spokenText = String(scene?.voiceover_text || scene?.subtitles || '').trim();
-        const wordCount = spokenText.split(/\s+/).filter(Boolean).length;
-        const maxWords = idx < 4 ? 3 : 4;
-        return wordCount > 0 && wordCount <= maxWords;
-      });
+      const hasConciseSceneCopy = hasExpectedSceneCount && hasNarrationWithinWordRanges(
+        parsed.scenes,
+        [...narrationSceneWordRanges, { min: 1, max: 4 }],
+        narrationWordRangeWithCta,
+        ctaPlan.spokenText
+      );
       if (hasExpectedSceneCount && hasConciseSceneCopy) {
         const usedPexelsIds: number[] = [];
         const scenesWithVideo = [];
@@ -4651,7 +4661,7 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
           const financeDataVisual = buildFinanceSceneDataVisual(
             financeCardSource,
             String(textContent),
-            String(sc.subtitles || '')
+            String(textContent)
           );
           if (financeDataVisual) {
             scenesWithVideo.push({
@@ -4909,12 +4919,10 @@ Wymagania JSON:
     if (modelResult && modelResult.text) {
       const parsed = JSON.parse(modelResult.text);
       const hasExpectedSceneCount = parsed && Array.isArray(parsed.scenes) && parsed.scenes.length === count;
-      const hasConciseSceneCopy = hasExpectedSceneCount && parsed.scenes.every((scene: any, idx: number) => {
-        const spokenText = String(scene?.voiceover_text || scene?.subtitles || '').trim();
-        const wordCount = spokenText.split(/\s+/).filter(Boolean).length;
-        const maxWords = sceneDurations[idx] <= 2 ? 5 : 6;
-        return wordCount > 0 && wordCount <= maxWords;
-      });
+      const hasConciseSceneCopy = hasExpectedSceneCount && hasNarrationWithinWordRanges(
+        parsed.scenes,
+        sceneDurations.map((duration) => ({ min: 1, max: duration <= 2 ? 5 : 6 }))
+      );
       if (hasExpectedSceneCount && hasConciseSceneCopy) {
         const usedPexelsIds: number[] = [];
         const scenesWithVideo = [];
@@ -5681,6 +5689,7 @@ router.post('/combine-scenes', async (req, res) => {
     lockSceneDurations,
     captionAnimation: body.captionAnimation || body.animation || 'word-by-word',
     highlightColor: body.highlightColor || 'yellow',
+    highlightBoards: body.highlightBoards,
     telegramApproval: true
   };
 
@@ -7432,7 +7441,8 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
       requireVisualQueries: true,
       requireUniquePexelsIds: true,
       requireCaptionAlignment: true,
-      maxWordsPerScene: (index: number) => index < 4 ? 3 : 4
+      maxNarrationWordsExcludingLast: 32,
+      maxWordsPerScene: (index: number) => index < 4 ? 5 : index < 7 ? 6 : 9
     };
     let editorQa = evaluateShortStoryboard(scriptData.scenes, qaOptions);
     let qaRepairAttempted = false;
@@ -7932,11 +7942,19 @@ router.post('/telegram/webhook', async (req, res) => {
             videoPath,
             title: job.approvalTitle || job.title || job.articleTitle || 'RaportFinansowy24 — nowy materiał',
             description: typeof job.shortMetadata?.description === 'string' ? job.shortMetadata.description : undefined,
-            articleUrl: job.articleUrl || job.approvalSourceUrl
+            articleUrl: job.articleUrl || job.approvalSourceUrl,
+            contentId: job.id,
+            destinationPath: typeof job.shortMetadata?.ctaDestination === 'string' ? job.shortMetadata.ctaDestination : '/'
           });
           if (result.published) {
             publicationMessage = 'Short zaakceptowany i przekazany do publikacji przez Postiz.';
-            updateJobProgress(jobId, { telegramApprovalStatus: 'approved' }, 'Materiał zaakceptowany i przekazany do Postiz.');
+            updateJobProgress(jobId, {
+              telegramApprovalStatus: 'approved',
+              shortMetadata: {
+                ...job.shortMetadata,
+                campaignTracking: result.campaignTracking || {}
+              }
+            }, 'Materiał zaakceptowany i przekazany do Postiz. Przygotowano per-platform UTM URL-e oraz teksty komentarzy do przypięcia w metadanych zadania.');
           } else {
             publicationMessage = 'Short zaakceptowany. Postiz nie publikuje: ' + (result.reason || 'sprawdź konfigurację.');
           }
