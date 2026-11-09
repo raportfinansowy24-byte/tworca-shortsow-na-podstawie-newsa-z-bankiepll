@@ -4469,7 +4469,10 @@ async function generateSmartOrGeminiViralScript({
   const ctaWordCount = ctaPlan.spokenText.trim().split(/\s+/).filter(Boolean).length;
   const narrationWordRangeWithCta = {
     min: narrationSceneWordRanges.reduce((total, range) => total + range.min, 0) + ctaWordCount,
-    max: narrationSceneWordRanges.reduce((total, range) => total + range.max, 0) + ctaWordCount
+    max: Math.min(
+      narrationSceneWordRanges.reduce((total, range) => total + range.max, 0),
+      32
+    ) + ctaWordCount
   };
   const financeCardSource = {
     title: String(bankierArticle?.title || cleanTopic),
