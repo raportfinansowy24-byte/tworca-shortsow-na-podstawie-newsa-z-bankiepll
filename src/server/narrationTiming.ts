@@ -186,12 +186,12 @@ function wordNumberTokens(text: string): string[] {
 }
 
 function preservesNumericFacts(originalText: string, revisedText: string): boolean {
-  const remaining = new Map<string, number>();
-  for (const token of numericTokens(revisedText)) remaining.set(token, (remaining.get(token) || 0) + 1);
-  for (const token of numericTokens(originalText)) {
-    const count = remaining.get(token) || 0;
-    if (count <= 0) return false;
-    remaining.set(token, count - 1);
+  // Every numeric fact must remain present, in the same order, with no added values.
+  const originalDigits = numericTokens(originalText);
+  const revisedDigits = numericTokens(revisedText);
+  if (originalDigits.length !== revisedDigits.length ||
+      originalDigits.some((token, index) => token !== revisedDigits[index])) {
+    return false;
   }
 
   // Also protect financial figures, percentages, dates and quantities written out in Polish words.
