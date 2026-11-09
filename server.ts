@@ -2842,7 +2842,19 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"króts
       if (speechText.length > 0) {
         try {
           console.log(`[Subtitle sync] Scene ${sceneNum}: audio=${captionDuration.toFixed(2)}s, scene=${sceneDuration.toFixed(2)}s, TTS word boundaries=${sceneWordTimings.length}/${speechText.split(/\s+/).filter(Boolean).length}.`);
-          const boardOptions: HighlightBoardOptions = payload.highlightBoards || { enabled: true };
+          const boardOptions: HighlightBoardOptions = payload.highlightBoards || {
+            enabled: true,
+            position: 'center',
+            fontSize: 78,
+            fontColor: '#FFFFFF',
+            highlightColor: '#FF2020',
+            outlineColor: '#000000',
+            outlineWidth: 6,
+            shadow: 4,
+            maxLines: 2,
+            minWords: 3,
+            maxWords: 6
+          };
           const assContent = boardOptions.enabled === false
             ? generateWordByWordAss(speechText, captionDuration, {
                 animation: animMode,
