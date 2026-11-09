@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { buildFinanceSceneDataVisual, buildFinanceShortPlan, selectHookVariantFromLearningSignals, validateFinanceShortPlan } from '../src/server/shortPipeline';
 import { isSafeFinanceDataVisualSvg } from '../src/server/sceneContract';
+import { selectFinanceCta } from '../src/server/financeCtaStrategy';
 
 const plan = buildFinanceShortPlan({
   title: 'Dramat na akcjach Cyfrowego Polsatu i Eurocashu. Szeroki rynek pędzi dzięki bankom',
@@ -22,9 +23,12 @@ assert.match(plan.scenes[0].visualSvg || '', /FAKT Z ARTYKUŁU BANKIER\.PL/);
 assert.equal(plan.qualityGate.publishable, true);
 assert.equal(validateFinanceShortPlan(plan).publishable, true);
 assert.match(plan.hook, /Cyfrowy Polsat/);
-assert.equal(plan.scenes[7].voiceover_text, 'Sprawdź spółkę po NIP.');
-assert.match(plan.scenes[7].caption, /RAPORT-FINANSOWY24\.PL/);
+assert.match(plan.scenes[7].caption, /raport-finansowy24\.pl/);
 assert.equal(plan.ctaUrl, 'https://raport-finansowy24.pl/firma');
+assert.equal(plan.scenes[7].voiceover_text, 'Wejdź na raport-finansowy24.pl, sprawdź spółkę po NIP.');
+assert.equal(plan.scenes[7].caption, plan.scenes[7].voiceover_text);
+assert.equal(selectFinanceCta({ title: 'Konto osobiste: promocja i bonus' }).type === 'verified_partner_offer', false);
+assert.equal(selectFinanceCta({ title: 'Promocja lokaty' }, { promotionalCtaAllowed: true, catalogStatus: 'fresh', observedOfferCount: 1, candidateOfferNamesAllowed: true }).spokenText, 'Wejdź na raport-finansowy24.pl i sprawdź ofertę.');
 
 const wig20Card = buildFinanceSceneDataVisual(
   { title: 'GPW: sesja zakończyła się spadkiem', description: 'WIG20 zakończył sesję spadkiem o 0,68 proc.' },

@@ -24,6 +24,7 @@ export interface ShortsEditorQaOptions {
   requireUniquePexelsIds?: boolean;
   requireCaptionAlignment?: boolean;
   maxWordsPerScene?: (sceneIndex: number) => number;
+  maxNarrationWordsExcludingLast?: number;
 }
 
 export interface RenderedShortMetrics {
@@ -98,6 +99,7 @@ export function evaluateShortStoryboard(rawScenes: unknown, options: ShortsEdito
   const visualQueries: string[] = [];
   const visualIds: number[] = [];
   let totalDuration = 0;
+  let narrationWordsExcludingLast = 0;
 
   scenes.forEach((scene, index) => {
     const sceneNumber = index + 1;
@@ -137,11 +139,13 @@ export function evaluateShortStoryboard(rawScenes: unknown, options: ShortsEdito
     }
 
     const wordCount = countWords(narration);
+    const isFinalCta = options.requireCta === true && index === scenes.length - 1;
+    if (index < scenes.length - 1) narrationWordsExcludingLast += wordCount;
     const maxWords = options.maxWordsPerScene?.(index);
-    if (typeof maxWords === 'number' && wordCount > maxWords) {
+    if (!isFinalCta && typeof maxWords === 'number' && wordCount > maxWords) {
       addFinding({ code: 'scene_copy_too_long', severity: 'warning', message: `Scena ${sceneNumber} ma ${wordCount} słów; zalecane maksimum to ${maxWords}.`, scene: sceneNumber });
     }
-    if (duration > 0 && wordCount / duration > 3.2) {
+    if (!isFinalCta && duration > 0 && wordCount / duration > 3.2) {
       addFinding({ code: 'narration_too_dense', severity: 'warning', message: `Tekst sceny ${sceneNumber} jest zbyt gęsty względem jej czasu.`, scene: sceneNumber });
     }
     if (index === 0 && duration > 3.2) {
@@ -156,6 +160,9 @@ export function evaluateShortStoryboard(rawScenes: unknown, options: ShortsEdito
     }
   });
 
+  if (typeof options.maxNarrationWordsExcludingLast === 'number' && narrationWordsExcludingLast > options.maxNarrationWordsExcludingLast) {
+    addFinding({ code: 'total_words_over_limit', severity: 'blocker', message: `Lektor scen 1–${Math.max(1, scenes.length - 1)} ma ${narrationWordsExcludingLast} słów; limit to ${options.maxNarrationWordsExcludingLast}.` });
+  }
   if (totalDuration > maxDurationSeconds + 0.001) {
     addFinding({ code: 'duration_over_limit', severity: 'blocker', message: `Plan ma ${totalDuration.toFixed(2)} s; limit wynosi ${maxDurationSeconds} s.` });
   }

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { buildShortsEditorQaRevisionInstruction, evaluateRenderedShort, evaluateShortStoryboard } from '../src/server/shortsEditorQa';
 import { buildVisualAnalysisUnavailableReport, buildVisualSemanticReport, parseVisualSemanticResponse } from '../src/server/shortsVisualSemanticQa';
+import { selectFinanceCta } from '../src/server/financeCtaStrategy';
 
 const scenes = Array.from({ length: 8 }, (_, index) => {
   const narration = index === 0 ? 'Co się zmieniło?' : index === 7 ? 'Policz ratę kredytu.' : `Fakt numer ${index + 1}.`;
@@ -24,7 +25,44 @@ const validStoryboard = evaluateShortStoryboard(scenes, {
   maxWordsPerScene: (index) => index < 4 ? 3 : 4
 });
 assert.equal(validStoryboard.status, 'pass');
+
 assert.equal(validStoryboard.score, 100);
+
+const sevenFiveWordScenes = Array.from({ length: 7 }, (_, index) => ({
+  duration: 2.5,
+  voiceover_text: `Rynek ${index + 1} spadł dziś mocno`,
+  subtitles: `Rynek ${index + 1} spadł dziś mocno`
+}));
+const longCta = 'Wejdź na raport-finansowy24.pl i sprawdź ofertę teraz, aby poznać wszystkie szczegóły i dodatkowe informacje';
+const storyboardWith35Words = [...sevenFiveWordScenes, { duration: 2.5, voiceover_text: longCta, subtitles: longCta }];
+const narrationOptions = { requireCta: true, requireCaptionAlignment: true, maxNarrationWordsExcludingLast: 32, maxWordsPerScene: (index: number) => index < 7 ? 5 : 9 };
+const overLimitReport = evaluateShortStoryboard(storyboardWith35Words, narrationOptions);
+assert.ok(overLimitReport.findings.some((finding) => finding.code === 'total_words_over_limit' && finding.severity === 'blocker' && finding.message === 'Lektor scen 1–7 ma 35 słów; limit to 32.'));
+assert.ok(!overLimitReport.findings.some((finding) => finding.scene === 8 && ['scene_copy_too_long', 'narration_too_dense'].includes(finding.code)));
+const storyboardWith32Words = [...sevenFiveWordScenes.slice(0, 6), { duration: 2.5, voiceover_text: 'Rynek rośnie', subtitles: 'Rynek rośnie' }, storyboardWith35Words[7]];
+const withinLimitReport = evaluateShortStoryboard(storyboardWith32Words, narrationOptions);
+assert.ok(!withinLimitReport.findings.some((finding) => finding.code === 'total_words_over_limit'));
+const mismatchedFinalCaption = storyboardWith35Words.map((scene, index) => index === 7 ? { ...scene, voiceover_text: 'Wejdź na raport-finansowy24.pl, sprawdź, co to zmienia.', subtitles: longCta } : scene);
+const finalCaptionMismatchReport = evaluateShortStoryboard(mismatchedFinalCaption, narrationOptions);
+assert.ok(finalCaptionMismatchReport.findings.some((finding) => finding.code === 'caption_voiceover_mismatch' && finding.severity === 'blocker' && finding.scene === 8));
+
+const ctaCases = [
+  [{ title: 'Kredyt i rata kredytu' }, 'Wejdź na raport-finansowy24.pl, policz ratę kredytu.'],
+  [{ title: 'Konta bankowe i opłaty za konto' }, 'Wejdź na raport-finansowy24.pl i porównaj konta bankowe.'],
+  [{ title: 'Analiza spółki po NIP' }, 'Wejdź na raport-finansowy24.pl, sprawdź spółkę po NIP.'],
+  [{ title: 'Oszczędności i lokata' }, 'Wejdź na raport-finansowy24.pl, policz zysk z lokaty.'],
+  [{ title: 'Promocja lokaty' }, 'Wejdź na raport-finansowy24.pl i sprawdź ofertę.', { promotionalCtaAllowed: true, catalogStatus: 'fresh', observedOfferCount: 1, candidateOfferNamesAllowed: true }],
+  [{ title: 'Wiadomość gospodarcza' }, 'Wejdź na raport-finansowy24.pl, sprawdź, co to zmienia.']
+] as const;
+for (const [article, expected, offer] of ctaCases) {
+  const cta = selectFinanceCta(article, offer);
+  assert.equal(cta.spokenText, expected);
+  assert.equal(cta.caption, expected);
+  assert.ok(cta.spokenText.includes('raport-finansowy24.pl'));
+}
+const unverifiedPartnerCta = selectFinanceCta({ title: 'Promocja bonusowa banku' });
+assert.notEqual(unverifiedPartnerCta.type, 'verified_partner_offer');
+assert.equal(selectFinanceCta({ title: 'Promocja bonusowa banku' }, { promotionalCtaAllowed: true, catalogStatus: 'stale', observedOfferCount: 1, candidateOfferNamesAllowed: true }).type === 'verified_partner_offer', false);
 
 const missingPexelsId = scenes.map((scene, index) => {
   if (index !== 4) return scene;
@@ -105,7 +143,13 @@ assert.equal(semanticReport.status, 'blocked');
 assert.equal(semanticReport.analyzedScenes, 3);
 assert.equal(semanticReport.findings.filter((finding) => finding.code === 'visual_narration_mismatch').length, 2);
 assert.equal(semanticReport.findings.find((finding) => finding.scene === 2)?.severity, 'blocker');
-assert.equal(semanticReport.findings.find((finding) => finding.scene === 3)?.severity, 'warning');
+assert.equal(semanticReport.findings.find((finding) => finding.scene === 3)?.severity, 'blocker');
+const thresholdReport = buildVisualSemanticReport(2, [
+  { scene: 1, match: false, confidence: 0.62, reason: 'Brak dopasowania.' },
+  { scene: 2, match: false, confidence: 0.59, reason: 'Słabe dopasowanie.' }
+], 'gemini-3.8-flash');
+assert.equal(thresholdReport.findings.find((finding) => finding.scene === 1)?.severity, 'blocker');
+assert.equal(thresholdReport.findings.find((finding) => finding.scene === 2)?.severity, 'warning');
 
 const incompleteSemanticReport = buildVisualSemanticReport(2, [semanticResults[0]], 'gemini-3.8-flash');
 assert.equal(incompleteSemanticReport.status, 'review');

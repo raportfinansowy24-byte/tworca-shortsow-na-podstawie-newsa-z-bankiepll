@@ -79,7 +79,7 @@ export function selectFinanceCta(
       type: 'verified_partner_offer',
       text: `Sprawdź zweryfikowaną ofertę partnera na ${destinationPath.replace(/^\//, '') || 'RaportFinansowy24'}.`,
       spokenText: 'Wejdź na raport-finansowy24.pl i sprawdź ofertę.',
-      caption: 'SPRAWDŹ ZWERYFIKOWANĄ OFERTĘ',
+      caption: 'Wejdź na raport-finansowy24.pl i sprawdź ofertę.',
       destinationPath,
       destinationUrl: `${BASE_URL}${destinationPath}`,
       requiresVerifiedOffer: true,
@@ -91,8 +91,8 @@ export function selectFinanceCta(
     return {
       type: 'company_analysis',
       text: 'Sprawdź analizę spółki po NIP lub KRS na raport-finansowy24.pl/firma.',
-      spokenText: 'Wejdź na raport-finansowy24.pl i sprawdź spółkę po NIP.',
-      caption: 'SPRAWDŹ ANALIZĘ SPÓŁKI',
+      spokenText: 'Wejdź na raport-finansowy24.pl, sprawdź spółkę po NIP.',
+      caption: 'Wejdź na raport-finansowy24.pl, sprawdź spółkę po NIP.',
       destinationPath: '/firma',
       destinationUrl: `${BASE_URL}/firma`,
       requiresVerifiedOffer: false,
@@ -104,8 +104,8 @@ export function selectFinanceCta(
     return {
       type: 'savings_calculator',
       text: 'Sprawdź, ile mogą urosnąć Twoje oszczędności na raport-finansowy24.pl/savings.',
-      spokenText: 'Wejdź na raport-finansowy24.pl i policz zysk z lokaty.',
-      caption: 'POLICZ ZYSK Z OSZCZĘDNOŚCI',
+      spokenText: 'Wejdź na raport-finansowy24.pl, policz zysk z lokaty.',
+      caption: 'Wejdź na raport-finansowy24.pl, policz zysk z lokaty.',
       destinationPath: '/savings',
       destinationUrl: `${BASE_URL}/savings`,
       requiresVerifiedOffer: false,
@@ -118,7 +118,7 @@ export function selectFinanceCta(
       type: 'bank_accounts',
       text: 'Porównaj aktualne konta i warunki na raport-finansowy24.pl/konta.',
       spokenText: 'Wejdź na raport-finansowy24.pl i porównaj konta bankowe.',
-      caption: 'PORÓWNAJ AKTUALNE KONTA',
+      caption: 'Wejdź na raport-finansowy24.pl i porównaj konta bankowe.',
       destinationPath: '/konta',
       destinationUrl: `${BASE_URL}/konta`,
       requiresVerifiedOffer: false,
@@ -130,8 +130,8 @@ export function selectFinanceCta(
     return {
       type: 'loan_calculator',
       text: 'Sprawdź wpływ tej zmiany na ratę w kalkulatorze: raport-finansowy24.pl/loan.',
-      spokenText: 'Wejdź na raport-finansowy24.pl i policz ratę kredytu.',
-      caption: 'SPRAWDŹ WPŁYW NA RATĘ',
+      spokenText: 'Wejdź na raport-finansowy24.pl, policz ratę kredytu.',
+      caption: 'Wejdź na raport-finansowy24.pl, policz ratę kredytu.',
       destinationPath: '/loan',
       destinationUrl: `${BASE_URL}/loan`,
       requiresVerifiedOffer: false,
@@ -142,8 +142,8 @@ export function selectFinanceCta(
   return {
     type: 'editorial_analysis',
     text: 'Sprawdź pełny kontekst i źródła na raport-finansowy24.pl.',
-    spokenText: 'Wejdź na raport-finansowy24.pl i sprawdź pełny kontekst.',
-    caption: 'SPRAWDŹ PEŁNY KONTEKST',
+    spokenText: 'Wejdź na raport-finansowy24.pl, sprawdź, co to zmienia.',
+    caption: 'Wejdź na raport-finansowy24.pl, sprawdź, co to zmienia.',
     destinationPath: '/',
     destinationUrl: BASE_URL,
     requiresVerifiedOffer: false,
@@ -159,7 +159,12 @@ export function buildCtaPolicyPrompt(): string {
 - Konto lub opłaty bankowe: powiedz „Wejdź na raport-finansowy24.pl i porównaj konta bankowe.”; strona docelowa: https://raport-finansowy24.pl/konta.
 - Spółka, GPW, akcje, wyniki firmy, NIP lub KRS: powiedz „Wejdź na raport-finansowy24.pl i sprawdź spółkę po NIP.”; strona docelowa: https://raport-finansowy24.pl/firma.
 - Lokaty, oszczędności, depozyty lub odsetki: powiedz „Wejdź na raport-finansowy24.pl i policz zysk z lokaty.”; strona docelowa: https://raport-finansowy24.pl/savings.
-- Promocja, bonus lub premia: CTA do oferty partnerskiej WYŁĄCZNIE przy aktualnej, zweryfikowanej ofercie z katalogu. W innym przypadku powiedz „Wejdź na raport-finansowy24.pl i sprawdź pełny kontekst.”
+- Kredyt: powiedz „Wejdź na raport-finansowy24.pl, policz ratę kredytu.”
+- Konta bankowe: powiedz „Wejdź na raport-finansowy24.pl i porównaj konta bankowe.”
+- Analiza spółki: powiedz „Wejdź na raport-finansowy24.pl, sprawdź spółkę po NIP.”
+- Oszczędności: powiedz „Wejdź na raport-finansowy24.pl, policz zysk z lokaty.”
+- Oferta partnerska: powiedz „Wejdź na raport-finansowy24.pl i sprawdź ofertę.” Oferta partnerska wyłącznie przy aktualnej, zweryfikowanej ofercie z katalogu.
+- Editorial: powiedz „Wejdź na raport-finansowy24.pl, sprawdź, co to zmienia.” W innym przypadku powiedz „Wejdź na raport-finansowy24.pl, sprawdź, co to zmienia.”
 - Wypowiadany adres ma być zgodny z tekstem lektora i napisami końcowej sceny; nie zastępuj go samym ogólnym „sprawdź więcej”.
 - Pełny adres URL z parametrami śledzącymi umieść w opisie publikacji, przygotowanym komentarzu do przypięcia oraz metadanych kampanii. Nie wstawiaj parametrów UTM do lektora.
 - Używaj bazowego adresu https://raport-finansowy24.pl; ścieżkę dobierz do CTA. Parametry UTM: utm_source=tiktok lub youtube, utm_medium=organic_social, utm_campaign=shorts, utm_content=identyfikator materiału.

@@ -98,8 +98,9 @@ async function analyzeRenderedVisualFit(
 
     const instructions = [
       'Jesteś niezależnym kontrolerem montażu krótkiego filmu. Porównaj KAŻDĄ załączoną klatkę z tekstem lektora przypisanym do tej samej sceny.',
-      'Oceń to, co rzeczywiście widać: główny obiekt/czynność, kontekst i czy klatka semantycznie wspiera wypowiedź. Nie uznawaj za dopasowanie samego podobnego nastroju ani generycznego stocku finansowego.',
-      'Nie wnioskuj o szczegółach niewidocznych w jednej klatce. Jeśli obraz jest nieczytelny, neutralny albo dowód jest za słaby, ustaw match=true tylko gdy nie ma wyraźnej sprzeczności; obniż confidence i krótko opisz niepewność.',
+      'Dla każdej klatki sprawdź rzeczywistą widoczną zawartość: główny obiekt, widoczną czynność, kontekst oraz semantyczne dopasowanie do przypisanego lektora. Podobny nastrój ani generyczny stock finansowy nie oznacza dopasowania.',
+      'Odrzuć wykres, budynek, parkiet giełdowy lub banknot, jeśli nie mają konkretnego związku z narracją. Brak wyraźnego głównego obiektu lub czynności oznacza match=false i confidence poniżej 0.5.',
+      'Wyłącznie ostatnia scena, jeśli jej lektor jest wezwaniem CTA, może zaakceptować ogólne tło, o ile obraz wyraźnie nie przeczy treści wezwania. Nie wnioskuj o szczegółach niewidocznych w klatce.',
       'Zwróć wyłącznie JSON: {"results":[{"scene":1,"match":true,"confidence":0.0,"reason":"krótkie uzasadnienie po polsku"}]}.',
       `Uwzględnij dokładnie ${samples.length} scen i zwróć jeden wynik dla każdej, z numerami 1–${samples.length}. Confidence to liczba 0..1. match=false oznacza wyraźnie niepasujący obraz.`
     ].join('\n');
@@ -111,7 +112,7 @@ async function analyzeRenderedVisualFit(
           const response = await ai.models.generateContent({
             model: 'gemini-3.8-flash',
             contents: [{ role: 'user', parts: [{ text: instructions }, ...imageParts] }],
-            config: { responseMimeType: 'application/json', temperature: 0.1 }
+            config: { responseMimeType: 'application/json' }
           });
           if (!response.text?.trim()) throw new Error('Gemini zwróciło pustą odpowiedź.');
           return parseCompleteVisualSemanticResponse(response.text, samples.length);
@@ -2364,7 +2365,10 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
     const renderPreflightQa = evaluateShortStoryboard(scenes, {
       expectedSceneCount,
       maxDurationSeconds: MAX_SHORT_DURATION_SECONDS,
-      requireCta: ['scheduler', 'test-render'].includes(payload.source || '')
+      requireCta: ['scheduler', 'test-render'].includes(payload.source || ''),
+      requireCaptionAlignment: true,
+      maxNarrationWordsExcludingLast: 32,
+      maxWordsPerScene: (index: number) => index < 7 ? 5 : 9
     });
     const existingEditorQa = job.shortMetadata?.editorQa && typeof job.shortMetadata.editorQa === 'object'
       ? job.shortMetadata.editorQa as Record<string, unknown>
@@ -2900,10 +2904,13 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
     const previousEditorQa = jobBeforeQaUpdate?.shortMetadata?.editorQa && typeof jobBeforeQaUpdate.shortMetadata.editorQa === 'object'
       ? jobBeforeQaUpdate.shortMetadata.editorQa as Record<string, unknown>
       : {};
+    const previousPostRender = previousEditorQa.postRender && typeof previousEditorQa.postRender === 'object'
+      ? previousEditorQa.postRender as Record<string, unknown>
+      : {};
     updateJobProgress(jobId, {
       shortMetadata: {
         ...jobBeforeQaUpdate?.shortMetadata,
-        editorQa: { ...previousEditorQa, postRender: combinedQa }
+        editorQa: { ...previousEditorQa, postRender: { ...previousPostRender, ...combinedQa, visualAnalysis: visualSemanticQa } }
       }
     }, `[Shorts Editor QA] MP4 ${renderedQa.status}; analiza obrazu ${visualSemanticQa.status} (${visualSemanticQa.analyzedScenes}/${scenes.length} scen); wynik łączny ${combinedQa.status} (${combinedQa.score}/100).${combinedQa.findings.length ? ` ${combinedQa.findings.map((finding) => finding.message).join(' ')}` : ''}`);
     if (combinedQa.status === 'blocked') {
@@ -7421,7 +7428,8 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
       requireVisualQueries: true,
       requireUniquePexelsIds: true,
       requireCaptionAlignment: true,
-      maxWordsPerScene: (index: number) => index < 4 ? 5 : index < 7 ? 6 : 4
+      maxNarrationWordsExcludingLast: 32,
+      maxWordsPerScene: (index: number) => index < 7 ? 5 : 9
     };
     let editorQa = evaluateShortStoryboard(scriptData.scenes, qaOptions);
     let qaRepairAttempted = false;
