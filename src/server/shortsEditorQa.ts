@@ -23,7 +23,8 @@ export interface NarrationWordRange {
 export function hasNarrationWithinWordRanges(
   rawScenes: unknown,
   sceneRanges: NarrationWordRange[],
-  totalRange?: NarrationWordRange
+  totalRange?: NarrationWordRange,
+  totalFinalSceneText?: string
 ): boolean {
   if (!Array.isArray(rawScenes) || rawScenes.length !== sceneRanges.length) return false;
   const counts = rawScenes.map((value) => {
@@ -33,7 +34,9 @@ export function hasNarrationWithinWordRanges(
   });
   if (counts.some((count, index) => count < sceneRanges[index].min || count > sceneRanges[index].max)) return false;
   if (totalRange) {
-    const total = counts.reduce((sum, count) => sum + count, 0);
+    const total = totalFinalSceneText === undefined
+      ? counts.reduce((sum, count) => sum + count, 0)
+      : counts.slice(0, -1).reduce((sum, count) => sum + count, 0) + countWords(totalFinalSceneText);
     if (total < totalRange.min || total > totalRange.max) return false;
   }
   return true;

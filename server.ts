@@ -4462,6 +4462,15 @@ async function generateSmartOrGeminiViralScript({
   const offerMatch = getNewsOfferMatch(bankierArticle || { title: cleanTopic, category: niche }, articleContext);
   const offerMatchPrompt = buildOfferMatchPromptInstructions(offerMatch);
   const ctaPlan = selectFinanceCta(bankierArticle || { title: cleanTopic, category: niche }, offerMatch);
+  const narrationSceneWordRanges = [
+    ...Array.from({ length: 4 }, () => ({ min: 4, max: 5 })),
+    ...Array.from({ length: 3 }, () => ({ min: 5, max: 6 }))
+  ];
+  const ctaWordCount = ctaPlan.spokenText.trim().split(/\s+/).filter(Boolean).length;
+  const narrationWordRangeWithCta = {
+    min: narrationSceneWordRanges.reduce((total, range) => total + range.min, 0) + ctaWordCount,
+    max: narrationSceneWordRanges.reduce((total, range) => total + range.max, 0) + ctaWordCount
+  };
   const financeCardSource = {
     title: String(bankierArticle?.title || cleanTopic),
     description: String(bankierArticle?.description || articleContext || ''),
@@ -4545,7 +4554,7 @@ REŻYSERIA I LIMIT NARRACJI:
 - Sceny 1–4: 4–5 wypowiadanych słów na scenę.
 - Sceny 5–7: 5–6 wypowiadanych słów na scenę.
 - Scena 8: maks. 4 słowa; backend zastąpi ją zatwierdzonym CTA.
-- Łącznie 30–36 wypowiadanych słów. Preferuj około 32.
+- Łącznie po zastąpieniu placeholdera docelowym CTA: ${narrationWordRangeWithCta.min}–${narrationWordRangeWithCta.max} wypowiadanych słów. Zakres uwzględnia faktyczną długość CTA; nie skracaj scen poniżej podanych minimów ani nie dodawaj wypełniaczy.
 - Pisz pełnymi frazami i zdaniami, nie hasłami. Jedna myśl (fakt z newsa) rozłożona na sceny; zdanie może obejmować dwie sceny.
 - Nie czytaj adresów URL, domen, ścieżek ani hashtagów lektorem. Link docelowy znajduje się w opisie publikacji.
 - Zachowaj najważniejsze fakty; usuń powtórzenia, wstępy i zbędne łączniki zamiast dodawać słowa.
@@ -4630,12 +4639,9 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
       const hasExpectedSceneCount = parsed && Array.isArray(parsed.scenes) && parsed.scenes.length === count;
       const hasConciseSceneCopy = hasExpectedSceneCount && hasNarrationWithinWordRanges(
         parsed.scenes,
-        [
-          ...Array.from({ length: 4 }, () => ({ min: 4, max: 5 })),
-          ...Array.from({ length: 3 }, () => ({ min: 5, max: 6 })),
-          { min: 1, max: 4 }
-        ],
-        { min: 30, max: 36 }
+        [...narrationSceneWordRanges, { min: 1, max: 4 }],
+        narrationWordRangeWithCta,
+        ctaPlan.spokenText
       );
       if (hasExpectedSceneCount && hasConciseSceneCopy) {
         const usedPexelsIds: number[] = [];

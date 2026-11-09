@@ -46,6 +46,17 @@ const generatedNarrationRanges = [
 assert.equal(hasNarrationWithinWordRanges(generatedNarrationAt32Words, generatedNarrationRanges, { min: 30, max: 36 }), true);
 assert.equal(hasNarrationWithinWordRanges(generatedNarrationAt32Words, Array.from({ length: 8 }, (_, index) => ({ min: 1, max: index < 4 ? 3 : 4 })), { min: 30, max: 36 }), false, 'nowy target ma być akceptowany zamiast starego limitu 28 słów');
 assert.equal(hasNarrationWithinWordRanges(generatedNarrationAt32Words, generatedNarrationRanges, { min: 35, max: 36 }), false, 'łączny limit narracji ma być egzekwowany');
+const draftWithPlaceholderCta = [
+  ...Array.from({ length: 4 }, (_, index) => ({ voiceover_text: `Hook numer ${index + 1} dziś` })),
+  ...Array.from({ length: 3 }, (_, index) => ({ voiceover_text: `Ważny fakt numer ${index + 1} teraz` })),
+  { voiceover_text: 'Sprawdź pełny CTA teraz' }
+];
+const substitutedCta = 'Wejdź na raport-finansowy24.pl i sprawdź ofertę.';
+assert.equal(hasNarrationWithinWordRanges(draftWithPlaceholderCta, generatedNarrationRanges, { min: 30, max: 36 }), true, 'szkic z 35 słowami wraz z placeholderem mieści się w zakresie');
+assert.equal(hasNarrationWithinWordRanges(draftWithPlaceholderCta, generatedNarrationRanges, { min: 37, max: 44 }, substitutedCta), true, '31 słów scen 1–7 plus docelowe 6-wyrazowe CTA powinny przejść zakres 37–44');
+const sevenWordCta = 'Wejdź na raport-finansowy24.pl i porównaj konta bankowe.';
+assert.equal(hasNarrationWithinWordRanges(draftWithPlaceholderCta, generatedNarrationRanges, { min: 38, max: 45 }, sevenWordCta), true, 'ten sam szkic z 7-wyrazowym CTA powinien przejść zakres 38–45');
+assert.equal(hasNarrationWithinWordRanges(draftWithPlaceholderCta, generatedNarrationRanges, { min: 39, max: 45 }, sevenWordCta), false, 'całość poniżej minimum wynikającego z minimów scen i CTA powinna zostać odrzucona');
 
 const sevenFiveWordScenes = Array.from({ length: 7 }, (_, index) => ({
   duration: 2.5,
