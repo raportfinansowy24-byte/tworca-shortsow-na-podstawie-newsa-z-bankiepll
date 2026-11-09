@@ -29,6 +29,15 @@ async function main() {
   assert.equal((await invoke(middleware, '/healthz')).nextCalled, true);
   assert.equal((await invoke(middleware, '/auth/login')).nextCalled, true);
   assert.equal((await invoke(middleware, '/telegram/webhook')).nextCalled, true);
+  // Production passes an explicit allowlist, which overrides middleware defaults.
+  const productionMiddleware = createApiAuthMiddleware({
+    sessionSecret: secret,
+    machineToken,
+    publicPaths: ['/health', '/healthz', '/telegram/webhook', '/auth/login', '/auth/status']
+  });
+  assert.equal((await invoke(productionMiddleware, '/healthz')).nextCalled, true,
+    'Fly liveness probe must bypass production API authentication');
+
   console.log('apiAuth tests passed');
 }
 void main();
