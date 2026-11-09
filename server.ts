@@ -8128,7 +8128,7 @@ app.use('/api', createApiAuthMiddleware({
     ? process.env.APP_AUTH_SECRET
     : DEFAULT_APP_AUTH_SECRET,
   machineToken: process.env.BANKIER_SHORTS_API_TOKEN || '',
-  publicPaths: ['/health', '/telegram/webhook', '/auth/login', '/auth/status']
+  publicPaths: ['/health', '/healthz', '/telegram/webhook', '/auth/login', '/auth/status']
 }));
 
 // Mount API router
