@@ -2370,7 +2370,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
       skipCaptionAlignment: Boolean(payload.pipelinePlan),
       skipNarrationLengthChecks: Boolean(payload.pipelinePlan),
       maxNarrationWordsExcludingLast: payload.pipelinePlan ? undefined : 32,
-      maxWordsPerScene: payload.pipelinePlan ? undefined : (index: number) => index < 7 ? 5 : 9
+      maxWordsPerScene: payload.pipelinePlan ? undefined : (index: number) => index < 4 ? 5 : index < 7 ? 6 : 9
     });
     const existingEditorQa = job.shortMetadata?.editorQa && typeof job.shortMetadata.editorQa === 'object'
       ? job.shortMetadata.editorQa as Record<string, unknown>
@@ -7432,7 +7432,7 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
       requireUniquePexelsIds: true,
       requireCaptionAlignment: true,
       maxNarrationWordsExcludingLast: 32,
-      maxWordsPerScene: (index: number) => index < 7 ? 5 : 9
+      maxWordsPerScene: (index: number) => index < 4 ? 5 : index < 7 ? 6 : 9
     };
     let editorQa = evaluateShortStoryboard(scriptData.scenes, qaOptions);
     let qaRepairAttempted = false;

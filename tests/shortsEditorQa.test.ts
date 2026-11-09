@@ -61,6 +61,34 @@ assert.ok(!overLimitReport.findings.some((finding) => finding.scene === 8 && ['s
 const storyboardWith32Words = [...sevenFiveWordScenes.slice(0, 6), { duration: 2.5, voiceover_text: 'Rynek rośnie', subtitles: 'Rynek rośnie' }, storyboardWith35Words[7]];
 const withinLimitReport = evaluateShortStoryboard(storyboardWith32Words, narrationOptions);
 assert.ok(!withinLimitReport.findings.some((finding) => finding.code === 'total_words_over_limit'));
+const sixWordScenes = [
+  'Hook ma cztery słowa',
+  'Bank zmienia ważne zasady',
+  'Klienci poznają warunki banku',
+  'Decyzja dotyczy wielu klientów',
+  'Opłaty mogą teraz wzrosnąć',
+  'Warto dziś porównać dostępne oferty bankowe',
+  'Sprawdź szczegóły przed decyzją',
+  'Policz ratę kredytu.'
+].map((voiceover_text, index) => ({
+  duration: index < 4 ? 2 : 2.5,
+  voiceover_text,
+  subtitles: voiceover_text,
+  searchKeyword: `unique topic shot ${index + 1}`
+}));
+const autonomousQaOptions = {
+  expectedSceneCount: 8,
+  expectedDurationSeconds: 18,
+  maxDurationSeconds: 23,
+  requireCta: true,
+  requireCaptionAlignment: true,
+  maxNarrationWordsExcludingLast: 32,
+  maxWordsPerScene: (index: number) => index < 4 ? 5 : index < 7 ? 6 : 9
+};
+const sixWordSceneReport = evaluateShortStoryboard(sixWordScenes, autonomousQaOptions);
+assert.equal(sixWordSceneReport.status, 'pass', 'sceny 5–7 mogą mieć po 6 słów, jeśli sceny 1–7 nie przekraczają 32 łącznie');
+assert.ok(!sixWordSceneReport.findings.some((finding) => finding.code === 'scene_copy_too_long' && (finding.scene === 5 || finding.scene === 6 || finding.scene === 7)));
+
 const mismatchedFinalCaption = storyboardWith35Words.map((scene, index) => index === 7 ? { ...scene, voiceover_text: 'Wejdź na raport-finansowy24.pl, sprawdź, co to zmienia.', subtitles: longCta } : scene);
 const finalCaptionMismatchReport = evaluateShortStoryboard(mismatchedFinalCaption, narrationOptions);
 assert.ok(finalCaptionMismatchReport.findings.some((finding) => finding.code === 'caption_voiceover_mismatch' && finding.severity === 'blocker' && finding.scene === 8));
