@@ -4466,20 +4466,8 @@ async function generateSmartOrGeminiViralScript({
     console.warn(`[Viral Script] Wymuszam ${count} scen o łącznym czasie 18s (odebrano sceneCount=${sceneCount}).`);
   }
 
-  // Auto-pair keywords from news analysis if bankierArticle is provided but no manual pairedKeywords
   const hasManualPairedKeywords = Array.isArray(pairedKeywords) && pairedKeywords.some((keyword) => typeof keyword === 'string' && keyword.trim());
-  let effectivePairedKeywords = pairedKeywords;
-  if ((!effectivePairedKeywords || effectivePairedKeywords.length === 0) && bankierArticle) {
-    try {
-      const autoAnalysis = buildHeuristicSceneKeywords(
-        bankierArticle.title || cleanTopic,
-        bankierArticle.description || '',
-        bankierArticle.category || niche,
-        count
-      );
-      effectivePairedKeywords = autoAnalysis.segments.map((s) => s.primaryKeyword);
-    } catch (_) {}
-  }
+  const effectivePairedKeywords = pairedKeywords;
 
   // Construct structured Bankier.pl news context
   let bankierNewsSection = '';
@@ -4505,7 +4493,7 @@ ${articleContext.trim()}
     pairedKeywordsInstruction = `
 DOPASOWANE SŁOWA KLUCZOWE WIDEO PEXELS DLA POSZCZEGÓLNYCH SCEN:
 ${effectivePairedKeywords.map((kw, i) => `Scena #${i + 1}: "${kw}"`).join('\n')}
-Dla każdej sceny w polu "searchKeyword" MUSISZ użyć odpowiadającego jej wyżej podanego słowa kluczowego!`;
+Jeśli powyżej podano słowo kluczowe dla sceny, użyj go jako punktu wyjścia i uzupełnij o element z artykułu.`;
   }
 
   const nichePromptInstructions = buildNichePromptInstructions(
@@ -4545,10 +4533,11 @@ DOKŁADNIE 8 SCEN. STANDARDOWY UKŁAD TO 18 SEKUND; SCENY MOGĄ ZOSTAĆ WYDŁUŻ
 8. CTA: krótka wypowiedź podana przez backend.
 
 REŻYSERIA I LIMIT NARRACJI:
-- Sceny 1–4: MAKSYMALNIE 3 wypowiadane słowa na scenę.
-- Sceny 5–7: MAKSYMALNIE 4 wypowiadane słowa na scenę.
-- Scena 8: MAKSYMALNIE 4 słowa; backend zastąpi ją zatwierdzonym, tematycznym CTA.
-- Łącznie maksymalnie 28 wypowiadanych słów w całym Shortcie. Preferuj 24–26.
+- Sceny 1–4: 4–5 wypowiadanych słów na scenę.
+- Sceny 5–7: 5–6 wypowiadanych słów na scenę.
+- Scena 8: maks. 4 słowa; backend zastąpi ją zatwierdzonym CTA.
+- Łącznie 30–36 wypowiadanych słów. Preferuj około 32.
+- Pisz pełnymi frazami i zdaniami, nie hasłami. Jedna myśl (fakt z newsa) rozłożona na sceny; zdanie może obejmować dwie sceny.
 - Nie czytaj adresów URL, domen, ścieżek ani hashtagów lektorem. Link docelowy znajduje się w opisie publikacji.
 - Zachowaj najważniejsze fakty; usuń powtórzenia, wstępy i zbędne łączniki zamiast dodawać słowa.
 - Każda scena wymagająca klipu ma osobny, unikalny, konkretny prompt Pexels po angielsku, bezpośrednio związany z wypowiedzią. Dla scen o indeksie GPW z potwierdzoną wartością z artykułu backend może zamiast klipu utworzyć kartę danych SVG.
@@ -4560,7 +4549,7 @@ REŻYSERIA I LIMIT NARRACJI:
 
 SHORTS EDITOR QA:
 - Hook i obraz zaczynają się od pierwszego ujęcia; nie dodawaj powitania, intro ani pustej planszy.
-- Każda scena wnosi nowy szczegół. Nie powtarzaj zdania lektora ani tego samego zapytania wizualnego.
+- Scena rozwija jedną myśl. Nie powtarzaj zdań lektora ani zapytań wizualnych.
 - Pokaż konkretny podmiot działania zgodny z wypowiadaną kwestią; nie używaj generycznego stocku jako wypełniacza.
 - Wypowiedź, napis i zapytanie wizualne muszą opisywać tę samą myśl; ostatnia scena zachowuje zatwierdzone CTA.
 - Przygotuj plan tak, aby dało się go zmontować w jeden krótki film bez zmiany prędkości głosu pomiędzy scenami.
@@ -7432,7 +7421,7 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
       requireVisualQueries: true,
       requireUniquePexelsIds: true,
       requireCaptionAlignment: true,
-      maxWordsPerScene: (index: number) => index < 4 ? 3 : 4
+      maxWordsPerScene: (index: number) => index < 4 ? 5 : index < 7 ? 6 : 4
     };
     let editorQa = evaluateShortStoryboard(scriptData.scenes, qaOptions);
     let qaRepairAttempted = false;
