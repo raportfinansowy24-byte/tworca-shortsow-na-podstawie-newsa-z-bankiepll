@@ -38,12 +38,10 @@ function normalize(value: unknown): string {
 function hasAny(text: string, phrases: string[]): boolean {
   return phrases.some((phrase) => {
     const normalizedPhrase = normalize(phrase);
-    const escapedPhrase = normalizedPhrase.replace(/[.*+?^${}()|[\]\\]/g, '\\function hasAny(text: string, phrases: string[]): boolean {
-  return phrases.some((phrase) => text.includes(normalize(phrase)));
-}');
+    const escapedPhrase = normalizedPhrase.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&');
     const pattern = normalizedPhrase.length <= 4
-      ? new RegExp(`\\b${escapedPhrase}\\b`)
-      : new RegExp(`\\b${escapedPhrase}`);
+      ? new RegExp('\\\\b' + escapedPhrase + '\\\\b')
+      : new RegExp('\\\\b' + escapedPhrase);
     return pattern.test(text);
   });
 }
