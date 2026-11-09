@@ -955,6 +955,7 @@ const TEMP_DIR = path.join(WORK_DIR, 'temp');
 const EXPORTS_DIR = path.join(WORK_DIR, 'exports');
 const FONTS_DIR = path.join(WORK_DIR, 'fonts');
 const TIKTOK_SANS_FONT_PATH = path.join(FONTS_DIR, 'TikTokSans-Bold.ttf');
+const ANTON_FONT_PATH = path.join(FONTS_DIR, 'Anton-Regular.ttf');
 
 // Ensure necessary directories exist
 [TEMP_DIR, EXPORTS_DIR, FONTS_DIR].forEach((dir) => {
@@ -1503,6 +1504,27 @@ async function ensureTikTokSansFont(): Promise<boolean> {
   }
 
   console.error('⚠️ Could not download TikTokSans-Bold.ttf. FFmpeg will fallback to default system fonts if needed.');
+  return false;
+}
+
+// Ensure the condensed Anton display face used by the reference Shorts captions is installed for FFmpeg/libass.
+async function ensureAntonFont(): Promise<boolean> {
+  if (fs.existsSync(ANTON_FONT_PATH) && fs.statSync(ANTON_FONT_PATH).size > 10000) {
+    console.log('✓ Anton-Regular.ttf font is ready at:', ANTON_FONT_PATH);
+    return true;
+  }
+
+  const fontUrl = 'https://raw.githubusercontent.com/google/fonts/main/ofl/anton/Anton%5Bwght%5D.ttf';
+  try {
+    await downloadFile(fontUrl, ANTON_FONT_PATH);
+    const stats = fs.statSync(ANTON_FONT_PATH);
+    if (stats.size > 10000) {
+      console.log(`✓ Anton caption font downloaded (${stats.size} bytes)`);
+      return true;
+    }
+  } catch (error) {
+    console.warn('⚠️ Anton font download failed; FFmpeg will use its configured fallback font:', (error as Error).message);
+  }
   return false;
 }
 
@@ -2233,7 +2255,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: HormoziStyle,TikTok Sans,${fontSize},&H002222FF,&H000000FF,&H00000000,&H90000000,-1,0,0,0,100,100,0,0,1,${outlineWidth},2,${alignment},24,24,${marginV},1
+Style: HormoziStyle,Anton,${fontSize},&H002222FF,&H000000FF,&H00000000,&H90000000,-1,0,0,0,100,100,0,0,1,${outlineWidth},2,${alignment},24,24,${marginV},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -2394,6 +2416,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
     );
 
     await ensureTikTokSansFont();
+    await ensureAntonFont();
 
     // Resolution setup (defaults to 720p vertical 720x1280 for fast processing)
     let rawRes = payload.outputResolution || (payload as any).resolution || '720x1280';
