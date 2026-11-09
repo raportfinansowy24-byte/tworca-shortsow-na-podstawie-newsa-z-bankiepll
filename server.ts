@@ -2366,9 +2366,11 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
       expectedSceneCount,
       maxDurationSeconds: MAX_SHORT_DURATION_SECONDS,
       requireCta: ['scheduler', 'test-render'].includes(payload.source || ''),
-      requireCaptionAlignment: true,
-      maxNarrationWordsExcludingLast: 32,
-      maxWordsPerScene: (index: number) => index < 7 ? 5 : 9
+      requireCaptionAlignment: !payload.pipelinePlan,
+      skipCaptionAlignment: Boolean(payload.pipelinePlan),
+      skipNarrationLengthChecks: Boolean(payload.pipelinePlan),
+      maxNarrationWordsExcludingLast: payload.pipelinePlan ? undefined : 32,
+      maxWordsPerScene: payload.pipelinePlan ? undefined : (index: number) => index < 7 ? 5 : 9
     });
     const existingEditorQa = job.shortMetadata?.editorQa && typeof job.shortMetadata.editorQa === 'object'
       ? job.shortMetadata.editorQa as Record<string, unknown>
