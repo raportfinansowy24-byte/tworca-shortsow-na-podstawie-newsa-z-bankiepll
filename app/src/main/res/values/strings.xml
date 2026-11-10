@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">Bankier Shorts Creator</string>
+    <string name="nav_autopilot">Autopilot</string>
+    <string name="nav_news">Wiadomości</string>
+    <string name="nav_combiner">Kreator</string>
+    <string name="nav_queue">Kolejka</string>
+    <string name="nav_profit">Zyski</string>
+    <string name="nav_webhooks">Integracje</string>
+</resources>

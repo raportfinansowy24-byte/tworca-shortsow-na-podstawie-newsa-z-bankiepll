@@ -238,4 +238,82 @@ assert.equal(unavailableSemanticReport.analyzedScenes, 0);
 assert.equal(unavailableSemanticReport.model, 'unavailable');
 assert.ok(unavailableSemanticReport.findings.some((finding) => finding.code === 'visual_analysis_unavailable'));
 
+// Regression tests for strict QA gates and source evidence
+const sourceArticle = 'Zysk spółki Orlen wzrósł o 15% w pierwszym kwartale.';
+const sceneWithOrlenClaim = [
+  {
+    duration: 2.0,
+    voiceover_text: 'Zysk Orlenu wzrósł o 15%.',
+    subtitles: 'Zysk Orlenu wzrósł o 15%.',
+    sourceEvidence: 'Zysk spółki Orlen wzrósł o 15% w pierwszym kwartale.',
+    pexelsId: 101,
+    searchKeyword: 'orlen finanse'
+  },
+  {
+    duration: 2.0,
+    voiceover_text: 'Sprawdź raport.',
+    subtitles: 'Sprawdź raport.',
+    visualMode: 'data_visual',
+    visualSvg: buildBrandedCtaSvg('SPRAWDŹ SZCZEGÓŁY'),
+    pexelsId: 102,
+    searchKeyword: 'cta raport'
+  }
+];
+
+const passReport = evaluateShortStoryboard(sceneWithOrlenClaim, {
+  sourceText: sourceArticle,
+  requireSourceEvidence: true,
+  requireCta: true,
+  requireBrandedCta: true
+});
+assert.equal(passReport.status, 'pass', 'potwierdzony fakt ze źródła i poprawna plansza CTA dają pass');
+
+const sceneWithFabricatedClaim = [
+  {
+    duration: 2.0,
+    voiceover_text: 'Zysk Dino spadł o 30%.',
+    subtitles: 'Zysk Dino spadł o 30%.',
+    sourceEvidence: 'Zysk Dino spadł o 30%.',
+    pexelsId: 101,
+    searchKeyword: 'dino spadek'
+  },
+  {
+    duration: 2.0,
+    voiceover_text: 'Sprawdź raport.',
+    subtitles: 'Sprawdź raport.',
+    visualMode: 'data_visual',
+    visualSvg: buildBrandedCtaSvg('SPRAWDŹ SZCZEGÓŁY'),
+    pexelsId: 102,
+    searchKeyword: 'cta raport'
+  }
+];
+
+const blockedClaimReport = evaluateShortStoryboard(sceneWithFabricatedClaim, {
+  sourceText: sourceArticle,
+  requireSourceEvidence: true,
+  requireCta: true,
+  requireBrandedCta: true
+});
+assert.equal(blockedClaimReport.status, 'blocked', 'zmyślony claim nieobecny w artykule musi zablokować QA');
+assert.equal(shouldBlockQa(blockedClaimReport.status, true), true, 'blocked w trybie strict blokuje render');
+
+// Verify single-scene with no CTA still evaluates source evidence
+const singleSceneWithoutCta = [
+  {
+    duration: 3.0,
+    voiceover_text: 'Zysk Dino spadł o 30%.',
+    subtitles: 'Zysk Dino spadł o 30%.',
+    sourceEvidence: 'Zysk Dino spadł o 30%.',
+    pexelsId: 101,
+    searchKeyword: 'dino test'
+  }
+];
+const singleSceneReport = evaluateShortStoryboard(singleSceneWithoutCta, {
+  sourceText: sourceArticle,
+  requireSourceEvidence: true,
+  requireCta: false
+});
+assert.equal(singleSceneReport.status, 'blocked', 'pojedyncza scena bez CTA musi mieć zweryfikowane fakty względem źródła');
+
 console.log('Shorts Editor QA tests passed');
+

@@ -42,19 +42,80 @@ function normalizeEvidence(value: string): string {
     .replace(/\s+/g, ' ');
 }
 
+const KNOWN_FINANCIAL_ENTITIES = [
+  'orlen', 'kghm', 'dino', 'lpp', 'allegro', 'pekao', 'pko', 'santander', 'alior',
+  'tauron', 'pge', 'enea', 'inpost', 'zabka', 'żabka', 'ccc', 'asseco', 'budimex',
+  'mbank', 'millennium', 'kruk', 'jsw', 'xtb', 'benefit', 'pepco', 'pzu', 'text',
+  'cyfrowy polsat', 'cd projekt', 'grupa azoty', 'biedronka', 'gus', 'knf', 'fed',
+  'nbp', 'rpp', 'gpw', 'ebc', 'ecb', 'mf'
+];
+
+const COMMON_NON_ENTITY_STARTERS = new Set([
+  'zysk', 'akcje', 'wyniki', 'kurs', 'spolka', 'spolki', 'prezes', 'zarzad',
+  'wzrost', 'spadek', 'raport', 'dane', 'ceny', 'inflacja', 'stopa', 'stopy', 'raty',
+  'koszty', 'marza', 'sprzedaz', 'wolumen', 'obroty', 'notowania',
+  'wycena', 'analitycy', 'eksperci', 'inwestorzy', 'klienci', 'bank', 'grupa', 'firma',
+  'rzad', 'minister', 'nowy', 'nowa', 'nowe', 'kolejny', 'kolejna', 'kolejne',
+  'pierwszy', 'pierwsza', 'pierwsze', 'drugi', 'druga', 'drugie', 'polski', 'polska', 'polskie',
+  'wedlug', 'czesc', 'wiekszosc', 'prognoza', 'decyzja', 'informacja', 'komunikat'
+]);
+
+function canonicalNumericTokens(raw: string): string[] {
+  const cleaned = raw.replace(/\s+/g, '').replace(',', '.');
+  const tokens = new Set<string>();
+  tokens.add(cleaned);
+  const parsed = parseFloat(cleaned);
+  if (Number.isFinite(parsed)) {
+    tokens.add(parsed.toString());
+    // Also support thousand-based equivalents: 10000 -> 10, 1500000 -> 1.5
+    if (parsed >= 1000 && parsed % 1000 === 0) {
+      tokens.add((parsed / 1000).toString());
+    }
+    if (parsed >= 1000000 && parsed % 1000000 === 0) {
+      tokens.add((parsed / 1000000).toString());
+    }
+  }
+  return [...tokens];
+}
+
 function numericTokens(value: string): string[] {
-  return [...value.matchAll(/(?<![\p{L}\p{N}])\d+(?:(?:[.,]\d+)|(?:\s+\d{3}))*(?:\s*(?:%|proc(?:ent(?:a|u|y|ów)?)?))?/giu)]
-    .map((match) => (match[0] || '')
-      .replace(/\s*(?:%|proc(?:ent(?:a|u|y|ów)?)?)$/iu, '')
-      .replace(/\s+/g, '')
-      .replace(',', '.'))
-    .filter(Boolean);
+  const tokens = new Set<string>();
+  const matches = value.matchAll(/(?<![\p{L}\p{N}])(\d+(?:(?:[.,]\d+)|(?:\s+\d{3}))*)(?:\s*(?:%|proc(?:ent(?:a|u|y|ów)?)?|(tys(?:\.|i[eę]cy?|i[aą]c[a-z]*)?|mln|mld)))?/giu);
+  for (const match of matches) {
+    const rawNum = match[1] || '';
+    const multiplier = (match[2] || '').toLowerCase();
+    for (const token of canonicalNumericTokens(rawNum)) {
+      tokens.add(token);
+    }
+    const parsed = parseFloat(rawNum.replace(/\s+/g, '').replace(',', '.'));
+    if (Number.isFinite(parsed)) {
+      if (multiplier.startsWith('tys')) {
+        tokens.add((parsed * 1000).toString());
+        tokens.add(parsed.toString());
+      } else if (multiplier === 'mln') {
+        tokens.add((parsed * 1000000).toString());
+        tokens.add(parsed.toString());
+      } else if (multiplier === 'mld') {
+        tokens.add((parsed * 1000000000).toString());
+        tokens.add(parsed.toString());
+      }
+    }
+  }
+  return [...tokens];
 }
 
 function direction(value: string): 'up' | 'down' | 'mixed' | 'none' {
   const normalized = normalizeEvidence(value);
-  const up = /\b(wzr\w*|ros\w*|zwyz\w*|zysk\w*|podwyz\w*|zwieksz\w*|rekord\w*|plus\w*)/u.test(normalized);
-  const down = /\b(spad\w*|zni\w*|strac\w*|przecen\w*|obniz\w*|zmniejsz\w*|minus\w*|nizs\w*)/u.test(normalized);
+  // Detect negated words (e.g. "nie spada", "nie obniz", "zamiast spadku")
+  const negatedDown = /\b(nie\s+(?:ma\s+)?(?:spad\w*|zni\w*|strac\w*|przecen\w*|obniz\w*|zmniejsz\w*|minus\w*|nizs\w*)|zamiast\s+(?:spad\w*|obniz\w*))/u.test(normalized);
+  const negatedUp = /\b(nie\s+(?:ma\s+)?(?:wzr\w*|ros\w*|zwyz\w*|zysk\w*|podwyz\w*|zwieksz\w*|rekord\w*|plus\w*)|zamiast\s+(?:wzr\w*|zysk\w*))/u.test(normalized);
+
+  const rawUp = /\b(wzr\w*|ros\w*|zwyz\w*|zysk\w*|podwyz\w*|zwieksz\w*|rekord\w*|plus\w*)/u.test(normalized);
+  const rawDown = /\b(spad\w*|zni\w*|strac\w*|przecen\w*|obniz\w*|zmniejsz\w*|minus\w*|nizs\w*)/u.test(normalized);
+
+  const up = (rawUp && !negatedUp) || negatedDown;
+  const down = (rawDown && !negatedDown) || negatedUp;
+
   if (up && down) return 'mixed';
   if (up) return 'up';
   if (down) return 'down';
@@ -63,11 +124,24 @@ function direction(value: string): 'up' | 'down' | 'mixed' | 'none' {
 
 function namedEntities(value: string): string[] {
   const candidates = new Set<string>();
-  for (const match of value.matchAll(/\b[A-ZĄĆĘŁŃÓŚŹŻ][a-ząćęłńóśźż0-9-]+\s+[A-ZĄĆĘŁŃÓŚŹŻ][a-ząćęłńóśźż0-9-]+\b/gu)) {
+  // Two-word capitalized phrases (e.g. Cyfrowy Polsat, CD Projekt, PKO BP)
+  for (const match of value.matchAll(/\b([A-ZĄĆĘŁŃÓŚŹŻ][a-ząćęłńóśźż0-9-]+)\s+([A-ZĄĆĘŁŃÓŚŹŻ][a-ząćęłńóśźż0-9-]+)\b/gu)) {
+    const firstWord = normalizeEvidence(match[1]);
+    if (!COMMON_NON_ENTITY_STARTERS.has(firstWord)) {
+      candidates.add(match[0]);
+    }
+  }
+  // Market indices and acronyms
+  for (const match of value.matchAll(/\b(?:m?WIG\d+|sWIG\d+|WIG-Banki|GPW|NBP|RPP|EBC|ECB|KNF|GUS|FED|PZU|JSW|XTB|CCC|LPP)\b/giu)) {
     candidates.add(match[0]);
   }
-  for (const match of value.matchAll(/\b(?:m?WIG\d+|sWIG\d+|WIG-Banki|GPW|NBP|RPP|EBC|ECB)\b/giu)) {
-    candidates.add(match[0]);
+  // Single-word known financial companies and institutions (with Polish inflection)
+  for (const entity of KNOWN_FINANCIAL_ENTITIES) {
+    const escaped = entity.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`\\b${escaped}(?:[uayóeięą]|em|ie|owi|ego|ym)?\\b`, 'iu');
+    if (regex.test(value)) {
+      candidates.add(entity);
+    }
   }
   return [...candidates];
 }
@@ -82,7 +156,9 @@ export function evaluateSourceEvidence(rawScenes: unknown, options: SourceFactQa
   const findings: SourceFactFinding[] = [];
   const sourceText = options.sourceText.trim();
   const normalizedSource = normalizeEvidence(sourceText);
-  const ctaSceneIndex = options.ctaSceneIndex ?? scenes.length - 1;
+  const ctaSceneIndex = options.ctaSceneIndex !== undefined
+    ? options.ctaSceneIndex
+    : (scenes.length > 1 ? scenes.length - 1 : -1);
   const maxEvidenceLength = options.maxEvidenceLength ?? 600;
 
   if (options.requireEvidence !== false && !sourceText) {
@@ -131,7 +207,12 @@ export function evaluateSourceEvidence(rawScenes: unknown, options: SourceFactQa
 
     const evidenceNumbers = new Set(numericTokens(evidence));
     const claimNumbers = [...numericTokens(narration), ...numericTokens(caption)];
-    const unsupportedNumber = claimNumbers.find((number) => !evidenceNumbers.has(number));
+    const unsupportedNumber = claimNumbers.find((number) => {
+      if (evidenceNumbers.has(number)) return false;
+      const parsed = parseFloat(number);
+      if (Number.isFinite(parsed) && evidenceNumbers.has(parsed.toString())) return false;
+      return true;
+    });
     if (unsupportedNumber) {
       findings.push({
         code: 'unsupported_numeric_claim',
@@ -144,7 +225,13 @@ export function evaluateSourceEvidence(rawScenes: unknown, options: SourceFactQa
 
     const normalizedEvidenceText = normalizeEvidence(evidence);
     const unsupportedEntity = namedEntities(`${narration} ${caption}`)
-      .find((entity) => !normalizedEvidenceText.includes(normalizeEvidence(entity)));
+      .find((entity) => {
+        const normEntity = normalizeEvidence(entity);
+        if (normalizedEvidenceText.includes(normEntity)) return false;
+        const escaped = normEntity.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const entityRegex = new RegExp(`\\b${escaped}(?:[uayóeięą]|em|ie|owi|ego|ym)?\\b`, 'iu');
+        return !entityRegex.test(evidence);
+      });
     if (unsupportedEntity) {
       findings.push({
         code: 'unsupported_entity_claim',

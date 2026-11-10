@@ -1,0 +1,14 @@
+<resources>
+    <color name="primary">#10B981</color>
+    <color name="primary_variant">#059669</color>
+    <color name="on_primary">#FFFFFF</color>
+    <color name="secondary">#6366F1</color>
+    <color name="secondary_variant">#4F46E5</color>
+    <color name="on_secondary">#FFFFFF</color>
+    <color name="accent_amber">#F59E0B</color>
+    <color name="background">#0B1120</color>
+    <color name="surface">#131C31</color>
+    <color name="surface_variant">#1E293B</color>
+    <color name="on_background">#F8FAFC</color>
+    <color name="on_surface">#E2E8F0</color>
+</resources>

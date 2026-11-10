@@ -58,4 +58,40 @@ assert.equal(evaluateShortStoryboard(validScenes.map((scene, index) => index ===
   sourceText
 }).status, 'blocked');
 
+// Regression Test 1: Single-word financial entity detection (Orlen swapped for KGHM)
+const orlenSource = 'Orlen odnotował zysk 5 mld zł w kwartale.';
+const singleWordEntityScenes = [
+  { voiceover_text: 'KGHM odnotował zysk 5 mld zł.', subtitles: 'KGHM odnotował zysk 5 mld zł.', sourceEvidence: 'Orlen odnotował zysk 5 mld zł w kwartale.' }
+];
+const singleWordResult = evaluateSourceEvidence(singleWordEntityScenes, { sourceText: orlenSource });
+assert.equal(singleWordResult.status, 'blocked');
+assert.ok(singleWordResult.findings.some((f) => f.code === 'unsupported_entity_claim'));
+
+// Regression Test 2: Polish written thousand formatting (10 tys. vs 10 000 zł)
+const thousandSource = 'Zysk netto spółki wyniósł 10 000 zł w ujęciu rocznym.';
+const polishThousandScenes = [
+  { voiceover_text: 'Zysk spółki to 10 tys. zł.', subtitles: 'Zysk spółki to 10 tys. zł.', sourceEvidence: 'Zysk netto spółki wyniósł 10 000 zł w ujęciu rocznym.' }
+];
+const polishThousandResult = evaluateSourceEvidence(polishThousandScenes, { sourceText: thousandSource });
+assert.equal(polishThousandResult.status, 'pass');
+
+// Regression Test 3: Decimal formatting canonical match (5,0 proc. vs 5%)
+const decimalSource = 'Inflacja w Polsce wzrosła o 5% w ujęciu rocznym.';
+const decimalScenes = [
+  { voiceover_text: 'Inflacja wzrosła o 5,0 proc.', subtitles: 'Inflacja wzrosła o 5,0 proc.', sourceEvidence: 'Inflacja w Polsce wzrosła o 5% w ujęciu rocznym.' }
+];
+const decimalResult = evaluateSourceEvidence(decimalScenes, { sourceText: decimalSource });
+assert.equal(decimalResult.status, 'pass');
+
+// Regression Test 4: Direction contradiction with negation ("ceny nie spadają, lecz wzrosły")
+const contradictionSource = 'Ceny mieszkań spadły o 2 proc. w ubiegłym miesiącu.';
+const negatedDirectionScenes = [
+  { voiceover_text: 'Ceny mieszkań nie spadają, lecz wzrosły o 2 proc.', subtitles: 'Ceny nie spadają, wzrosły o 2 proc.', sourceEvidence: 'Ceny mieszkań spadły o 2 proc. w ubiegłym miesiącu.' }
+];
+const contradictionResult = evaluateSourceEvidence(negatedDirectionScenes, { sourceText: contradictionSource });
+assert.equal(contradictionResult.status, 'blocked');
+assert.ok(contradictionResult.findings.some((f) => f.code === 'contradictory_numeric_direction'));
+
 console.log('Source fact QA tests passed');
+
+

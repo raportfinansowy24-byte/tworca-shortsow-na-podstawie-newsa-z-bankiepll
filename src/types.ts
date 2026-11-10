@@ -70,6 +70,33 @@ export interface CombinePayload {
   highlightBoards?: HighlightBoardsConfig;
 }
 
+export interface ServiceHealthItem {
+  status: 'online' | 'degraded' | 'offline' | 'key_missing';
+  latencyMs?: number;
+  message: string;
+  details?: Record<string, unknown>;
+  checkedAt: string;
+}
+
+export interface DetailedServicesHealth {
+  status: 'healthy' | 'degraded' | 'unhealthy';
+  timestamp: string;
+  services: {
+    ffmpeg: ServiceHealthItem & {
+      version: string;
+      fontReady: boolean;
+      activeJobs: number;
+    };
+    pexels: ServiceHealthItem & {
+      hasKey: boolean;
+    };
+    elevenLabs: ServiceHealthItem & {
+      hasKey: boolean;
+      voiceId?: string;
+    };
+  };
+}
+
 export interface SystemHealth {
   status: string;
   service: string;
@@ -88,6 +115,7 @@ export interface SystemHealth {
     startedAt: string;
   };
   timestamp: string;
+  detailedServices?: DetailedServicesHealth;
 }
 
 export interface JobStatusResponse {

@@ -43,6 +43,7 @@ import {
   FileSpreadsheet
 } from 'lucide-react';
 import { Scene, SystemHealth, JobStatusResponse, ToastItem } from '../types';
+import { ServiceStatusMonitor } from './ServiceStatusMonitor';
 import { AiViralAutoPilot } from './AiViralAutoPilot';
 import { RenderingQueue } from './RenderingQueue';
 import { ToastContainer } from './Toast';
@@ -84,7 +85,7 @@ const SAMPLE_MUSIC = [
 ];
 
 export const MakeHttpConnector: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'autopilot' | 'make' | 'n8n' | 'webhook' | 'jobs' | 'docs' | 'drive' | 'sheets'>('autopilot');
+  const [activeTab, setActiveTab] = useState<'autopilot' | 'make' | 'n8n' | 'webhook' | 'jobs' | 'docs' | 'drive' | 'sheets' | 'status'>('autopilot');
   const [health, setHealth] = useState<SystemHealth | null>(null);
 
   const [healthLoading, setHealthLoading] = useState<boolean>(true);
@@ -1097,11 +1098,29 @@ export const MakeHttpConnector: React.FC = () => {
             <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
             📊 Google Sheets
           </button>
+
+          <button
+            onClick={() => setActiveTab('status')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold transition border-b-2 whitespace-nowrap ${
+              activeTab === 'status'
+                ? 'border-emerald-500 text-emerald-300 bg-emerald-500/10 rounded-t-lg'
+                : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-900/50'
+            }`}
+          >
+            <Activity className="w-4 h-4 text-emerald-400" />
+            🖥️ Monitoring Usług (Real-time)
+          </button>
         </div>
       </div>
 
       {/* Main Content Body */}
       <div className="max-w-7xl mx-auto">
+        {/* TAB -1: REAL-TIME SERVICE MONITORING (PEXELS, FFMPEG, ELEVENLABS) */}
+        {activeTab === 'status' && (
+          <div className="mt-6 mb-8">
+            <ServiceStatusMonitor />
+          </div>
+        )}
         {/* TAB 0: AI AUTO-PILOT SHORTS (PEŁNA AUTOMATYZACJA) */}
         {activeTab === 'autopilot' && (
           <AiViralAutoPilot

@@ -1406,6 +1406,10 @@ async function createTelegramRevisionJob(parentJobId: string, feedback: string):
   const payload: CombineScenesPayload = {
     scenes: scenes.map((scene: any, idx: number) => ({ ...scene, duration: [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5][idx] })),
     expectedSceneCount: FINANCE_SHORT_SCENE_COUNT,
+    requireAllQaPass: true,
+    requireSourceEvidence: Boolean(articleContext),
+    sourceArticleText: articleContext || undefined,
+    requireBrandedCta: true,
     source: 'telegram-revision',
     requestId: jobId,
     backgroundMusicUrl: String(metadata.backgroundMusicUrl || 'https://assets.mixkit.co/music/preview/mixkit-tech-house-vibes-130.mp3'),
@@ -2261,7 +2265,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: HormoziStyle,Anton,${fontSize},&H002222FF,&H000000FF,&H00000000,&H90000000,-1,0,0,0,100,100,0,0,1,${outlineWidth},2,${alignment},24,24,${marginV},1
+Style: HormoziStyle,TikTok Sans,${fontSize},&H002222FF,&H000000FF,&H00000000,&H90000000,-1,0,0,0,100,100,0,0,1,${outlineWidth},2,${alignment},24,24,${marginV},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -3171,8 +3175,8 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"króts
       }
     }, `[Shorts Editor QA] MP4 ${renderedQa.status}; analiza obrazu ${visualSemanticQa.status} (${visualSemanticQa.analyzedScenes}/${scenes.length} scen); wynik łączny ${combinedQa.status} (${combinedQa.score}/100).${combinedQa.findings.length ? ` ${combinedQa.findings.map((finding) => finding.message).join(' ')}` : ''}`);
     if (shouldBlockQa(combinedQa.status, payload.requireAllQaPass)) {
+      await fs.promises.unlink(finalOutputPath).catch(() => undefined);
       if (combinedQa.status === 'review') {
-        await fs.promises.unlink(finalOutputPath).catch(() => undefined);
         throw new Error(`Post-render QA wymaga ręcznej kontroli; plik nie zostanie udostępniony: ${combinedQa.findings.map((finding) => finding.message).join(' | ')}`);
       }
       if (payload.qaRepairAttempt === 1) {
@@ -3502,11 +3506,176 @@ async function getMediaRuntimeDiagnostics() {
   };
 }
 
+// Shared detailed services health check (Pexels, FFmpeg, ElevenLabs)
+async function getDetailedServicesHealth() {
+  const checkedAt = new Date().toISOString();
+
+  // 1. FFmpeg Renderer
+  const ffmpegStart = Date.now();
+  let ffmpegVersion = 'Not installed';
+  let ffmpegReady = false;
+  try {
+    const { stdout } = await execPromise('ffmpeg -version');
+    ffmpegVersion = stdout.split('\n')[0] || 'ffmpeg installed';
+    ffmpegReady = true;
+  } catch {
+    ffmpegVersion = 'Brak lub błąd uruchomienia ffmpeg';
+  }
+  const ffmpegLatency = Date.now() - ffmpegStart;
+  const activeJobs = Array.from(jobsStore.values()).filter(
+    (j) => j.status === 'queued' || j.status === 'processing'
+  ).length;
+  const fontReady = (fs.existsSync(TIKTOK_SANS_FONT_PATH) && fs.statSync(TIKTOK_SANS_FONT_PATH).size > 10000) ||
+                    (fs.existsSync(ANTON_FONT_PATH) && fs.statSync(ANTON_FONT_PATH).size > 10000);
+
+  const ffmpegHealth = {
+    status: (ffmpegReady ? 'online' : 'offline') as 'online' | 'offline',
+    latencyMs: ffmpegLatency,
+    message: ffmpegReady
+      ? 'Renderer FFmpeg jest gotowy i odpowiada w lokalnym środowisku.'
+      : 'FFmpeg nie jest dostępny w środowisku uruchomieniowym.',
+    version: ffmpegVersion,
+    fontReady,
+    activeJobs,
+    checkedAt
+  };
+
+  // 2. Pexels API
+  let pexelsHealth: {
+    status: 'online' | 'degraded' | 'offline' | 'key_missing';
+    latencyMs?: number;
+    message: string;
+    hasKey: boolean;
+    checkedAt: string;
+  };
+  const pexelsKey = process.env.PEXELS_API_KEY?.trim();
+  if (!pexelsKey) {
+    pexelsHealth = {
+      status: 'key_missing',
+      hasKey: false,
+      message: 'Brak klucza PEXELS_API_KEY w zmiennych środowiskowych.',
+      checkedAt
+    };
+  } else {
+    const pexelsStart = Date.now();
+    try {
+      const resp = await fetch('https://api.pexels.com/v1/search?query=finance&per_page=1', {
+        headers: { Authorization: pexelsKey },
+        signal: AbortSignal.timeout(4000)
+      });
+      const pexelsLatency = Date.now() - pexelsStart;
+      if (resp.ok) {
+        pexelsHealth = {
+          status: 'online',
+          hasKey: true,
+          latencyMs: pexelsLatency,
+          message: 'Pexels API odpowiada prawidłowo i autoryzuje wyszukiwanie klipów.',
+          checkedAt
+        };
+      } else {
+        pexelsHealth = {
+          status: 'degraded',
+          hasKey: true,
+          latencyMs: pexelsLatency,
+          message: `Pexels API zwróciło status HTTP ${resp.status}.`,
+          checkedAt
+        };
+      }
+    } catch (error) {
+      pexelsHealth = {
+        status: 'offline',
+        hasKey: true,
+        message: `Nie udało się nawiązać połączenia z Pexels API: ${(error as Error).message}`,
+        checkedAt
+      };
+    }
+  }
+
+  // 3. ElevenLabs Voice Synthesizer
+  let elevenLabsHealth: {
+    status: 'online' | 'degraded' | 'offline' | 'key_missing';
+    latencyMs?: number;
+    message: string;
+    hasKey: boolean;
+    voiceId?: string;
+    checkedAt: string;
+  };
+  const elevenKey = process.env.ELEVENLABS_API_KEY?.trim();
+  const voiceId = process.env.ELEVENLABS_VOICE_ID || DEFAULT_ELEVENLABS_VOICE_ID;
+  if (!elevenKey) {
+    elevenLabsHealth = {
+      status: 'key_missing',
+      hasKey: false,
+      voiceId,
+      message: 'Brak klucza ELEVENLABS_API_KEY w zmiennych środowiskowych.',
+      checkedAt
+    };
+  } else {
+    const elevenStart = Date.now();
+    try {
+      const resp = await fetch('https://api.elevenlabs.io/v1/user', {
+        headers: { 'xi-api-key': elevenKey },
+        signal: AbortSignal.timeout(4000)
+      });
+      const elevenLatency = Date.now() - elevenStart;
+      if (resp.ok) {
+        elevenLabsHealth = {
+          status: 'online',
+          hasKey: true,
+          voiceId,
+          latencyMs: elevenLatency,
+          message: 'ElevenLabs API autoryzowane i gotowe do syntezy mowy.',
+          checkedAt
+        };
+      } else {
+        elevenLabsHealth = {
+          status: 'degraded',
+          hasKey: true,
+          voiceId,
+          latencyMs: elevenLatency,
+          message: `ElevenLabs API zwróciło status HTTP ${resp.status}.`,
+          checkedAt
+        };
+      }
+    } catch (error) {
+      elevenLabsHealth = {
+        status: 'offline',
+        hasKey: true,
+        voiceId,
+        message: `Nie udało się nawiązać połączenia z ElevenLabs API: ${(error as Error).message}`,
+        checkedAt
+      };
+    }
+  }
+
+  const overallStatus = (ffmpegHealth.status === 'online' && pexelsHealth.status === 'online' && elevenLabsHealth.status === 'online')
+    ? 'healthy'
+    : (ffmpegHealth.status === 'offline' || pexelsHealth.status === 'offline' || elevenLabsHealth.status === 'offline')
+      ? 'unhealthy'
+      : 'degraded';
+
+  return {
+    status: overallStatus,
+    timestamp: checkedAt,
+    services: {
+      ffmpeg: ffmpegHealth,
+      pexels: pexelsHealth,
+      elevenLabs: elevenLabsHealth
+    }
+  };
+}
+
 // Health Check Endpoint
 // Lightweight liveness endpoint for Fly.io. Do not run subprocesses or dependency checks here.
 router.get('/healthz', (_req, res) => {
   res.setHeader('Cache-Control', 'no-store, max-age=0');
   return res.status(200).json({ status: 'ok' });
+});
+
+router.get('/services/health', async (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
+  const details = await getDetailedServicesHealth();
+  res.json(details);
 });
 
 router.get('/health', async (req, res) => {
@@ -3517,20 +3686,22 @@ router.get('/health', async (req, res) => {
   const activeJobsCount = Array.from(jobsStore.values()).filter(
     (job) => job.status === 'queued' || job.status === 'processing'
   ).length;
+  const detailedServices = await getDetailedServicesHealth();
 
   res.json({
     status: 'online',
     service: 'Make.com HTTP Video Scene Combiner Connector',
     ffmpeg: ffmpegVersion,
     fontStatus: {
-      name: 'Anton-Regular.ttf',
+      name: 'TikTokSans-Bold.ttf',
       ready: fontReady,
-      path: ANTON_FONT_PATH
+      path: TIKTOK_SANS_FONT_PATH
     },
     activeJobsCount,
     retainedJobsCount: jobsStore.size,
     deployment: getDeploymentInfo(process.env, serverStartedAt),
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    detailedServices
   });
 });
 
@@ -6000,9 +6171,27 @@ router.post('/combine-scenes', async (req, res) => {
   console.info(`[Scene request] source=${requestSource} request_id=${requestId} route=/api/combine-scenes expected=${expectedSceneCount} actual=${normalizedScenes.length}`);
   const lockSceneDurations = true;
 
+  const rawSourceArticleText = String(
+    body.sourceArticleText ||
+    body.articleText ||
+    body.articleContext ||
+    body.bankierArticle?.text ||
+    body.bankierArticle?.content ||
+    body.bankierArticle?.description ||
+    body.article?.text ||
+    body.article?.content ||
+    ''
+  ).trim();
+  const hasSourceArticle = rawSourceArticleText.length > 0;
+  const strictQaMode = body.requireAllQaPass === true || body.strictQa === true || hasSourceArticle;
+
   const payload: CombineScenesPayload = {
     scenes: normalizedScenes,
     expectedSceneCount: expectedSceneCount as number,
+    requireAllQaPass: strictQaMode,
+    requireSourceEvidence: strictQaMode && hasSourceArticle,
+    sourceArticleText: hasSourceArticle ? rawSourceArticleText : undefined,
+    requireBrandedCta: body.requireBrandedCta === true || (strictQaMode && hasSourceArticle),
     source: requestSource,
     requestId,
     backgroundMusicUrl: body.backgroundMusicUrl || '',
@@ -6261,9 +6450,17 @@ const handleInboundWebhook = async (req: express.Request, res: express.Response)
       const baseUrl = getPublicBaseUrl(req);
       jobId = `job_wh_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
+      const rawWebhookSource = String(body.sourceArticleText || body.articleText || body.articleContext || '').trim();
+      const webhookHasSource = rawWebhookSource.length > 0;
+      const webhookStrict = body.requireAllQaPass === true || body.strictQa === true || webhookHasSource;
+
       const payload: CombineScenesPayload = {
         scenes: scenesToRender,
         expectedSceneCount: scenesToRender.length,
+        requireAllQaPass: webhookStrict,
+        requireSourceEvidence: webhookStrict && webhookHasSource,
+        sourceArticleText: webhookHasSource ? rawWebhookSource : undefined,
+        requireBrandedCta: body.requireBrandedCta === true || (webhookStrict && webhookHasSource),
         source: 'webhook',
         requestId: String(req.headers['x-request-id'] || jobId),
         backgroundMusicUrl: body.backgroundMusicUrl || 'https://assets.mixkit.co/music/preview/mixkit-tech-house-vibes-130.mp3',
@@ -8456,7 +8653,7 @@ app.use('/api', createApiAuthMiddleware({
     ? process.env.APP_AUTH_SECRET
     : DEFAULT_APP_AUTH_SECRET,
   machineToken: process.env.BANKIER_SHORTS_API_TOKEN || '',
-  publicPaths: ['/health', '/healthz', '/telegram/webhook', '/auth/login', '/auth/status']
+  publicPaths: ['/health', '/services/health', '/healthz', '/telegram/webhook', '/auth/login', '/auth/status']
 }));
 
 // Mount API router

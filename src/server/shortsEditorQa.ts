@@ -247,7 +247,7 @@ export function evaluateShortStoryboard(rawScenes: unknown, options: ShortsEdito
   if (options.requireSourceEvidence) {
     const sourceReport = evaluateSourceEvidence(scenes, {
       sourceText: options.sourceText || '',
-      ctaSceneIndex: scenes.length - 1,
+      ctaSceneIndex: (options.requireCta !== false && scenes.length > 1) ? scenes.length - 1 : -1,
       requireEvidence: true
     });
     sourceReport.findings.forEach((finding) => addFinding(finding));
