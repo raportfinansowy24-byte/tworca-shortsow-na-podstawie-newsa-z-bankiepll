@@ -40,10 +40,12 @@ import {
   VolumeX,
   HardDrive,
   Cloud,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Eye
 } from 'lucide-react';
 import { Scene, SystemHealth, JobStatusResponse, ToastItem } from '../types';
 import { ServiceStatusMonitor } from './ServiceStatusMonitor';
+import { StoryboardDraftPreview } from './StoryboardDraftPreview';
 import { AiViralAutoPilot } from './AiViralAutoPilot';
 import { RenderingQueue } from './RenderingQueue';
 import { ToastContainer } from './Toast';
@@ -90,6 +92,7 @@ export const MakeHttpConnector: React.FC = () => {
 
   const [healthLoading, setHealthLoading] = useState<boolean>(true);
   const [isRecentJobsPanelOpen, setIsRecentJobsPanelOpen] = useState<boolean>(false);
+  const [isDraftPreviewOpen, setIsDraftPreviewOpen] = useState<boolean>(false);
 
   // Recent Server Jobs (from Make.com / API)
   const [recentJobs, setRecentJobs] = useState<JobStatusResponse[]>(() => {
@@ -987,6 +990,16 @@ export const MakeHttpConnector: React.FC = () => {
                 5
               </span>
             </button>
+
+            {/* Szybki Podgląd Draft Button */}
+            <button
+              onClick={() => setIsDraftPreviewOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 hover:text-cyan-200 border border-cyan-500/30 hover:border-cyan-400/60 transition text-xs font-semibold shadow-sm cursor-pointer"
+              title="Otwórz odtwarzacz podglądu 9:16 dla aktualnego zestawu scen przed renderem"
+            >
+              <Eye className="w-3.5 h-3.5 text-cyan-400" />
+              <span>Podgląd Roboczy (Draft)</span>
+            </button>
           </div>
         </div>
 
@@ -1670,6 +1683,14 @@ export const MakeHttpConnector: React.FC = () => {
         isOpen={isRecentJobsPanelOpen}
         onToggle={() => setIsRecentJobsPanelOpen((prev) => !prev)}
         onToast={addToast}
+      />
+
+      {/* Instant 9:16 Storyboard Draft Player Modal */}
+      <StoryboardDraftPreview
+        scenes={scenes}
+        isOpen={isDraftPreviewOpen}
+        onClose={() => setIsDraftPreviewOpen(false)}
+        backgroundMusicUrl={backgroundMusicUrl}
       />
     </div>
   );

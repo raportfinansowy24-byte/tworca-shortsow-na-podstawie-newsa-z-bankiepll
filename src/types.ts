@@ -25,6 +25,8 @@ export interface Scene {
   trimStart?: number;
   trimEnd?: number;
   searchKeyword?: string;
+  visualMode?: 'data_visual' | 'matched_clip' | string;
+  visualSvg?: string;
 }
 
 export interface HighlightBoardsConfig {

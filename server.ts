@@ -52,6 +52,8 @@ import { getPexelsSearchCache, hasSupabaseHistoryConfiguration, loadShortJobsFro
 import { buildCreativeDirectorFallback, buildCreativeDirectorPrompt, loadBrandContext, mapCreativeDirectorPlanToRenderScenes, parseCreativeDirectorPlan, type CreativeDirectorArticle, type CreativeDirectorPlan } from './src/server/creativeDirector';
 import { buildFinanceSceneDataVisual, buildFinanceShortPlan, selectHookVariantFromLearningSignals, validateFinanceShortPlan, type FinanceShortPlan } from './src/server/shortPipeline';
 import { buildBrandedCtaSvg } from './src/server/brandEndCard';
+import { buildFinancialChartSvg } from './src/server/financeChartVisual';
+import { selectAdaptiveBackgroundMusic } from './src/server/adaptiveMusicStrategy';
 import { generateHighlightBoardAss, type HighlightBoardOptions } from './src/server/highlightBoards';
 import { buildAudioMixFilter, buildMotionFilter, generateSceneSoundEffect, motionSoundSpecForBeat } from './src/server/motionSoundRenderer';
 import { getLearningSignals, recordHookVariants, recordPipelineEvent, recordPipelineRun, recordRetentionMetric, updatePipelineRunStatus } from './src/server/pipelineTelemetry';
@@ -5977,7 +5979,11 @@ router.post('/auto-pilot-shorts', async (req, res) => {
       requireBrandedCta: requireNewsQualityGate,
       source: requestSource,
       requestId,
-      backgroundMusicUrl: body.backgroundMusicUrl || 'https://assets.mixkit.co/music/preview/mixkit-tech-house-vibes-130.mp3',
+      backgroundMusicUrl: selectAdaptiveBackgroundMusic({
+        title,
+        content: sourceArticleText,
+        customUrl: body.backgroundMusicUrl
+      }).url,
       audioVolume: body.audioVolume ?? 0.2,
       outputResolution,
       fps: 30,
@@ -8014,7 +8020,10 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
       requireBrandedCta: true,
       source: isOneOffTest ? 'test-render' : 'scheduler',
       requestId: jobId,
-      backgroundMusicUrl: 'https://assets.mixkit.co/music/preview/mixkit-tech-house-vibes-130.mp3',
+      backgroundMusicUrl: selectAdaptiveBackgroundMusic({
+        title: candidate.title,
+        content: candidate.description || candidate.summary
+      }).url,
       audioVolume: 0.2,
       outputResolution: schedulerState.resolution || '720x1280',
       fps: 30,

@@ -34,7 +34,9 @@
     "test:motion-sound": "tsx tests/motionSoundRenderer.test.ts",
     "deploy:production": "bash scripts/deploy-production.sh",
     "test:highlight-boards": "tsx tests/highlightBoards.test.ts",
-    "test:services-health": "tsx tests/servicesHealth.test.ts"
+    "test:services-health": "tsx tests/servicesHealth.test.ts",
+    "test:finance-chart": "tsx tests/financeChartVisual.test.ts",
+    "test:adaptive-music": "tsx tests/adaptiveMusicStrategy.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
