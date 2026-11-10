@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { motionSoundSpecForBeat, type MotionSoundSpec } from './motionSoundRenderer';
 import { selectFinanceCta } from './financeCtaStrategy';
+import { buildBrandedCtaSvg } from './brandEndCard';
 
 export type VisualMode = 'data_visual' | 'matched_clip';
 export type StoryBeat = 'hook' | 'market_snapshot' | 'leader' | 'loser' | 'contrast' | 'meaning' | 'takeaway' | 'cta';
@@ -262,7 +263,9 @@ export function buildFinanceShortPlan(articleInput: FinanceArticleInput): Financ
     { index: 7, beat: 'cta', duration: DURATIONS[7], voiceover_text: ctaPlan.spokenText, caption: ctaPlan.spokenText, visualMode: 'data_visual', visualTitle: ctaPlan.displayTitle, visualSubtitle: 'RaportFinansowy24.pl', facts: [], camera: 'hero hold', transition: 'end-card', assetRequired: false }
   ];
   scenes.forEach((scene) => {
-    scene.visualSvg = scene.beat === 'cta' ? makeTitleSvg(scene.visualTitle, scene.visualSubtitle) : makeBarsSvg(scene.visualTitle, scene.visualSubtitle, scene.facts);
+    scene.visualSvg = scene.beat === 'cta'
+      ? buildBrandedCtaSvg(scene.visualTitle, scene.visualSubtitle)
+      : makeBarsSvg(scene.visualTitle, scene.visualSubtitle, scene.facts);
     scene.motionSound = motionSoundSpecForBeat(scene.beat);
   });
   const failures: string[] = [];

@@ -24,6 +24,16 @@ jobs:
         run: npm run build
       - name: Scene contract tests
         run: npm run test:scene-contract
+      - name: Shorts storyboard QA tests
+        run: npm run test:shorts-editor-qa
+      - name: QA repair tests
+        run: npm run test:qa-repair
+      - name: Source evidence tests
+        run: npm run test:source-fact-qa
+      - name: Branded CTA end-card tests
+        run: npm run test:brand-end-card
+      - name: Finance short pipeline tests
+        run: npm run test:short-pipeline
       - name: Narration timing, pre-TTS fit and calibration tests
         run: npm run test:narration-timing
       - name: Render optimization tests

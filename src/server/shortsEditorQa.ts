@@ -1,3 +1,6 @@
+import { evaluateSourceEvidence } from './sourceFactQa';
+import { isSafeFinanceDataVisualSvg } from './sceneContract';
+
 export type ShortsEditorQaSeverity = 'blocker' | 'warning';
 export type ShortsEditorQaStatus = 'pass' | 'review' | 'blocked';
 
@@ -13,6 +16,10 @@ export interface ShortsEditorQaReport {
   score: number;
   findings: ShortsEditorQaFinding[];
   checkedAt: string;
+}
+
+export function shouldBlockQa(status: ShortsEditorQaStatus, requirePass = false): boolean {
+  return status === 'blocked' || (requirePass && status !== 'pass');
 }
 
 export interface NarrationWordRange {
@@ -52,6 +59,9 @@ export interface ShortsEditorQaOptions {
   requireCaptionAlignment?: boolean;
   maxWordsPerScene?: (sceneIndex: number) => number;
   maxNarrationWordsExcludingLast?: number;
+  sourceText?: string;
+  requireSourceEvidence?: boolean;
+  requireBrandedCta?: boolean;
   skipCaptionAlignment?: boolean;
   skipNarrationLengthChecks?: boolean;
 }
@@ -184,7 +194,7 @@ export function evaluateShortStoryboard(rawScenes: unknown, options: ShortsEdito
     const rawVisualId = Number(scene.pexelsId ?? scene.pexels_id);
     if (Number.isSafeInteger(rawVisualId) && rawVisualId > 0) {
       visualIds.push(rawVisualId);
-    } else if (options.requireUniquePexelsIds) {
+    } else if (options.requireUniquePexelsIds && scene.visualMode !== 'data_visual') {
       addFinding({ code: 'missing_visual_asset_id', severity: 'blocker', message: `Scena ${sceneNumber} nie ma rozpoznanego ID klipu Pexels.`, scene: sceneNumber });
     }
   });
@@ -229,6 +239,18 @@ export function evaluateShortStoryboard(rawScenes: unknown, options: ShortsEdito
     if (!looksLikeCallToAction(finalCopy)) {
       addFinding({ code: 'missing_final_cta', severity: 'blocker', message: 'Ostatnia scena nie zawiera rozpoznawalnego, krótkiego wezwania do działania.' });
     }
+    if (options.requireBrandedCta && (lastScene.visualMode !== 'data_visual' || !isSafeFinanceDataVisualSvg(lastScene.visualSvg))) {
+      addFinding({ code: 'unbranded_final_cta', severity: 'blocker', message: 'Końcowa scena musi być bezpieczną, brandową planszą CTA renderowaną przez aplikację; klip stockowy jest niedozwolony.' });
+    }
+  }
+
+  if (options.requireSourceEvidence) {
+    const sourceReport = evaluateSourceEvidence(scenes, {
+      sourceText: options.sourceText || '',
+      ctaSceneIndex: scenes.length - 1,
+      requireEvidence: true
+    });
+    sourceReport.findings.forEach((finding) => addFinding(finding));
   }
 
   if (score < 55 && !findings.some((finding) => finding.severity === 'blocker')) {
@@ -251,6 +273,7 @@ export function buildShortsEditorQaRevisionInstruction(report: ShortsEditorQaRep
     'Zachowaj ten sam artykuł i wyłącznie potwierdzone fakty. Nie twórz nowego tematu ani nie wymyślaj liczb.',
     'Zwróć dokładnie 8 scen na około 18 sekund. Pierwsze ujęcie ma zatrzymać uwagę od razu; ostatnie ma zawierać zatwierdzone CTA.',
     'Każda scena ma mieć krótką narrację, identyczną treść napisów i konkretne, unikalne zapytanie wizualne odnoszące się do tej kwestii.',
+    'Każda scena faktograficzna musi zawierać sourceEvidence: krótki, dosłowny cytat z przekazanego artykułu. Cytat musi zawierać wykorzystane liczby i nie może być parafrazowany ani wymyślony.',
     'Usuń powtórzone zdania, ogólniki i niepotrzebne słowa. Nie czytaj URL-i lektorem. Nie zmieniaj polityki CTA.',
     'Popraw tylko wykazane problemy:',
     ...(issues.length ? issues : ['- Podnieś jakość hooka, różnorodność ujęć i czytelność narracji.']),

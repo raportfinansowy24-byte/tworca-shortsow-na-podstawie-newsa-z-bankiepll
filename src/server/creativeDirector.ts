@@ -18,6 +18,7 @@ export interface CreativeDirectorScene {
   purpose: string;
   voiceover: string;
   caption: string;
+  sourceEvidence: string;
   visualQuery: string;
   visualMood: string;
   camera: string;
@@ -49,6 +50,7 @@ export interface CreativeDirectorRenderScene {
   duration: number;
   voiceover_text: string;
   subtitles: string;
+  sourceEvidence: string;
   visualQuery: string;
   camera: string;
   visualMood: string;
@@ -115,6 +117,7 @@ export function buildCreativeDirectorPrompt(params: {
 
 ZASADY RZETELNOŚCI:
 - Nie dopisuj liczb, dat, decyzji ani twierdzeń, których nie ma w źródle.
+- Każda scena 1–7 musi zawierać sourceEvidence: krótki dosłowny cytat z tytułu/opisu/streszczenia artykułu, który wspiera jej wypowiedź. Każda liczba z lektora musi być w tym cytacie. Nie twórz cytatów. CTA (scena 8) może mieć pusty sourceEvidence.
 - Jeśli fakt wymaga potwierdzenia, dodaj go do riskFlags.
 - Hook ma być mocny, ale nie może sugerować spisku ani wprowadzać w błąd.
 - Ostatnia scena musi zawierać jawne, wypowiadane CTA z adresem „raport-finansowy24.pl”; nie skracaj ani nie usuwaj domeny.
@@ -164,6 +167,7 @@ WYMAGANY JSON:
       "purpose": "hook",
       "voiceover": "tekst lektora tej sceny",
       "caption": "NAPIS NA EKRANIE",
+      "sourceEvidence": "dosłowny fragment artykułu wspierający wypowiedź",
       "visualQuery": "unique English Pexels search query: visible subject, action, setting",
       "visualMood": "lighting design, atmosphere, physically plausible light, color grade",
       "camera": "shot size and framing, one coherent camera move, lens or depth of field"
@@ -207,6 +211,7 @@ export function parseCreativeDirectorPlan(text: string, params: { platform?: str
       purpose: String(scene.purpose || `beat-${index + 1}`),
       voiceover: String(scene.voiceover || scene.voiceover_text || '').slice(0, 700),
       caption: String(scene.caption || '').slice(0, 180),
+      sourceEvidence: String(scene.sourceEvidence || '').trim().slice(0, 600),
       visualQuery: typeof scene.visualQuery === 'string' ? scene.visualQuery.trim().slice(0, 220) : '',
       visualMood: String(scene.visualMood || 'high-contrast editorial finance').slice(0, 220),
       camera: String(scene.camera || 'steady medium push-in, 35mm lens').slice(0, 220)
@@ -220,6 +225,18 @@ export function parseCreativeDirectorPlan(text: string, params: { platform?: str
 
 function normalizeNarrationLine(value: string): string {
   return value.toLocaleLowerCase('pl-PL').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+}
+
+function findExactSourceEvidence(article: CreativeDirectorArticle, claim: string): string {
+  const normalizedClaim = normalizeNarrationLine(claim);
+  if (!normalizedClaim) return '';
+  const sourceParts = [article.title, article.description, article.summary, article.keyTakeaway]
+    .filter((part): part is string => Boolean(part?.trim()));
+  const sourceSentences = sourceParts.flatMap((part) => part.split(/(?<=[.!?])\s+/).map((sentence) => sentence.trim()));
+  return sourceSentences.find((sentence) => {
+    const normalizedSource = normalizeNarrationLine(sentence);
+    return normalizedSource && (normalizedSource.includes(normalizedClaim) || normalizedClaim.includes(normalizedSource));
+  }) || '';
 }
 
 function buildShortFallbackHook(value: string): { text: string; truncated: boolean } {
@@ -288,6 +305,7 @@ export function buildCreativeDirectorFallback(article: CreativeDirectorArticle, 
     purpose: purposes[index],
     voiceover: index === 0 ? hook : index === 7 ? cta : fallbackNarration.lines[index - 1],
     caption: index === 0 ? hook.toUpperCase() : index === 7 ? cta.toUpperCase() : fallbackNarration.lines[index - 1].toUpperCase().slice(0, 80),
+    sourceEvidence: index === 7 ? '' : findExactSourceEvidence(article, index === 0 ? hook : fallbackNarration.lines[index - 1]),
     visualQuery: buildArticleVisualQuery(article, index === 0 ? hook : fallbackNarration.lines[index - 1] || cta, index),
     visualMood: 'high-contrast editorial finance, navy and lime accents',
     camera: index === 0 ? 'fast push-in, 24mm lens' : 'smooth lateral tracking, 35mm lens'
@@ -379,6 +397,7 @@ export function mapCreativeDirectorPlanToRenderScenes(
       duration: normalizedDurations[index],
       voiceover_text: voiceover,
       subtitles: caption,
+      sourceEvidence: isLast ? '' : String(scene.sourceEvidence || '').trim(),
       visualQuery,
       camera: String(scene.camera || '').trim(),
       visualMood: String(scene.visualMood || '').trim(),

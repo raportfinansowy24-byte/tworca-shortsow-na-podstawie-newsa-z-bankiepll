@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
-import { buildShortsEditorQaRevisionInstruction, evaluateRenderedShort, evaluateShortStoryboard, hasNarrationWithinWordRanges } from '../src/server/shortsEditorQa';
+import { buildShortsEditorQaRevisionInstruction, evaluateRenderedShort, evaluateShortStoryboard, hasNarrationWithinWordRanges, shouldBlockQa } from '../src/server/shortsEditorQa';
+import { buildBrandedCtaSvg } from '../src/server/brandEndCard';
 import { buildVisualAnalysisUnavailableReport, buildVisualSemanticReport, parseVisualSemanticResponse } from '../src/server/shortsVisualSemanticQa';
 import { selectFinanceCta } from '../src/server/financeCtaStrategy';
+
+assert.equal(shouldBlockQa('blocked'), true);
+assert.equal(shouldBlockQa('review', true), true, 'status review nie może przepuścić automatycznego renderu newsa');
+assert.equal(shouldBlockQa('review', false), false);
+assert.equal(shouldBlockQa('pass', true), false);
 
 const scenes = Array.from({ length: 8 }, (_, index) => {
   const narration = index === 0 ? 'Co się zmieniło?' : index === 7 ? 'Policz ratę kredytu.' : `Fakt numer ${index + 1}.`;
@@ -27,6 +33,14 @@ const validStoryboard = evaluateShortStoryboard(scenes, {
 assert.equal(validStoryboard.status, 'pass');
 
 assert.equal(validStoryboard.score, 100);
+const brandedCtaScenes = scenes.map((scene, index) => index === 7
+  ? { ...scene, visualMode: 'data_visual', visualSvg: buildBrandedCtaSvg('SPRAWDŹ SZCZEGÓŁY') }
+  : scene);
+assert.equal(evaluateShortStoryboard(brandedCtaScenes, { requireCta: true, requireBrandedCta: true }).status, 'pass');
+assert.equal(evaluateShortStoryboard(scenes.map((scene, index) => index === 7 ? { ...scene, visualMode: 'matched_clip' } : scene), {
+  requireCta: true,
+  requireBrandedCta: true
+}).status, 'blocked', 'stockowy klip nie może być planszą końcową CTA');
 
 const generatedNarrationAt32Words = [
   'Hook ma cztery słowa',

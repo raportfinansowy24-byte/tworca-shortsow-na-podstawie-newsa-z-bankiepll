@@ -29,6 +29,8 @@
     "test:qa-repair": "tsx tests/qaRepair.test.ts",
     "test:short-pipeline": "tsx tests/shortPipeline.test.ts",
     "test:shorts-editor-qa": "tsx tests/shortsEditorQa.test.ts",
+    "test:source-fact-qa": "tsx tests/sourceFactQa.test.ts",
+    "test:brand-end-card": "tsx tests/brandEndCard.test.ts",
     "test:motion-sound": "tsx tests/motionSoundRenderer.test.ts",
     "deploy:production": "bash scripts/deploy-production.sh",
     "test:highlight-boards": "tsx tests/highlightBoards.test.ts"
