@@ -14,7 +14,7 @@ export const StoryboardDraftPreview: React.FC<StoryboardDraftPreviewProps> = ({
   scenes,
   isOpen,
   onClose,
-  title = 'Szybki Podgląd Storyboardu (Draft)',
+  title = 'Interaktywny Podgląd Scenorysu (Pre-Render)',
   backgroundMusicUrl
 }) => {
   const [currentSceneIndex, setCurrentSceneIndex] = useState<number>(0);
