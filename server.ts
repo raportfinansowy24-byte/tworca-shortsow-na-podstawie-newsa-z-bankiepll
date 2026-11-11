@@ -1521,16 +1521,21 @@ async function ensureAntonFont(): Promise<boolean> {
     return true;
   }
 
-  const fontUrl = 'https://raw.githubusercontent.com/google/fonts/main/ofl/anton/Anton%5Bwght%5D.ttf';
-  try {
-    await downloadFile(fontUrl, ANTON_FONT_PATH);
-    const stats = fs.statSync(ANTON_FONT_PATH);
-    if (stats.size > 10000) {
-      console.log(`✓ Anton caption font downloaded (${stats.size} bytes)`);
-      return true;
+  const fontUrls = [
+    'https://raw.githubusercontent.com/google/fonts/main/ofl/anton/Anton-Regular.ttf',
+    'https://cdn.jsdelivr.net/fontsource/fonts/anton@latest/latin-400-normal.ttf'
+  ];
+  for (const fontUrl of fontUrls) {
+    try {
+      await downloadFile(fontUrl, ANTON_FONT_PATH);
+      const stats = fs.statSync(ANTON_FONT_PATH);
+      if (stats.size > 10000) {
+        console.log(`✓ Anton caption font downloaded (${stats.size} bytes)`);
+        return true;
+      }
+    } catch (error) {
+      console.warn(`⚠️ Anton font download failed from ${fontUrl}:`, (error as Error).message);
     }
-  } catch (error) {
-    console.warn('⚠️ Anton font download failed; FFmpeg will use its configured fallback font:', (error as Error).message);
   }
   return false;
 }
@@ -3695,9 +3700,13 @@ router.get('/health', async (req, res) => {
     service: 'Make.com HTTP Video Scene Combiner Connector',
     ffmpeg: ffmpegVersion,
     fontStatus: {
-      name: 'TikTokSans-Bold.ttf',
+      name: (fs.existsSync(ANTON_FONT_PATH) && fs.statSync(ANTON_FONT_PATH).size > 10000)
+        ? 'Anton-Regular.ttf'
+        : (fs.existsSync(TIKTOK_SANS_FONT_PATH) ? 'TikTokSans-Bold.ttf' : 'Anton-Regular.ttf'),
       ready: fontReady,
-      path: TIKTOK_SANS_FONT_PATH
+      path: (fs.existsSync(ANTON_FONT_PATH) && fs.statSync(ANTON_FONT_PATH).size > 10000)
+        ? ANTON_FONT_PATH
+        : TIKTOK_SANS_FONT_PATH
     },
     activeJobsCount,
     retainedJobsCount: jobsStore.size,
@@ -8674,6 +8683,7 @@ async function startServer() {
   loadSchedulerStateFromDisk();
   void hydrateJobsFromSupabase();
   ensureTikTokSansFont().catch(console.error);
+  ensureAntonFont().catch(console.error);
   void refreshOfferCatalogSnapshot();
   const offerCatalogRefreshTimer = setInterval(() => {
     void refreshOfferCatalogSnapshot();

@@ -68,7 +68,7 @@ REMOTE_HEAD="$(git rev-parse origin/main 2>/dev/null || true)"
 LOCAL_HEAD="$(git rev-parse HEAD)"
 [[ -n "$REMOTE_HEAD" && "$LOCAL_HEAD" == "$REMOTE_HEAD" ]] || fail "Lokalny main nie jest zsynchronizowany z origin/main. Wykonaj git pull --ff-only."
 
-CONFIGURED_APP="$({ grep -E '^app[[:space:]]*=' fly.toml || true; } | sed -E 's/.*=[[:space:]]*"([^"]+)".*/\1/')"
+CONFIGURED_APP="$({ grep -E '^app[[:space:]]*=' fly.toml || true; } | sed -E "s/.*=[[:space:]]*[\"']([^\"']+)[\"'].*/\1/")"
 [[ -n "$CONFIGURED_APP" ]] || fail "Nie udało się odczytać app z fly.toml."
 [[ "$CONFIGURED_APP" == "$APP_NAME" ]] || fail "FLY_APP ($APP_NAME) różni się od app w fly.toml ($CONFIGURED_APP)."
 

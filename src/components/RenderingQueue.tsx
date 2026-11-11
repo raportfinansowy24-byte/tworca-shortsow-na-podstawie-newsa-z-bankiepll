@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { JobStatusResponse } from '../types';
 import { VideoPreview } from './VideoPreview';
+import { JobVideoPreview } from './JobVideoPreview';
 
 interface RenderingQueueProps {
   jobs: JobStatusResponse[];
@@ -613,40 +614,13 @@ export const RenderingQueue: React.FC<RenderingQueueProps> = ({
                     </div>
                   )}
 
-                  {/* Completed Output Actions Bar */}
-                  {isCompleted && job.outputUrl && (
-                    <div className="mt-4 pt-3 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3">
-                      <div className="flex items-center gap-2 text-xs text-slate-300">
-                        <Film className="w-4 h-4 text-emerald-400" />
-                        <span>Wygenerowany plik:</span>
-                        <code className="text-indigo-300 font-mono bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
-                          {job.outputFilename || 'combined_video.mp4'}
-                        </code>
-                        {job.fileSize && (
-                          <span className="text-slate-500 font-mono text-[11px]">
-                            ({(job.fileSize / (1024 * 1024)).toFixed(2)} MB)
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => setPreviewJob(job)}
-                          className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium rounded-xl flex items-center gap-1.5 transition border border-slate-700"
-                        >
-                          <Eye className="w-3.5 h-3.5 text-indigo-400" />
-                          Otwórz Podgląd
-                        </button>
-
-                        <button
-                          onClick={() => handleDownloadVideo(job.outputFilename || 'combined_video.mp4')}
-                          className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-xl flex items-center gap-1.5 transition shadow-md shadow-emerald-950 active:scale-95"
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                          Pobierz MP4
-                        </button>
-                      </div>
-                    </div>
+                  {/* Completed Output Actions Bar & HTML5 Video Preview */}
+                  {isCompleted && (
+                    <JobVideoPreview
+                      job={job}
+                      onOpenModal={(j) => setPreviewJob(j)}
+                      onToast={onToast}
+                    />
                   )}
 
                   {/* Error Box */}
