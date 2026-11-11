@@ -182,7 +182,7 @@ export const MakeHttpConnector: React.FC = () => {
       id: 'scene-2',
       videoUrl: SAMPLE_CLIPS[1].url,
       subtitles: 'CZCIONKA TIKTOKSANS-BOLD.WOFF',
-      voiceover_text: 'Wszystkie napisy generowane są z oryginalną czcionką TikTok Sans Bold.',
+      voiceover_text: 'Wszystkie napisy generowane są z referencyjną czcionką Anton.',
       trimStart: 0,
       trimEnd: 4.5,
       duration: 4.5,
@@ -767,7 +767,7 @@ export const MakeHttpConnector: React.FC = () => {
   const downloadMakeBlueprint = () => {
     const blueprint = {
       name: 'FFmpeg Video Scene Combiner Connector',
-      description: 'Połączenie scen wideo z napisami TikTok Sans w Make.com',
+      description: 'Połączenie scen wideo z referencyjnymi napisami Anton w Make.com',
       modules: [
         {
           id: 1,
@@ -819,7 +819,7 @@ export const MakeHttpConnector: React.FC = () => {
         animation: baseConfig?.subtitles?.animation || globalCaptionAnimation,
         position: baseConfig?.subtitles?.position || 'center',
         fontSize: baseConfig?.subtitles?.fontSize || 68,
-        fontFamily: 'TikTok Sans'
+        fontFamily: 'Anton'
       },
       colors: {
         highlightColor: baseConfig?.colors?.highlightColor || globalHighlightColor,
@@ -894,7 +894,7 @@ export const MakeHttpConnector: React.FC = () => {
                   Make.com HTTP Video Combiner
                 </h1>
                 <p className="text-slate-400 text-sm mt-0.5">
-                  Automatyczne łączenie klipów, czcionka TikTok Sans Bold i śledzenie postępu renderowania w czasie rzeczywistym
+                  Automatyczne łączenie klipów, referencyjna czcionka Anton (Shorts style) i śledzenie postępu renderowania w czasie rzeczywistym
                 </p>
               </div>
             </div>
@@ -950,7 +950,7 @@ export const MakeHttpConnector: React.FC = () => {
               <span className="text-slate-400">Font:</span>
               {health?.fontStatus?.ready ? (
                 <span className="text-emerald-400 font-medium flex items-center gap-1">
-                  <Check className="w-3 h-3" /> TikTokSans-Bold.ttf
+                  <Check className="w-3 h-3" /> {health?.fontStatus?.name || 'Anton-Regular.ttf'}
                 </span>
               ) : (
                 <span className="text-indigo-400 font-medium">Pobieranie...</span>
@@ -1632,7 +1632,7 @@ export const MakeHttpConnector: React.FC = () => {
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-xl space-y-2">
                   <h4 className="text-sm font-bold text-emerald-400 font-mono">POST /api/combine-scenes</h4>
                   <p className="text-xs text-slate-300">
-                    Tworzy i rozpoczyna zadanie renderowania scen wideo z czcionką TikTokSans-Bold.ttf oraz opcjonalnym audio w tle.
+                    Tworzy i rozpoczyna zadanie renderowania scen wideo z czcionką Anton-Regular.ttf oraz opcjonalnym audio w tle.
                   </p>
                 </div>
 
