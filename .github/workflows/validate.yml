@@ -95,7 +95,7 @@ jobs:
         if: steps.guard.outputs.is_current == 'true'
         uses: superfly/flyctl-actions/setup-flyctl@98172f70657cb3e15db199af139be99bd3e61200
 
-      - name: Fork the existing persistent volume safely
+      - name: Reuse or recover persistent volume safely
         if: steps.guard.outputs.is_current == 'true'
         id: volume
         env:
@@ -108,33 +108,34 @@ jobs:
           SOURCE_NAME="shorts_data"
           TARGET_NAME="shorts_data_recovered"
           REGION="fra"
+          MOUNT_PATH="/app/exports"
 
           machines="$(flyctl machine list --app "$APP" --json)"
-          node -e '
+          volumes="$(flyctl volumes list --app "$APP" --json)"
+          machine_count="$(node -e '
             const raw = JSON.parse(process.argv[1]);
             const rows = Array.isArray(raw) ? raw : (raw.machines || raw.data || []);
-            if (rows.length) {
-              console.error("Refusing storage recovery while app machines exist; inspect their mounts first.");
-              process.exit(1);
-            }
-          ' "$machines"
+            process.stdout.write(String(rows.length));
+          ' "$machines")"
 
-          volumes="$(flyctl volumes list --app "$APP" --json)"
-          node -e '
+          source_json="$(node -e '
             const raw = JSON.parse(process.argv[1]);
             const rows = Array.isArray(raw) ? raw : (raw.volumes || raw.data || []);
             const source = rows.find(v => (v.id ?? v.ID) === process.argv[2]);
-            if (!source || (source.name ?? source.NAME) !== "shorts_data" ||
-                (source.region ?? source.REGION) !== "fra") {
-              console.error("Original shorts_data volume not found in fra; refusing to continue.");
+            if (!source || (source.name ?? source.NAME) !== process.argv[3] ||
+                (source.region ?? source.REGION) !== process.argv[4] ||
+                Number(source.size_gb ?? source.sizeGb ?? source.size ?? source.SIZE) !== 10 ||
+                (source.encrypted ?? source.ENCRYPTED) !== true) {
+              console.error("Original encrypted 10GB shorts_data volume not found in fra; refusing to continue.");
               process.exit(1);
             }
             const attached = source.attached_machine_id ?? source.attachedMachineId ?? source.attached_vm ?? source.ATTACHED_VM;
             if (attached) {
-              console.error("Original volume is attached to a machine; refusing to fork a live volume.");
+              console.error("Original source volume is unexpectedly attached; refusing to use it as a recovery source.");
               process.exit(1);
             }
-          ' "$volumes" "$SOURCE_ID"
+            process.stdout.write(JSON.stringify({id: source.id ?? source.ID, zone: source.zone ?? source.ZONE}));
+          ' "$volumes" "$SOURCE_ID" "$SOURCE_NAME" "$REGION")"
 
           existing_id="$(node -e '
             const raw = JSON.parse(process.argv[1]);
@@ -143,7 +144,72 @@ jobs:
             if (v) process.stdout.write(String(v.id ?? v.ID ?? ""));
           ' "$volumes" "$TARGET_NAME" "$REGION")"
 
-          if [[ -z "$existing_id" ]]; then
+          if [[ -n "$existing_id" ]]; then
+            target_json="$(node -e '
+              const raw = JSON.parse(process.argv[1]);
+              const rows = Array.isArray(raw) ? raw : (raw.volumes || raw.data || []);
+              const source = rows.find(v => (v.id ?? v.ID) === process.argv[2]);
+              const target = rows.find(v => (v.id ?? v.ID) === process.argv[3]);
+              const zone = v => v.zone ?? v.ZONE;
+              if (!source || !target ||
+                  (target.name ?? target.NAME) !== "shorts_data_recovered" ||
+                  (target.region ?? target.REGION) !== "fra" ||
+                  Number(target.size_gb ?? target.sizeGb ?? target.size ?? target.SIZE) !== 10 ||
+                  (target.encrypted ?? target.ENCRYPTED) !== true ||
+                  zone(target) === zone(source)) {
+                console.error("Existing recovery volume failed identity, region, size, encryption or zone checks.");
+                process.exit(1);
+              }
+              const attached = target.attached_machine_id ?? target.attachedMachineId ?? target.attached_vm ?? target.ATTACHED_VM ?? "";
+              process.stdout.write(JSON.stringify({id: target.id ?? target.ID, attachedMachineId: attached}));
+            ' "$volumes" "$SOURCE_ID" "$existing_id")"
+            attached_machine_id="$(node -e 'const v=JSON.parse(process.argv[1]); process.stdout.write(String(v.attachedMachineId || ""));' "$target_json")"
+
+            if [[ -n "$attached_machine_id" ]]; then
+              test "$machine_count" -eq 1 || {
+                echo "::error::Recovery volume is attached, but app machine count is not exactly one; refusing an unsafe deploy."
+                exit 1
+              }
+              node -e '
+                const raw = JSON.parse(process.argv[1]);
+                const rows = Array.isArray(raw) ? raw : (raw.machines || raw.data || []);
+                const id = process.argv[2];
+                if ((rows[0].id ?? rows[0].ID) !== id) {
+                  console.error("Recovery volume is attached to a machine outside the current app machine list.");
+                  process.exit(1);
+                }
+              ' "$machines" "$attached_machine_id"
+
+              machine_status="$(flyctl machine status "$attached_machine_id" --app "$APP" --display-config)"
+              node -e '
+                const raw = JSON.parse(process.argv[1]);
+                const config = raw.config ?? raw;
+                const volumeId = process.argv[3];
+                const expectedPath = process.argv[4];
+                const mounts = config.mounts ?? config.Mounts ?? [];
+                const match = mounts.find(m =>
+                  (m.volume ?? m.volume_id ?? m.volumeId) === volumeId &&
+                  (m.path ?? m.destination) === expectedPath
+                );
+                if (!match) {
+                  console.error("The active machine does not confirm the expected recovered volume mount; refusing to deploy.");
+                  process.exit(1);
+                }
+                console.log(JSON.stringify({recoveredVolumeId: volumeId, mountPath: expectedPath, reusedExistingVolume: true}, null, 2));
+              ' "$machine_status" "$attached_machine_id" "$existing_id" "$MOUNT_PATH"
+              echo "Reusing the existing recovered volume already mounted by the active production machine."
+            else
+              test "$machine_count" -eq 0 || {
+                echo "::error::App machines exist but the recovery volume is detached; refusing to replace machine storage automatically."
+                exit 1
+              }
+              echo "Reusing the existing detached recovery volume; no second fork will be made."
+            fi
+          else
+            test "$machine_count" -eq 0 || {
+              echo "::error::App machines exist but the recovery volume is missing; refusing an unsafe volume fork."
+              exit 1
+            }
             echo "Forking the detached encrypted 10GB source volume to a new host/zone."
             flyctl volumes fork "$SOURCE_ID" \
               --app "$APP" \
@@ -152,6 +218,7 @@ jobs:
               --vm-size shared-cpu-8x \
               --require-unique-zone \
               --json
+
             volumes="$(flyctl volumes list --app "$APP" --json)"
             existing_id="$(node -e '
               const raw = JSON.parse(process.argv[1]);
@@ -159,36 +226,32 @@ jobs:
               const v = rows.find(v => (v.name ?? v.NAME) === process.argv[2] && (v.region ?? v.REGION) === process.argv[3]);
               if (v) process.stdout.write(String(v.id ?? v.ID ?? ""));
             ' "$volumes" "$TARGET_NAME" "$REGION")"
-          else
-            echo "Using previously created recovery volume; no second fork will be made."
+            test -n "$existing_id" || { echo "::error::Recovery volume was not created or found."; exit 1; }
+            node -e '
+              const raw = JSON.parse(process.argv[1]);
+              const rows = Array.isArray(raw) ? raw : (raw.volumes || raw.data || []);
+              const source = rows.find(v => (v.id ?? v.ID) === process.argv[2]);
+              const target = rows.find(v => (v.id ?? v.ID) === process.argv[3]);
+              const zone = v => v.zone ?? v.ZONE;
+              const attached = target?.attached_machine_id ?? target?.attachedMachineId ?? target?.attached_vm ?? target?.ATTACHED_VM;
+              if (!source || !target ||
+                  (target.name ?? target.NAME) !== "shorts_data_recovered" ||
+                  (target.region ?? target.REGION) !== "fra" ||
+                  Number(target.size_gb ?? target.sizeGb ?? target.size ?? target.SIZE) !== 10 ||
+                  (target.encrypted ?? target.ENCRYPTED) !== true ||
+                  zone(target) === zone(source) || attached) {
+                console.error("New recovery volume failed safety checks (identity, region, size, encryption, zone or attachment).");
+                process.exit(1);
+              }
+              console.log(JSON.stringify({
+                source: {id: source.id ?? source.ID, zone: zone(source)},
+                recovery: {id: target.id ?? target.ID, zone: zone(target), sizeGb: target.size_gb ?? target.sizeGb, encrypted: target.encrypted},
+                originalPreserved: true
+              }, null, 2));
+            ' "$volumes" "$SOURCE_ID" "$existing_id"
+            echo "Created and verified the detached recovery volume."
           fi
 
-          test -n "$existing_id" || { echo "::error::Recovery volume was not created or found."; exit 1; }
-          node -e '
-            const raw = JSON.parse(process.argv[1]);
-            const rows = Array.isArray(raw) ? raw : (raw.volumes || raw.data || []);
-            const source = rows.find(v => (v.id ?? v.ID) === process.argv[2]);
-            const target = rows.find(v => (v.id ?? v.ID) === process.argv[3]);
-            if (!source || !target || target.id === source.id ||
-                (target.name ?? target.NAME) !== "shorts_data_recovered" ||
-                (target.region ?? target.REGION) !== "fra" ||
-                Number(target.size_gb ?? target.sizeGb ?? target.size ?? target.SIZE) !== 10 ||
-                target.encrypted !== true ||
-                (target.zone ?? target.ZONE) === (source.zone ?? source.ZONE)) {
-              console.error("Recovery volume failed safety checks (identity, region, size, encryption or zone).");
-              process.exit(1);
-            }
-            const attached = target.attached_machine_id ?? target.attachedMachineId ?? target.attached_vm ?? target.ATTACHED_VM;
-            if (attached) {
-              console.error("Recovery volume is unexpectedly already attached.");
-              process.exit(1);
-            }
-            console.log(JSON.stringify({
-              source: { id: source.id, region: source.region, zone: source.zone, sizeGb: source.size_gb },
-              recovery: { id: target.id, region: target.region, zone: target.zone, sizeGb: target.size_gb, encrypted: target.encrypted },
-              originalPreserved: true
-            }, null, 2));
-          ' "$volumes" "$SOURCE_ID" "$existing_id"
           echo "volume_id=$existing_id" >> "$GITHUB_OUTPUT"
 
       - name: Confirm target volume in fly.toml
