@@ -54,5 +54,7 @@ jobs:
         run: npm run test:creative-director
       - name: Visual QA provider fallback tests
         run: npm run test:visual-qa-providers
+      - name: Pexels candidate pre-render visual QA tests
+        run: npm run test:pexels-candidate-visual-qa
       - name: Supabase job history tests
         run: npm run test:supabase-history
