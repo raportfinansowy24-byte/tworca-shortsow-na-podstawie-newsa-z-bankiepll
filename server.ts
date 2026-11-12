@@ -64,7 +64,7 @@ import { buildConcatArgs, FAST_H264_OPTIONS, isValidConcatenatedVideo } from './
 import { getDeploymentInfo } from './src/server/deploymentInfo';
 import { requestOpenAiVisualQa, retryVisualQa, runVisualQaWithFallback } from './src/server/visualQaProviders';
 import { splitNarrationAlignmentByScenes } from './src/server/singleNarration';
-import { selectVisuallyVerifiedPexelsCandidate } from './src/server/pexelsCandidateVisualQa';
+import { isTrustedPexelsPreviewUrl, selectVisuallyVerifiedPexelsCandidate } from './src/server/pexelsCandidateVisualQa';
 import { GEMINI_FALLBACK_MODEL, isRetryableModelProviderError, OPENAI_PRIMARY_MODEL, requestOpenAiScript } from './src/server/modelRouting';
 
 const execPromise = promisify(exec);
@@ -791,9 +791,11 @@ async function verifyPexelsVisualCandidates(
   const downloaded = await Promise.all(shortlist.map(async (candidate) => {
     const frames = await Promise.all((candidate.previewImageUrls || []).slice(0, 2).map(async (imageUrl) => {
       try {
-        const parsedUrl = new URL(imageUrl);
-        if (!/(^|\\.)pexels\\.com$/i.test(parsedUrl.hostname)) return null;
-        const response = await fetch(imageUrl, { signal: AbortSignal.timeout(10000) });
+        if (!isTrustedPexelsPreviewUrl(imageUrl)) return null;
+        const response = await fetch(imageUrl, {
+          signal: AbortSignal.timeout(10000),
+          redirect: 'error'
+        });
         if (!response.ok) return null;
         const mimeType = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
         if (!['image/jpeg', 'image/png', 'image/webp'].includes(mimeType)) return null;

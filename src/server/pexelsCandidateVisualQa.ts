@@ -16,6 +16,16 @@ export interface SelectedPexelsVisualCandidate {
   reason: string;
 }
 
+export function isTrustedPexelsPreviewUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' &&
+      (url.hostname === 'pexels.com' || url.hostname.endsWith('.pexels.com'));
+  } catch {
+    return false;
+  }
+}
+
 export function selectVisuallyVerifiedPexelsCandidate(
   assessments: PexelsVisualAssessment[],
   minimumConfidence = 0.68
