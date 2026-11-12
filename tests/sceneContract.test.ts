@@ -18,7 +18,18 @@ assert.ok(Math.abs(shortNarrationBudgets.reduce((sum, duration) => sum + duratio
 assert.ok(Math.abs(shortNarrationBudgets[7] - 23 / 8) < 0.001, 'ostatnia scena CTA nie otrzymuje sztucznie długiego ogona ciszy');
 const durationAtHardCap = sceneDurationsWithNarration([2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5], [11.88, null, null, null, null, null, null, null]);
 assert.ok(Math.abs(durationAtHardCap.reduce((sum, duration) => sum + duration, 0) - 28) < 0.001, 'dopuszcza narrację do uzgodnionego twardego limitu 28 s');
-assert.throws(() => sceneDurationsWithNarration([2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5], [11.89, null, null, null, null, null, null, null]), /Maksymalny czas Shorta to 28 s/);
+assert.throws(() => sceneDurationsWithNarration([2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5], [12.01, null, null, null, null, null, null, null]), /Maksymalny czas Shorta to 28 s/);
+const nearCapNarration = sceneDurationsWithNarration(
+  Array(8).fill(23 / 8),
+  Array(8).fill(27.91 / 8),
+  MAX_SHORT_DURATION_SECONDS
+);
+assert.ok(nearCapNarration.every((duration) => duration >= 27.91 / 8), 'żadna scena nie ucina naturalnego lektora przy narracji bliskiej limitowi');
+assert.ok(nearCapNarration.reduce((sum, duration) => sum + duration, 0) <= MAX_SHORT_DURATION_SECONDS + 0.000001, 'zapas scen jest automatycznie ograniczany do wolnego budżetu 28 s');
+assert.throws(
+  () => sceneDurationsWithNarration(Array(8).fill(23 / 8), Array(8).fill(28.01 / 8), MAX_SHORT_DURATION_SECONDS),
+  /bez dodatkowego zapasu scen/
+);
 assert.equal(selectFinanceCta({ title: 'RPP obniża stopy, co z ratą kredytu?' }).destinationPath, '/loan');
 assert.equal(selectFinanceCta({ title: 'Nowe oprocentowanie lokat i oszczędności' }).destinationPath, '/savings');
 assert.equal(selectFinanceCta({ title: 'Spółka publikuje wyniki finansowe na GPW' }).destinationPath, '/firma');

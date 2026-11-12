@@ -79,27 +79,53 @@ export function sceneDurationsWithNarration(
     throw new Error('Nieprawidłowa konfiguracja limitu czasu Shorta.');
   }
 
-  const durations = baseSceneDurations.map((baseDuration, index) => {
+  baseSceneDurations.forEach((baseDuration, index) => {
     if (!Number.isFinite(baseDuration) || baseDuration <= 0) {
       throw new Error(`Nieprawidłowy budżet czasu sceny ${index + 1}.`);
     }
     const narrationDuration = narrationDurations[index];
-    if (narrationDuration === null || narrationDuration === undefined) return baseDuration;
-    if (!Number.isFinite(narrationDuration) || narrationDuration <= 0) {
+    if (narrationDuration !== null && narrationDuration !== undefined &&
+        (!Number.isFinite(narrationDuration) || narrationDuration <= 0)) {
       throw new Error(`Nieprawidłowa długość lektora sceny ${index + 1}.`);
     }
-    return Math.max(baseDuration, narrationDuration + narrationPaddingSeconds);
   });
 
-  const totalDuration = durations.reduce((sum, duration) => sum + duration, 0);
-  if (totalDuration > maxTotalDurationSeconds + 0.001) {
+  // First reserve enough time for every complete spoken segment. Only then
+  // distribute the optional scene tails from the remaining global budget.
+  // A fixed 0.12s per scene could add 0.96s to an eight-scene Short and push
+  // a valid 27.9s narration past the agreed 28s cap.
+  const durationsWithPaddingScale = (paddingScale: number) => baseSceneDurations.map((baseDuration, index) => {
+    const narrationDuration = narrationDurations[index];
+    if (narrationDuration === null || narrationDuration === undefined) return baseDuration;
+    return Math.max(baseDuration, narrationDuration + narrationPaddingSeconds * paddingScale);
+  });
+  const totalDuration = (durations: number[]) => durations.reduce((sum, duration) => sum + duration, 0);
+  const unpaddedDurations = durationsWithPaddingScale(0);
+  const unpaddedTotal = totalDuration(unpaddedDurations);
+  if (unpaddedTotal > maxTotalDurationSeconds + 0.001) {
     throw new Error(
-      `Narracja wymaga łącznie ${totalDuration.toFixed(2)} s. Maksymalny czas Shorta to ${maxTotalDurationSeconds.toFixed(0)} s. ` +
+      `Narracja wymaga łącznie ${unpaddedTotal.toFixed(2)} s bez dodatkowego zapasu scen. ` +
+      `Maksymalny czas Shorta to ${maxTotalDurationSeconds.toFixed(0)} s. ` +
       'Lektor nie został przyspieszony ani ucięty. Skróć tekst scen i spróbuj ponownie.'
     );
   }
 
-  return durations;
+  const fullyPaddedDurations = durationsWithPaddingScale(1);
+  if (totalDuration(fullyPaddedDurations) <= maxTotalDurationSeconds) return fullyPaddedDurations;
+
+  // Find the largest uniform share of the requested per-scene padding that
+  // fits. This preserves all speech while keeping the concatenated video cap.
+  let low = 0;
+  let high = 1;
+  for (let iteration = 0; iteration < 48; iteration++) {
+    const midpoint = (low + high) / 2;
+    if (totalDuration(durationsWithPaddingScale(midpoint)) <= maxTotalDurationSeconds) {
+      low = midpoint;
+    } else {
+      high = midpoint;
+    }
+  }
+  return durationsWithPaddingScale(low);
 }
 
 export function sceneRequestMetadata(sourceValue: unknown, requestIdValue: unknown, fallbackSource: string) {
