@@ -12,6 +12,9 @@ RUN apt-get update \
 
 WORKDIR /app
 
+# Stamped by the CI deployment workflow so health checks can prove the running commit.
+ARG APP_GIT_SHA=unknown
+
 # This repository tracks bun.lock, not package-lock.json; install from package.json.
 COPY package.json ./
 RUN npm install --include=dev --no-audit --no-fund
@@ -27,7 +30,8 @@ COPY docker/entrypoint.sh /usr/local/bin/app-entrypoint
 RUN chmod 0755 /usr/local/bin/app-entrypoint
 
 ENV NODE_ENV=production \
-    PORT=8080
+    PORT=8080 \
+    APP_GIT_SHA=${APP_GIT_SHA}
 
 EXPOSE 8080
 ENTRYPOINT ["/usr/local/bin/app-entrypoint"]
