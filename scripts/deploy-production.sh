@@ -77,7 +77,7 @@ log "Sprawdzam dostęp do Fly.io dla aplikacji $APP_NAME."
 
 log "Sprawdzam nazwy wymaganych sekretów; wartości nie są wyświetlane."
 SECRET_LIST="$($FLY_BIN secrets list --app "$APP_NAME")" || fail "Nie udało się odczytać listy sekretów Fly.io."
-REQUIRED_SECRETS=(APP_AUTH_SECRET BANKIER_SHORTS_API_TOKEN GEMINI_API_KEY PEXELS_API_KEY ELEVENLABS_API_KEY SUPABASE_URL)
+REQUIRED_SECRETS=(APP_AUTH_SECRET BANKIER_SHORTS_API_TOKEN OPENAI_API_KEY GEMINI_API_KEY PEXELS_API_KEY ELEVENLABS_API_KEY SUPABASE_URL)
 MISSING=()
 for secret in "${REQUIRED_SECRETS[@]}"; do
   if ! grep -Eq "(^|[[:space:]])${secret}([[:space:]]|$)" <<<"$SECRET_LIST"; then
@@ -100,6 +100,8 @@ if [[ "$SKIP_TESTS" == false ]]; then
   npm run test:motion-sound
   npm run test:creative-director
   npm run test:scene-contract
+  npm run test:model-routing
+  npm run test:visual-qa-providers
 else
   log "Pominięto testy na żądanie (--skip-tests)."
 fi

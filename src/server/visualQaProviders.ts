@@ -88,7 +88,7 @@ export async function requestOpenAiVisualQa(params: {
   fetchImpl?: typeof fetch;
 }): Promise<string> {
   const apiKey = params.apiKey.trim();
-  if (!apiKey) throw new Error('Brak OPENAI_API_KEY dla zapasowej analizy wizualnej.');
+  if (!apiKey) throw new Error('Brak OPENAI_API_KEY dla głównej analizy wizualnej.');
   const fetchImpl = params.fetchImpl || fetch;
   const response = await fetchImpl('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -99,7 +99,8 @@ export async function requestOpenAiVisualQa(params: {
     body: JSON.stringify({
       model: params.model,
       messages: [{ role: 'user', content: buildOpenAiVisualQaContent(params.instructions, params.imageParts) }],
-      response_format: { type: 'json_object' }
+      response_format: { type: 'json_object' },
+      reasoning_effort: 'low'
     }),
     signal: AbortSignal.timeout(45_000)
   });

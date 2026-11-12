@@ -207,7 +207,8 @@ Skonfiguruj plik `.env` w oparciu o `.env.example`. Na Fly.io wartości ustawiaj
 | `APP_LOGIN_PASSWORD` | Tak | Hasło dostępowe do panelu webowego |
 | `APP_AUTH_SECRET` | Tak | Losowy ciąg min. 32 znaków do podpisywania sesji |
 | `BANKIER_SHORTS_API_TOKEN` | Tak dla automatyzacji | Token autoryzacyjny Bearer dla webhooków i skryptów |
-| `GEMINI_API_KEY` | Tak dla AI | Klucz Google Gemini API (wykorzystywany kaskadowo: `gemini-3.8-flash`, `gemini-3.1-flash-lite`) |
+| `OPENAI_API_KEY` | Tak dla AI | Główny model redakcyjny i QA: OpenAI GPT-6.1 Sol (`gpt-6.1-sol`) przez Responses API |
+| `GEMINI_API_KEY` | Opcjonalnie dla AI | Jedyny awaryjny fallback po błędzie OpenAI: Gemini 3.8 Flash (`gemini-3.8-flash`); bez starszych modeli Gemini |
 | `ELEVENLABS_API_KEY` | Tak dla TTS | Klucz ElevenLabs API dla syntezy głosu lektora |
 | `ELEVENLABS_VOICE_ID` | Nie | Domyślnie `onwK4e9ZLuTAKqWW03F9` (Daniel) |
 | `PEXELS_API_KEY` | Tak dla wideo | Klucz Pexels API do wyszukiwania pionowych klipów stockowych |

@@ -64,6 +64,7 @@ import { buildConcatArgs, FAST_H264_OPTIONS, isValidConcatenatedVideo } from './
 import { getDeploymentInfo } from './src/server/deploymentInfo';
 import { requestOpenAiVisualQa, retryVisualQa, runVisualQaWithFallback } from './src/server/visualQaProviders';
 import { splitNarrationAlignmentByScenes } from './src/server/singleNarration';
+import { GEMINI_FALLBACK_MODEL, isRetryableModelProviderError, OPENAI_PRIMARY_MODEL, requestOpenAiScript } from './src/server/modelRouting';
 
 const execPromise = promisify(exec);
 const serverStartedAt = new Date().toISOString();
@@ -105,7 +106,7 @@ async function analyzeRenderedVisualFit(
   const geminiApiKey = process.env.GEMINI_API_KEY?.trim();
   const openAiApiKey = process.env.OPENAI_API_KEY?.trim();
   if (!geminiApiKey && !openAiApiKey) {
-    return buildVisualAnalysisUnavailableReport(expectedScenes, 'Nie skonfigurowano GEMINI_API_KEY ani OPENAI_API_KEY.', 'unavailable');
+    return buildVisualAnalysisUnavailableReport(expectedScenes, 'Nie skonfigurowano głównego OPENAI_API_KEY ani zapasowego GEMINI_API_KEY.', 'unavailable');
   }
 
   const samples: VisualSemanticSample[] = [];
@@ -143,38 +144,37 @@ async function analyzeRenderedVisualFit(
       `Uwzględnij dokładnie ${samples.length} scen i zwróć jeden wynik dla każdej, z numerami 1–${samples.length}. Confidence to liczba 0..1. match=false oznacza wyraźnie niepasujący obraz.`
     ].join('\n');
     const providers: Array<{ model: string; analyze: () => Promise<ReturnType<typeof parseCompleteVisualSemanticResponse>> }> = [];
-    if (geminiApiKey) {
-      providers.push({
-        model: 'gemini-3.8-flash',
-        analyze: async () => retryVisualQa(async () => {
-          const response = await ai.models.generateContent({
-            model: 'gemini-3.8-flash',
-            contents: [{ role: 'user', parts: [{ text: instructions }, ...imageParts] }],
-            config: { responseMimeType: 'application/json' }
-          });
-          if (!response.text?.trim()) throw new Error('Gemini zwróciło pustą odpowiedź.');
-          return parseCompleteVisualSemanticResponse(response.text, samples.length);
-        }, {
-          maxAttempts: 3,
-          onRetry: (attempt, error) => console.warn(`[Shorts Editor QA] Gemini: ponowienie ${attempt}/2 po błędzie analizy: ${error.message}`)
-        })
-      });
-    }
     if (openAiApiKey) {
-      const openAiModel = (process.env.OPENAI_VISUAL_QA_MODEL || process.env.OPENAI_SCRIPT_MODEL || 'gpt-6.1-sol').trim();
       providers.push({
-        model: `openai:${openAiModel}`,
+        model: 'openai:' + OPENAI_PRIMARY_MODEL,
         analyze: async () => retryVisualQa(async () => {
           const responseText = await requestOpenAiVisualQa({
             apiKey: openAiApiKey,
-            model: openAiModel,
+            model: OPENAI_PRIMARY_MODEL,
             instructions,
             imageParts
           });
           return parseCompleteVisualSemanticResponse(responseText, samples.length);
         }, {
           maxAttempts: 3,
-          onRetry: (attempt, error) => console.warn(`[Shorts Editor QA] OpenAI: ponowienie ${attempt}/2 po błędzie analizy: ${error.message}`)
+          onRetry: (attempt, error) => console.warn('[Shorts Editor QA] OpenAI ' + OPENAI_PRIMARY_MODEL + ': ponowienie ' + attempt + '/2 po błędzie analizy: ' + error.message)
+        })
+      });
+    }
+    if (geminiApiKey) {
+      providers.push({
+        model: GEMINI_FALLBACK_MODEL,
+        analyze: async () => retryVisualQa(async () => {
+          const response = await ai.models.generateContent({
+            model: GEMINI_FALLBACK_MODEL,
+            contents: [{ role: 'user', parts: [{ text: instructions }, ...imageParts] }],
+            config: { responseMimeType: 'application/json' }
+          });
+          if (!response.text?.trim()) throw new Error('Gemini 3.8 Flash zwrócił pustą odpowiedź.');
+          return parseCompleteVisualSemanticResponse(response.text, samples.length);
+        }, {
+          maxAttempts: 3,
+          onRetry: (attempt, error) => console.warn('[Shorts Editor QA] Gemini 3.8 Flash fallback: ponowienie ' + attempt + '/2 po błędzie analizy: ' + error.message)
         })
       });
     }
@@ -3787,7 +3787,9 @@ router.get('/supervisor/status', async (_req, res) => {
     machineToken: Boolean(process.env.BANKIER_SHORTS_API_TOKEN),
     openai: Boolean(process.env.OPENAI_API_KEY),
     gemini: Boolean(process.env.GEMINI_API_KEY),
-    primaryModelProvider: process.env.OPENAI_API_KEY ? 'openai' : process.env.GEMINI_API_KEY ? 'gemini' : 'heuristic',
+    primaryModelProvider: process.env.OPENAI_API_KEY ? 'openai' : 'unconfigured',
+    primaryModel: OPENAI_PRIMARY_MODEL,
+    fallbackModel: process.env.GEMINI_API_KEY ? GEMINI_FALLBACK_MODEL : null,
     pexels: Boolean(process.env.PEXELS_API_KEY),
     elevenLabs: Boolean(process.env.ELEVENLABS_API_KEY),
     telegramApproval: Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID && process.env.TELEGRAM_WEBHOOK_SECRET),
@@ -3808,7 +3810,7 @@ router.get('/supervisor/status', async (_req, res) => {
   const missingRequired = [
     !envReady.appAuth ? 'APP_AUTH_SECRET (minimum 32 characters)' : null,
     !envReady.machineToken ? 'BANKIER_SHORTS_API_TOKEN' : null,
-    !(envReady.openai || envReady.gemini) ? 'OPENAI_API_KEY or GEMINI_API_KEY' : null,
+    !envReady.openai ? 'OPENAI_API_KEY (required primary provider)' : null,
     !envReady.pexels ? 'PEXELS_API_KEY' : null,
     !envReady.elevenLabs ? 'ELEVENLABS_API_KEY' : null
   ].filter(Boolean);
@@ -3834,7 +3836,8 @@ router.get('/supervisor/status', async (_req, res) => {
       ...(!website.reachable ? ['Sprawdź domenę RaportFinansowy24: witryna nie zwróciła poprawnego HTTP 2xx.'] : []),
       ...(!mediaRuntime.ffmpegReady ? ['FFmpeg nie jest dostępny; sprawdź obraz wdrożeniowy i logi startowe Fly.io.'] : []),
       ...(!mediaRuntime.fontReady ? ['Brakuje fontu TikTok Sans; sprawdź pobieranie fontu i ścieżkę zasobu.'] : []),
-      ...(envReady.openai && !envReady.gemini ? ['OpenAI jest ustawione jako provider główny; Gemini fallback nie jest skonfigurowany.'] : []),
+      ...(!envReady.openai ? ['Brak OPENAI_API_KEY: główny model GPT-6.1 Sol nie może działać.'] : []),
+      ...(envReady.openai && !envReady.gemini ? ['OpenAI GPT-6.1 Sol działa jako model główny, ale awaryjny Gemini 3.8 Flash nie jest skonfigurowany.'] : []),
       ...(failedJobs > 0 ? [`W historii pamięciowej jest ${failedJobs} zadań zakończonych błędem; sprawdź szczegóły zadań.`] : []),
       ...missingRequired.map((name) => 'Uzupełnij sekret w Fly.io: ' + name + '.'),
       ...(!envReady.telegramApproval ? ['Skonfiguruj token bota, chat ID i sekret webhooka Telegrama, jeśli chcesz zatwierdzać shorty przez Telegram.'] : []),
@@ -4427,84 +4430,67 @@ function buildSmartFallbackScript(
   };
 }
 
-// Prefer OpenAI when OPENAI_API_KEY is configured; cascade through Gemini models on failure.
-// If both providers fail, callers use their validated heuristic fallback.
-const OPENAI_SCRIPT_MODEL = (process.env.OPENAI_SCRIPT_MODEL || 'gpt-6.1-sol').trim();
-const GEMINI_MODEL_CASCADE = [
-  'gemini-3.8-flash',
-  'gemini-flash-latest',
-  'gemini-3.1-flash-lite'
-];
+// One provider order across scripts, news analysis and editorial corrections:
+// OpenAI GPT-6.1 Sol is primary; Gemini 3.8 Flash is the sole emergency fallback.
+const OPENAI_SCRIPT_MODEL = OPENAI_PRIMARY_MODEL;
 
 async function callModelRouter(params: {
   contents: string;
   config?: any;
 }): Promise<{ text: string; modelUsed: string } | null> {
   let lastError: Error | null = null;
+  const openAiApiKey = process.env.OPENAI_API_KEY?.trim();
+  const geminiApiKey = process.env.GEMINI_API_KEY?.trim();
 
-  // OpenAI-compatible JSON response path. No new npm dependency is required.
-  if (process.env.OPENAI_API_KEY?.trim()) {
-    try {
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${process.env.OPENAI_API_KEY.trim()}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: OPENAI_SCRIPT_MODEL,
-          messages: [
-            { role: 'system', content: 'You are a precise Polish-language financial news Shorts script editor. Follow the supplied source facts and output requirements. Never invent facts. Return valid JSON only.' },
-            { role: 'user', content: params.contents }
-          ],
-          response_format: { type: 'json_object' },
-          // This model only supports its default sampling temperature.
-          temperature: 1
-        })
-      });
-      if (!response.ok) {
-        const detail = await response.text().catch(() => '');
-        throw new Error(`OpenAI API ${response.status}: ${detail.slice(0, 500)}`);
-      }
-      const payload: any = await response.json();
-      const text = payload?.choices?.[0]?.message?.content;
-      if (typeof text === 'string' && text.trim()) {
-        return { text, modelUsed: OPENAI_SCRIPT_MODEL };
-      }
-      throw new Error('OpenAI returned an empty script response.');
-    } catch (err: any) {
-      lastError = err instanceof Error ? err : new Error(String(err));
-      console.warn(`[OpenAI Script Provider] ${lastError.message}; trying Gemini fallback.`);
-    }
-  } else {
-    console.info('[Model Router] OPENAI_API_KEY is not configured; using Gemini fallback.');
-  }
-
-  for (const model of GEMINI_MODEL_CASCADE) {
-    for (let attempt = 0; attempt < 2; attempt++) {
+  if (openAiApiKey) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
       try {
-        const response = await ai.models.generateContent({
-          model,
-          contents: params.contents,
-          config: params.config
-        });
-        if (response && response.text) {
-          return { text: response.text, modelUsed: model };
-        }
-      } catch (err: any) {
-        lastError = err instanceof Error ? err : new Error(String(err));
-        const msg = String(err?.message || err || '');
-        const is503 = msg.includes('503') || err?.status === 503;
-        if (is503 && attempt === 0) {
-          await new Promise((resolve) => setTimeout(resolve, 350));
+        const text = await requestOpenAiScript({ apiKey: openAiApiKey, contents: params.contents });
+        return { text, modelUsed: OPENAI_PRIMARY_MODEL };
+      } catch (cause) {
+        lastError = cause instanceof Error ? cause : new Error(String(cause));
+        const retryable = isRetryableModelProviderError(lastError);
+        if (attempt < 2 && retryable) {
+          console.warn('[OpenAI Primary] ' + OPENAI_PRIMARY_MODEL + ' failed temporarily; retry ' + attempt + '/1: ' + lastError.message);
+          await new Promise((resolve) => setTimeout(resolve, 900));
           continue;
         }
-        console.info(`[Model Failover] Model ${model} is unavailable; switching to next model.`);
+        console.warn('[OpenAI Primary] ' + OPENAI_PRIMARY_MODEL + ' failed; switching only to Gemini 3.8 Flash fallback: ' + lastError.message);
         break;
       }
     }
+  } else {
+    console.warn('[Model Router] OPENAI_API_KEY is missing; only the emergency Gemini 3.8 Flash fallback can run.');
   }
-  if (lastError) console.info('[Model Cascade] All model providers failed; using validated heuristic fallback.');
+
+  if (geminiApiKey) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const response = await ai.models.generateContent({
+          model: GEMINI_FALLBACK_MODEL,
+          contents: params.contents,
+          config: params.config
+        });
+        if (response?.text?.trim()) return { text: response.text, modelUsed: GEMINI_FALLBACK_MODEL };
+        throw new Error('Gemini 3.8 Flash zwrócił pustą odpowiedź.');
+      } catch (cause) {
+        lastError = cause instanceof Error ? cause : new Error(String(cause));
+        const retryable = isRetryableModelProviderError(lastError) ||
+          /\b(?:503|INTERNAL|UNAVAILABLE|RESOURCE_EXHAUSTED)\b/i.test(lastError.message);
+        if (attempt < 2 && retryable) {
+          console.warn('[Gemini Fallback] ' + GEMINI_FALLBACK_MODEL + ' failed temporarily; retry ' + attempt + '/1: ' + lastError.message);
+          await new Promise((resolve) => setTimeout(resolve, 900));
+          continue;
+        }
+        console.warn('[Gemini Fallback] Sole fallback ' + GEMINI_FALLBACK_MODEL + ' failed: ' + lastError.message);
+        break;
+      }
+    }
+  } else {
+    console.warn('[Model Router] GEMINI_API_KEY is missing; no emergency model fallback is configured.');
+  }
+
+  if (lastError) console.error('[Model Router] OpenAI primary and Gemini 3.8 fallback failed; caller must use validated deterministic fallback.');
   return null;
 }
 

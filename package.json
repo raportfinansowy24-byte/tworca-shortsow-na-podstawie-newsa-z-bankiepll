@@ -37,7 +37,8 @@
     "test:highlight-boards": "tsx tests/highlightBoards.test.ts",
     "test:services-health": "tsx tests/servicesHealth.test.ts",
     "test:finance-chart": "tsx tests/financeChartVisual.test.ts",
-    "test:adaptive-music": "tsx tests/adaptiveMusicStrategy.test.ts"
+    "test:adaptive-music": "tsx tests/adaptiveMusicStrategy.test.ts",
+    "test:model-routing": "tsx tests/modelRouting.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

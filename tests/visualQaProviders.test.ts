@@ -6,7 +6,7 @@ let retryAttempts = 0;
 const scheduledDelays: number[] = [];
 const recoveredResult = await retryVisualQa(async () => {
   retryAttempts++;
-  if (retryAttempts < 3) throw new Error('Gemini HTTP 503 UNAVAILABLE');
+  if (retryAttempts < 3) throw new Error('OpenAI HTTP 503 UNAVAILABLE');
   return 'odzyskany wynik';
 }, {
   maxAttempts: 3,
@@ -14,8 +14,8 @@ const recoveredResult = await retryVisualQa(async () => {
   sleep: async (delayMs) => { scheduledDelays.push(delayMs); }
 });
 assert.equal(recoveredResult, 'odzyskany wynik');
-assert.equal(retryAttempts, 3, 'provider jest ponawiany do uzyskania wyniku');
-assert.deepEqual(scheduledDelays, [10, 20], 'retry stosuje rosnące opóźnienie');
+assert.equal(retryAttempts, 3);
+assert.deepEqual(scheduledDelays, [10, 20]);
 
 let sdkStatusAttempts = 0;
 const sdkStatusRetry = await retryVisualQa(async () => {
@@ -25,10 +25,10 @@ const sdkStatusRetry = await retryVisualQa(async () => {
     sdkError.status = 500;
     throw sdkError;
   }
-  return 'Gemini recovered';
+  return 'provider recovered';
 }, { maxAttempts: 2, delaysMs: [0], sleep: async () => {} });
-assert.equal(sdkStatusRetry, 'Gemini recovered');
-assert.equal(sdkStatusAttempts, 2, 'Gemini SDK status=500 jest ponawiany mimo braku HTTP code w message');
+assert.equal(sdkStatusRetry, 'provider recovered');
+assert.equal(sdkStatusAttempts, 2);
 
 let malformedJsonAttempts = 0;
 const parsedAfterRetry = await retryVisualQa(async () => {
@@ -37,81 +37,81 @@ const parsedAfterRetry = await retryVisualQa(async () => {
   return JSON.parse('{"results":[]}');
 }, { maxAttempts: 2, delaysMs: [0], sleep: async () => {} });
 assert.deepEqual(parsedAfterRetry, { results: [] });
-assert.equal(malformedJsonAttempts, 2, 'SyntaxError modelu jest ponawiany przed fallbackiem');
+assert.equal(malformedJsonAttempts, 2);
 
 let permanentFailureAttempts = 0;
 await assert.rejects(() => retryVisualQa(async () => {
   permanentFailureAttempts++;
   throw new Error('OpenAI visual QA API HTTP 400: invalid model');
 }, { maxAttempts: 3, sleep: async () => {} }), /HTTP 400/);
-assert.equal(permanentFailureAttempts, 1, 'błędy konfiguracji 4xx nie są ponawiane');
+assert.equal(permanentFailureAttempts, 1);
 
 const calls: string[] = [];
 const providerFailures: string[] = [];
 const fallbackResult = await runVisualQaWithFallback([
   {
-    model: 'gemini-3.8-flash',
+    model: 'openai:gpt-6.1-sol',
     analyze: async () => {
-      calls.push('gemini');
+      calls.push('openai');
       throw new Error('HTTP 503 unavailable');
     }
   },
   {
-    model: 'openai:gpt-6.1-sol',
+    model: 'gemini-3.8-flash',
     analyze: async () => {
-      calls.push('openai');
+      calls.push('gemini-3.8-flash');
       return parseCompleteVisualSemanticResponse(JSON.stringify({ results: [
         { scene: 1, match: true, confidence: 0.93, reason: 'Klatka odpowiada lektorowi.' }
       ] }), 1);
     }
   }
-], (model, error) => providerFailures.push(`${model}: ${error.message}`));
-assert.deepEqual(calls, ['gemini', 'openai'], 'OpenAI jest wywoływany dopiero po awarii Gemini');
-assert.equal(fallbackResult.model, 'openai:gpt-6.1-sol');
+], (model, error) => providerFailures.push(model + ': ' + error.message));
+assert.deepEqual(calls, ['openai', 'gemini-3.8-flash'], 'Gemini 3.8 jest wywoływany wyłącznie po awarii OpenAI');
+assert.equal(fallbackResult.model, 'gemini-3.8-flash');
 assert.equal(buildVisualSemanticReport(1, fallbackResult.result, fallbackResult.model).status, 'pass');
-assert.deepEqual(providerFailures, ['gemini-3.8-flash: HTTP 503 unavailable']);
+assert.deepEqual(providerFailures, ['openai:gpt-6.1-sol: HTTP 503 unavailable']);
 
 const partialProviderCalls: string[] = [];
-const completeGeminiResponse = JSON.stringify({ results: [
+const completeOpenAiResponse = JSON.stringify({ results: [
   { scene: 1, match: true, confidence: 0.9, reason: 'Pasuje.' }
 ] });
-const completeOpenAiResponse = JSON.stringify({ results: [
+const completeGeminiResponse = JSON.stringify({ results: [
   { scene: 1, match: true, confidence: 0.9, reason: 'Pasuje.' },
   { scene: 2, match: false, confidence: 0.85, reason: 'Nie pasuje.' }
 ] });
 const partialFallback = await runVisualQaWithFallback([
-  {
-    model: 'gemini-3.8-flash',
-    analyze: async () => {
-      partialProviderCalls.push('gemini');
-      return parseCompleteVisualSemanticResponse(completeGeminiResponse, 2);
-    }
-  },
   {
     model: 'openai:gpt-6.1-sol',
     analyze: async () => {
       partialProviderCalls.push('openai');
       return parseCompleteVisualSemanticResponse(completeOpenAiResponse, 2);
     }
+  },
+  {
+    model: 'gemini-3.8-flash',
+    analyze: async () => {
+      partialProviderCalls.push('gemini');
+      return parseCompleteVisualSemanticResponse(completeGeminiResponse, 2);
+    }
   }
 ]);
-assert.deepEqual(partialProviderCalls, ['gemini', 'openai'], 'brak wyniku dla którejkolwiek sceny uruchamia fallback');
-assert.equal(partialFallback.model, 'openai:gpt-6.1-sol');
+assert.deepEqual(partialProviderCalls, ['openai', 'gemini'], 'brak kompletnej oceny OpenAI uruchamia pojedynczy fallback Gemini');
+assert.equal(partialFallback.model, 'gemini-3.8-flash');
 assert.equal(partialFallback.result.length, 2);
 assert.throws(() => parseCompleteVisualSemanticResponse('{"results":[]}', 2), /0 z 2 wymaganych scen/);
 
 let fallbackCalled = false;
 const primaryResult = await runVisualQaWithFallback([
-  { model: 'gemini-3.8-flash', analyze: async () => ['gemini result'] },
-  { model: 'openai:gpt-6.1-sol', analyze: async () => { fallbackCalled = true; return ['openai result']; } }
+  { model: 'openai:gpt-6.1-sol', analyze: async () => ['openai result'] },
+  { model: 'gemini-3.8-flash', analyze: async () => { fallbackCalled = true; return ['gemini result']; } }
 ]);
-assert.equal(primaryResult.model, 'gemini-3.8-flash');
-assert.equal(fallbackCalled, false, 'OpenAI nie jest wywoływany, jeśli Gemini działa');
+assert.equal(primaryResult.model, 'openai:gpt-6.1-sol');
+assert.equal(fallbackCalled, false, 'Gemini nie jest wywoływany, gdy OpenAI działa');
 
 await assert.rejects(() => runVisualQaWithFallback([
-  { model: 'gemini-3.8-flash', analyze: async () => { throw new Error('503'); } },
-  { model: 'openai:gpt-6.1-sol', analyze: async () => { throw new Error('429'); } }
-]), /gemini-3\.8-flash: 503 \| openai:gpt-6\.1-sol: 429/);
+  { model: 'openai:gpt-6.1-sol', analyze: async () => { throw new Error('429'); } },
+  { model: 'gemini-3.8-flash', analyze: async () => { throw new Error('503'); } }
+]), /openai:gpt-6\.1-sol: 429 \| gemini-3\.8-flash: 503/);
 await assert.rejects(() => runVisualQaWithFallback([]), /Nie skonfigurowano providera/);
 
 const parts = [
@@ -144,9 +144,10 @@ const responseText = await requestOpenAiVisualQa({
 });
 assert.equal(capturedUrl, 'https://api.openai.com/v1/chat/completions');
 assert.equal((capturedInit?.headers as Record<string, string>).Authorization, 'Bearer test-only-key');
-assert.ok(capturedInit?.signal instanceof AbortSignal, 'żądanie do OpenAI ma ograniczony timeout');
+assert.ok(capturedInit?.signal instanceof AbortSignal);
 const requestBody = JSON.parse(String(capturedInit?.body));
 assert.equal(requestBody.model, 'gpt-6.1-sol');
+assert.equal(requestBody.reasoning_effort, 'low');
 assert.deepEqual(requestBody.response_format, { type: 'json_object' });
 assert.equal(requestBody.messages[0].content[2].type, 'image_url');
 assert.equal(parseVisualSemanticResponse(responseText, 1).length, 0);
