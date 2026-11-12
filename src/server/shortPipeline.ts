@@ -64,7 +64,7 @@ export interface FinanceShortPlan {
 
 export interface ViralStrategyProfile {
   source: 'STRATEGIA_VIRAL_SHORTS.pdf';
-  targetDurationSeconds: 18;
+  targetDurationSeconds: 23;
   hookWindowSeconds: 2;
   mutedFirst: true;
   proofWindow: [number, number];
@@ -83,7 +83,7 @@ export interface QualityGateResult {
   warnings: string[];
 }
 
-const DURATIONS = [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5];
+const DURATIONS = [2, 2.5, 2.5, 2.5, 3, 3, 3.5, 4];
 
 function clean(value: unknown): string {
   return String(value || '').replace(/\s+/g, ' ').trim();
@@ -244,11 +244,11 @@ export function buildFinanceShortPlan(articleInput: FinanceArticleInput): Financ
   ].filter((value, index, list) => value && list.indexOf(value) === index);
   const viralStrategy: ViralStrategyProfile = {
     source: 'STRATEGIA_VIRAL_SHORTS.pdf',
-    targetDurationSeconds: 18,
+    targetDurationSeconds: 23,
     hookWindowSeconds: 2,
     mutedFirst: true,
-    proofWindow: [2, 14],
-    payoffWindow: [14, 18],
+    proofWindow: [2, 17],
+    payoffWindow: [17, 23],
     platforms: ['tiktok', 'youtube-shorts', 'instagram-reels'],
     retentionTargets: { retention3s: 0.6, commentsPerThousand: 5 }
   };

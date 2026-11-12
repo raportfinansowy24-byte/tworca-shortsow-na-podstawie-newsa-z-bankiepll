@@ -7,6 +7,7 @@ export type FinanceVisualCategory =
   | 'currency-forex'
   | 'taxes-fees'
   | 'inflation-prices'
+  | 'real-estate-land'
   | 'general-finance';
 
 export interface FinanceSceneVisual {
@@ -140,6 +141,36 @@ const CATEGORY_DEFINITIONS: CategoryDefinition[] = [
     ]
   },
   {
+    id: 'real-estate-land',
+    triggers: [
+      'dzialka budowlana', 'dzialki budowlane', 'dzialek budowlanych', 'dzialek na sprzedaz',
+      'dzialka na sprzedaz', 'dzialki na sprzedaz', 'dzialek', 'dzialki', 'dzialkach',
+      'grunt budowlany', 'grunty budowlane', 'gruntow budowlanych', 'nieruchomosci gruntowe', 'ziemia pod budowe',
+      'sprzedaz gruntow', 'program dzialek', 'building plot', 'residential plot', 'land plot',
+      'vacant land', 'land for sale', 'housing plot'
+    ],
+    visualTerms: [
+      'land', 'plot', 'plots', 'parcel', 'parcels', 'lot', 'lots', 'vacant', 'residential',
+      'housing', 'property', 'survey', 'surveyor', 'boundary', 'boundaries', 'stakes',
+      'construction', 'building', 'couple', 'family', 'municipal', 'contract', 'real estate'
+    ],
+    forbiddenTerms: [
+      ...COMMON_FORBIDDEN, 'tram', 'tramway', 'streetcar', 'roof', 'rooftop', 'parking',
+      'parking lot', 'home insurance', 'insurance policy', 'insurance form', 'skyscraper',
+      'office tower', 'high rise', 'airport', 'railway'
+    ],
+    scenes: [
+      { primaryKeyword: 'aerial drone view of vacant residential building plots with visible parcel boundaries', alternativeKeywords: ['empty residential land plots aerial view', 'undeveloped building lots with boundary stakes'], visualMood: 'Czytelny widok niezabudowanych parceli, bez dachów i parkingów.', reasoning: 'Kadr ma przedstawiać fizycznie niezabudowane działki, a nie gotowe budynki.' },
+      { primaryKeyword: 'land surveyor measuring an empty residential building plot with boundary stakes', alternativeKeywords: ['surveyor using measuring equipment on vacant land', 'survey stakes marking residential land parcel'], visualMood: 'Pomiar gruntu i widoczne granice działki.', reasoning: 'Ujęcie pokazuje teren i czynność związaną z wyznaczaniem parceli.' },
+      { primaryKeyword: 'young couple viewing a vacant residential building plot in Poland', alternativeKeywords: ['young adults inspecting empty building land', 'couple walking across undeveloped residential plot'], visualMood: 'Młodzi dorośli oglądają niezabudowany teren.', reasoning: 'Wiek odbiorców ilustrują ludzie, a program i kryteria pozostają opisane tekstem.' },
+      { primaryKeyword: 'residential land parcel with access road and marked plot boundaries', alternativeKeywords: ['undeveloped housing plots beside a local access road', 'empty suburban building lots aerial'], visualMood: 'Niezabudowane parcele i infrastruktura dojazdowa.', reasoning: 'Obraz pokazuje działki, nie przypadkową panoramę miasta.' },
+      { primaryKeyword: 'excavator preparing a vacant residential building plot construction site', alternativeKeywords: ['empty house construction plot with survey stakes', 'land clearing for new residential house plot'], visualMood: 'Przygotowanie niezabudowanego gruntu pod budowę.', reasoning: 'Scena wiąże grunt z możliwością przyszłej budowy.' },
+      { primaryKeyword: 'real estate agent showing vacant land plot documents to young buyers', alternativeKeywords: ['property purchase agreement for residential land', 'young buyers reviewing land sale contract'], visualMood: 'Dokumenty transakcji dotyczącej gruntu, nie polisa ubezpieczeniowa.', reasoning: 'Dokumenty mają dotyczyć kupna działki lub nieruchomości gruntowej.' },
+      { primaryKeyword: 'young family planning a future house on an empty residential plot', alternativeKeywords: ['architect discussing house plans on vacant land', 'couple standing on undeveloped building plot'], visualMood: 'Planowanie domu na pustej parceli.', reasoning: 'Obraz pozostaje przy działce budowlanej i przyszłej zabudowie.' },
+      { primaryKeyword: 'aerial view of multiple empty residential land plots and parcel boundaries', alternativeKeywords: ['drone footage of undeveloped housing land parcels', 'marked vacant building lots from above'], visualMood: 'Końcowy kadr wraca do rzeczywistych działek budowlanych.', reasoning: 'Podsumowanie utrzymuje konkretny obiekt artykułu.' }
+    ]
+  },
+  {
     id: 'inflation-prices',
     triggers: ['inflacja', 'cpi', 'drozyzna', 'wzrost cen', 'ceny zywnosci', 'price inflation', 'rising prices'],
     visualTerms: ['inflation', 'price', 'prices', 'grocery', 'shopping', 'supermarket', 'budget', 'receipt', 'financial', 'chart'],
@@ -185,7 +216,7 @@ export function getFinanceSceneVisualPlan(text: string, count = 4): FinanceScene
   const category = classifyFinanceVisualCategory(text);
   const definition = CATEGORY_DEFINITIONS.find((item) => item.id === category);
   if (!definition) return null;
-  const safeCount = Math.min(Math.max(Math.floor(count) || 4, 1), 4);
+  const safeCount = Math.min(Math.max(Math.floor(count) || 4, 1), definition.scenes.length);
   return definition.scenes.slice(0, safeCount).map((scene) => ({
     ...scene,
     alternativeKeywords: [...scene.alternativeKeywords]
@@ -227,11 +258,12 @@ export function scorePexelsCandidate(newsContext: string, query: string, videoUr
   const tokens = queryTokens(query);
   const sceneMatches = tokens.filter(hasToken);
   const categoryPass = category === 'general-finance' ? sceneMatches.length > 0 : categoryMatches.length > 0;
-  const scenePass = sceneMatches.length > 0;
+  const minimumSceneMatches = category === 'real-estate-land' ? 2 : 1;
+  const scenePass = sceneMatches.length >= minimumSceneMatches;
   const relevant = forbiddenMatches.length === 0 && categoryPass && scenePass;
-  const score = relevant ? categoryMatches.length * 30 + sceneMatches.length * 20 : -100;
+  const score = relevant ? categoryMatches.length * 30 + sceneMatches.length * 45 : -100;
 
-  let reason = 'Brak wystarczającego pokrycia tematu i konkretnej sceny w opisie klipu.';
+  let reason = `Brak wystarczającego pokrycia tematu i konkretnej sceny w opisie klipu (wymagane terminy sceny: ${minimumSceneMatches}).`;
   if (forbiddenMatches.length > 0) reason = `Klip zawiera wykluczony motyw: ${forbiddenMatches.join(', ')}.`;
   else if (relevant) reason = `Potwierdzono kategorię ${category}; wspólne terminy sceny: ${sceneMatches.join(', ')}.`;
 

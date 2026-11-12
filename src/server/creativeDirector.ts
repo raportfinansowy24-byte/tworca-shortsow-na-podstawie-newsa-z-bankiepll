@@ -58,21 +58,38 @@ export interface CreativeDirectorRenderScene {
   motionSound: MotionSoundSpec;
 }
 
-/** Build an observable, article-grounded stock query; return empty when no reliable visual anchor exists. */
+/** Build a scene-specific Pexels query from an article-grounded, visible subject. */
 export function buildArticleVisualQuery(article: CreativeDirectorArticle, narration: string, sceneIndex: number): string {
   const source = `${article.title} ${article.description || ''} ${article.summary || ''} ${article.keyTakeaway || ''} ${narration}`;
-  const lower = source.toLocaleLowerCase('pl-PL');
+  const lower = source.toLocaleLowerCase('pl-PL').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+  // Land-sale stories must show land or the people/process directly connected to it.
+  // A generic skyline, roof, parking lot or unrelated street is not an acceptable substitute.
+  if (/\b(dzial\w*|grunt\w*|ziem\w*\s+pod\s+budow\w*|budowlan\w*|land\s+plot|vacant\s+land|residential\s+plot)\b/i.test(lower)) {
+    const landQueries = [
+      'aerial drone view of vacant residential building plots and visible parcel boundaries in Poland',
+      'land surveyor measuring an empty residential building plot with boundary stakes',
+      'young couple viewing a vacant residential building plot in Poland',
+      'residential land parcels with access road and marked plot boundaries aerial view',
+      'excavator preparing a vacant residential building plot construction site',
+      'real estate agent showing vacant land plot documents to young buyers',
+      'young family planning a future house on an empty residential plot',
+      'aerial view of multiple empty residential land plots with parcel boundaries'
+    ];
+    return landQueries[Math.max(0, Math.min(landQueries.length - 1, Math.floor(sceneIndex)))];
+  }
+
   const anchor = /\b(nbp|narodowy bank polski|rpp|rada polityki pieniężnej)\b/i.test(source)
     ? 'National Bank of Poland headquarters Warsaw exterior central bank building'
     : /\b(ebc|europejski bank centralny|ecb)\b/i.test(source)
       ? 'European Central Bank headquarters Frankfurt exterior'
       : /\b(sejm|senat|rząd|ministerstwo|minister)\b/i.test(source)
         ? 'Polish parliament government building Warsaw exterior'
-        : /\b(inflacj|cen|drożyzn|koszt życia)\w*/i.test(lower)
+        : /\b(inflacj|cen|drożyzn|koszt życia)\w*/i.test(source)
           ? 'Polish supermarket grocery prices shopper comparing products'
-          : /\b(kredyt|rat|hipotek)\w*/i.test(lower)
+          : /\b(kredyt|rat|hipotek)\w*/i.test(source)
             ? 'person reviewing mortgage paperwork at home calculator documents'
-            : /\b(akcj|giełd|wig\d*|spółk|notowani)\w*/i.test(lower)
+            : /\b(akcj|giełd|wig\d*|spółk|notowani)\w*/i.test(source)
               ? 'Warsaw Stock Exchange trading floor stock market screens'
               : '';
   if (!anchor) return '';
@@ -112,7 +129,7 @@ export function buildCreativeDirectorPrompt(params: {
   sceneCount?: number;
   language?: string;
 }): string {
-  const { article, brandContext, ctaText, platform = 'youtube-shorts', duration = 18, sceneCount = 8, language = 'Polski' } = params;
+  const { article, brandContext, ctaText, platform = 'youtube-shorts', duration = 23, sceneCount = 8, language = 'Polski' } = params;
   return `Jesteś Creative Directorem marki RaportFinansowy24. Przygotuj plan pionowego Shorta na podstawie wyłącznie faktów z przekazanego newsa.
 
 ZASADY RZETELNOŚCI:
@@ -126,10 +143,11 @@ ZASADY RZETELNOŚCI:
 REŻYSERIA UJĘĆ I WYSZUKIWANIE PEXELS:
 - Dla każdej sceny podaj osobne, niepowtarzalne visualQuery po angielsku: konkretny widoczny podmiot + czynność + miejsce lub obiekt; używaj słów, które mogą wystąpić w opisie stockowego klipu.
 - visualQuery jest zapytaniem do wyszukiwarki Pexels, nie promptem generatora: nie umieszczaj w nim parametrów kamery, nazw obiektywów, abstrakcyjnych emocji ani faktów/danych, których nie widać w scenie.
-- Dobieraj obraz do dokładnej wypowiedzi sceny i źródła. Nie zastępuj konkretu generycznym stockiem finansowym; nie wymyślaj wykresów, kwot, nazw, logo ani informacji ekranowych.
+- Dobieraj obraz do dokładnej wypowiedzi sceny i źródła. Nie zastępuj konkretu generycznym stockiem finansowym; nie wymyślaj wykresów, kwot, nazw, logo ani informacji ekranowych. Jeśli news opisuje działki/grunty, szukaj wyłącznie niezabudowanych parceli, pomiaru granic, geodety lub oglądania gruntu — nigdy dachów, parkingów ani polis ubezpieczeniowych.
 - W polu camera opisz filmowalne kadrowanie/rozmiar planu, jeden spójny ruch kamery oraz obiektyw lub głębię ostrości. Nie łącz sprzecznych ruchów.
 - W polu visualMood opisz konkretny schemat światła, atmosferę i grading oraz fizycznie wiarygodne relacje światła z otoczeniem.
 - directorBrief ma podsumować spójną estetykę całości i zawierać krótką wskazówkę dźwiękową; nie dodawaj scen ani faktów poza zatwierdzonym storyboardem.
+- Jeśli news wymienia miasto, nie przedstawiaj generycznego stocku jako nagrania z tego miasta. Nie wybieraj infrastruktury miejskiej (np. tramwajów), jeśli źródło nie potwierdza jej obecności; w razie braku lokalnego stocku użyj neutralnego, uczciwie ilustracyjnego obrazu lub planszy danych.
 - Ujęcia są wyszukiwane i dobierane z Pexels przez istniejący resolver. Opis kamery kieruje storyboardem, ale nie gwarantuje, że pobrany stock zawiera dokładnie taki ruch; nie twierdź, że resolver syntetyzuje brakujący ruch.
 
 KONTEKST MARKI:
@@ -147,7 +165,7 @@ CTA wymagane przez politykę redakcyjną: ${ctaText || 'Wejdź na raport-finanso
 PARAMETRY:
 Platforma: ${platform}
 Język: ${language}
-Długość: ${duration} sekund
+Długość docelowa: ${duration} sekund; limit bezwzględny 25 sekund
 Liczba beatów/scen: ${sceneCount}
 
 WYMAGANY JSON:
@@ -189,7 +207,7 @@ export function parseCreativeDirectorPlan(text: string, params: { platform?: str
   if (!parsed.title || !parsed.hook || !Array.isArray(parsed.scenes) || parsed.scenes.length === 0) {
     throw new Error('Creative Director zwrócił niepełny plan.');
   }
-  const duration = params.duration || 18;
+  const duration = params.duration || 23;
   return {
     title: String(parsed.title).slice(0, 240),
     hook: String(parsed.hook).slice(0, 600),
@@ -212,7 +230,7 @@ export function parseCreativeDirectorPlan(text: string, params: { platform?: str
       voiceover: String(scene.voiceover || scene.voiceover_text || '').slice(0, 700),
       caption: String(scene.caption || '').slice(0, 180),
       sourceEvidence: String(scene.sourceEvidence || '').trim().slice(0, 600),
-      visualQuery: typeof scene.visualQuery === 'string' ? scene.visualQuery.trim().slice(0, 220) : '',
+      visualQuery: (params.article ? buildArticleVisualQuery(params.article, String(scene.voiceover || scene.voiceover_text || scene.caption || ''), index) : '') || (typeof scene.visualQuery === 'string' ? scene.visualQuery.trim().slice(0, 220) : ''),
       visualMood: String(scene.visualMood || 'high-contrast editorial finance').slice(0, 220),
       camera: String(scene.camera || 'steady medium push-in, 35mm lens').slice(0, 220)
     })),
@@ -297,7 +315,7 @@ export function buildCreativeDirectorFallback(article: CreativeDirectorArticle, 
   const cta = params.ctaText || 'Sprawdź pełny kontekst.';
   const fallbackNarration = buildFallbackMiddleNarration(article, hook, cta);
   const sceneCount = 8;
-  const segmentDuration = (params.duration || 18) / sceneCount;
+  const segmentDuration = (params.duration || 23) / sceneCount;
   const purposes = ['hook', 'fakt', 'kontekst', 'mechanizm', 'wpływ', 'praktyczny wniosek', 'podsumowanie', 'cta'];
   const scenes = Array.from({ length: sceneCount }, (_, index) => ({
     start: Number((index * segmentDuration).toFixed(2)),
@@ -323,7 +341,7 @@ export function buildCreativeDirectorFallback(article: CreativeDirectorArticle, 
     voice: 'pl-PL-MarekNeural',
     voiceSpeed: 1.05,
     platform: params.platform || 'youtube-shorts',
-    duration: params.duration || 18,
+    duration: params.duration || 23,
     directorBrief: 'Pionowy format 9:16, kontrastowy grading granat/lime, szybki hook w pierwszych 2 sekundach, dynamiczne lecz czytelne przejścia, ambientowy beat newsroomowy i subtelne dźwięki interfejsu.',
     scenes,
     riskFlags: [
@@ -348,16 +366,16 @@ export function mapCreativeDirectorPlanToRenderScenes(
   if (!plan || !Array.isArray(plan.scenes) || plan.scenes.length !== 8) {
     throw new Error('Storyboard do renderu musi zawierać dokładnie 8 scen.');
   }
-  const targetDuration = Number(plan.duration) || 18;
-  if (Math.abs(targetDuration - 18) > 0.01) {
-    throw new Error('Storyboard do renderu musi trwać 18 sekund.');
+  const targetDuration = Number(plan.duration) || 23;
+  if (Math.abs(targetDuration - 23) > 0.01 || targetDuration > 25) {
+    throw new Error('Storyboard do renderu musi celować w 23 sekundy i nie może przekraczać 25 sekund.');
   }
 
   let previousEnd = 0;
   const sourceDurations = plan.scenes.map((scene, index) => {
     const start = Number(scene.start);
     const end = Number(scene.end);
-    if (!Number.isFinite(start) || !Number.isFinite(end) || start < -0.1 || end <= start || end > 18.1) {
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start < -0.1 || end <= start || end > 25.1) {
       throw new Error(`Storyboard zawiera nieprawidłowy zakres czasu w scenie ${index + 1}.`);
     }
     if (start < previousEnd - 0.1) {
@@ -370,12 +388,12 @@ export function mapCreativeDirectorPlanToRenderScenes(
   });
 
   const sourceTotal = sourceDurations.reduce((sum, seconds) => sum + seconds, 0);
-  if (Math.abs(previousEnd - 18) > 0.5 || sourceTotal < 14 || sourceTotal > 20) {
-    throw new Error('Zakresy scen storyboardu muszą obejmować około 18 sekund. Wygeneruj storyboard ponownie.');
+  if (Math.abs(previousEnd - targetDuration) > 0.75 || sourceTotal < 20 || sourceTotal > 25.5) {
+    throw new Error('Zakresy scen storyboardu muszą obejmować około 23 sekund. Wygeneruj storyboard ponownie.');
   }
-  const scale = 18 / sourceTotal;
+  const scale = targetDuration / sourceTotal;
   const normalizedDurations = sourceDurations.map((seconds) => Number((seconds * scale).toFixed(3)));
-  normalizedDurations[normalizedDurations.length - 1] = Number((18 - normalizedDurations.slice(0, -1).reduce((sum, seconds) => sum + seconds, 0)).toFixed(3));
+  normalizedDurations[normalizedDurations.length - 1] = Number((targetDuration - normalizedDurations.slice(0, -1).reduce((sum, seconds) => sum + seconds, 0)).toFixed(3));
 
   return plan.scenes.map((scene, index) => {
     const isFirst = index === 0;

@@ -60,9 +60,10 @@ import { getLearningSignals, recordHookVariants, recordPipelineEvent, recordPipe
 import { buildShortsEditorQaRevisionInstruction, evaluateRenderedShort, evaluateShortStoryboard, hasNarrationWithinWordRanges, shouldBlockQa } from './src/server/shortsEditorQa';
 import { buildVisualAnalysisUnavailableReport, buildVisualSemanticReport, parseCompleteVisualSemanticResponse, type VisualSemanticReport, type VisualSemanticSample } from './src/server/shortsVisualSemanticQa';
 import { applyQaRepairAssets, buildQaRepairFailureReport, executeQaRepairOnce, QaRepairCancelledError, resolveUniqueQaRepairAssets, selectQaRepairCandidates, validatedPexelsRepairMetadata } from './src/server/qaRepair';
-import { buildConcatArgs, FAST_H264_OPTIONS, isValidConcatenatedVideo, mapWithConcurrency, SCENE_TTS_CONCURRENCY } from './src/server/renderOptimizations';
+import { buildConcatArgs, FAST_H264_OPTIONS, isValidConcatenatedVideo } from './src/server/renderOptimizations';
 import { getDeploymentInfo } from './src/server/deploymentInfo';
 import { requestOpenAiVisualQa, retryVisualQa, runVisualQaWithFallback } from './src/server/visualQaProviders';
+import { splitNarrationAlignmentByScenes } from './src/server/singleNarration';
 
 const execPromise = promisify(exec);
 const serverStartedAt = new Date().toISOString();
@@ -114,24 +115,30 @@ async function analyzeRenderedVisualFit(
     for (let index = 0; index < scenes.length; index++) {
       const duration = Number(sceneDurations[index]);
       if (!Number.isFinite(duration) || duration <= 0) throw new Error(`Nieprawidłowy czas sceny ${index + 1}.`);
-      const timestampSeconds = Math.min(timelineStart + duration / 2, timelineStart + duration - 0.12);
-      const framePath = path.join(tempDir, `visual_qa_scene_${index + 1}.jpg`);
-      await execPromise(`ffmpeg -v error -y -ss ${timestampSeconds.toFixed(3)} -i "${videoPath}" -frames:v 1 -vf "scale=512:-2" -q:v 6 "${framePath}"`);
-      if (!fs.existsSync(framePath) || fs.statSync(framePath).size === 0) throw new Error(`Nie udało się pobrać próbki obrazu dla sceny ${index + 1}.`);
-
+      const sampleOffsets = [0.35, 0.7];
+      const timestamps = sampleOffsets.map((offset) => Math.min(
+        timelineStart + duration * offset,
+        timelineStart + duration - 0.12
+      ));
       const scene = scenes[index] || {};
       const narration = String(narrationTexts[index] || scene.voiceover_text || scene.voiceoverText || scene.voiceover || scene.narration || scene.subtitles || scene.caption || scene.text || '').trim();
-      samples.push({ scene: index + 1, narration, timestampSeconds });
-      imageParts.push({ text: `SCENA ${index + 1} — próbka z ${timestampSeconds.toFixed(2)} s filmu. Tekst lektora: ${narration || '[brak tekstu]'}` });
-      imageParts.push({ inlineData: { mimeType: 'image/jpeg', data: fs.readFileSync(framePath).toString('base64') } });
+      samples.push({ scene: index + 1, narration, timestampSeconds: timestamps[0] });
+      for (let frameIndex = 0; frameIndex < timestamps.length; frameIndex++) {
+        const timestampSeconds = timestamps[frameIndex];
+        const framePath = path.join(tempDir, `visual_qa_scene_${index + 1}_frame_${frameIndex + 1}.jpg`);
+        await execPromise(`ffmpeg -v error -y -ss ${timestampSeconds.toFixed(3)} -i "${videoPath}" -frames:v 1 -vf "scale=512:-2" -q:v 6 "${framePath}"`);
+        if (!fs.existsSync(framePath) || fs.statSync(framePath).size === 0) throw new Error(`Nie udało się pobrać próbki ${frameIndex + 1} obrazu dla sceny ${index + 1}.`);
+        imageParts.push({ text: `SCENA ${index + 1}, KLATKA ${frameIndex + 1}/${timestamps.length} — próbka z ${timestampSeconds.toFixed(2)} s filmu. Tekst lektora tej sceny: ${narration || '[brak tekstu]'}` });
+        imageParts.push({ inlineData: { mimeType: 'image/jpeg', data: fs.readFileSync(framePath).toString('base64') } });
+      }
       timelineStart += duration;
     }
 
     const instructions = [
       'Jesteś niezależnym kontrolerem montażu krótkiego filmu. Porównaj KAŻDĄ załączoną klatkę z tekstem lektora przypisanym do tej samej sceny.',
-      'Dla każdej klatki sprawdź rzeczywistą widoczną zawartość: główny obiekt, widoczną czynność, kontekst oraz semantyczne dopasowanie do przypisanego lektora. Podobny nastrój ani generyczny stock finansowy nie oznacza dopasowania.',
+      'Dla każdej sceny otrzymujesz dwie klatki z różnych momentów ujęcia. Sprawdź rzeczywistą widoczną zawartość w obu: główny obiekt, czynność, kontekst i dopasowanie do przypisanego lektora. Jeśli choć jedna klatka wyraźnie przeczy wypowiedzi, ustaw match=false. Podobny nastrój ani generyczny stock nie oznacza dopasowania.',
       'Odrzuć wykres, budynek, parkiet giełdowy lub banknot, jeśli nie mają konkretnego związku z narracją. Brak wyraźnego głównego obiektu lub czynności oznacza match=false i confidence poniżej 0.5.',
-      'Wyłącznie ostatnia scena, jeśli jej lektor jest wezwaniem CTA, może zaakceptować ogólne tło, o ile obraz wyraźnie nie przeczy treści wezwania. Nie wnioskuj o szczegółach niewidocznych w klatce.',
+      'Wyłącznie ostatnia scena CTA może zaakceptować neutralne tło. Nie przypisuj stockowemu ujęciu konkretnego miasta, instytucji, sieci tramwajowej ani warunków programu, jeśli nie są jednoznacznie widoczne. Nie wnioskuj o szczegółach niewidocznych w klatkach.',
       'Zwróć wyłącznie JSON: {"results":[{"scene":1,"match":true,"confidence":0.0,"reason":"krótkie uzasadnienie po polsku"}]}.',
       `Uwzględnij dokładnie ${samples.length} scen i zwróć jeden wynik dla każdej, z numerami 1–${samples.length}. Confidence to liczba 0..1. match=false oznacza wyraźnie niepasujący obraz.`
     ].join('\n');
@@ -703,7 +710,7 @@ async function searchPexelsVideoDetailed(
             let score = 50 + (relevance.relevant ? relevance.score : 0);
             // Reward high-energy motion b-roll keywords
             for (const boost of DYNAMIC_VIRAL_BOOST_TERMS) {
-              if (slug.includes(boost)) score += 25;
+              if (slug.includes(boost)) score += 3;
             }
             // Prefer videos of optimal viral duration (8s to 30s)
             if (video.duration >= 8 && video.duration <= 30) score += 20;
@@ -856,7 +863,7 @@ async function searchPexelsMultiple(
         if (verticalMp4 && verticalMp4.link) {
           let score = 50 + (relevance.relevant ? relevance.score : 0);
           for (const boost of DYNAMIC_VIRAL_BOOST_TERMS) {
-            if (slug.includes(boost)) score += 20;
+            if (slug.includes(boost)) score += 2;
           }
           if (video.duration >= 8 && video.duration <= 45) score += 15;
           if (verticalMp4.height >= 1920) score += 15;
@@ -926,8 +933,12 @@ async function resolveStockOrPexelsVideoDetailed(
     return candidates[0];
   }
 
-  // Last-resort relaxed pass mirrors ShortGPT's fallback behaviour, but stays
-  // strictly inside Pexels and keeps the existing hard-error policy.
+  // Never relax semantic matching when an article/scene context is available.
+  // A generic city, rooftop or parking clip is worse than an explicit missing-asset error.
+  if (options?.context?.trim() || options?.requirePexels) {
+    throw new Error(`Pexels nie znalazł klipu spełniającego kryteria semantyczne sceny ${index + 1}: "${query}". Nie zaakceptowano generycznego materiału zastępczego.`);
+  }
+
   for (const candidateQuery of searchQueries) {
     const relaxedResult = await searchPexelsVideoDetailed(candidateQuery, {
       sceneIndex: index,
@@ -1981,9 +1992,10 @@ async function generateElevenLabsAudio(
   const safeSpeed = Math.max(0.7, Math.min(Number.isFinite(speed) ? speed : 1.0, 1.2));
   const modelId = process.env.ELEVENLABS_MODEL_ID?.trim() || 'eleven_multilingual_v2';
   const voiceSettings = { stability: 0.75, similarity_boost: 0.8, style: 0, use_speaker_boost: true, speed: safeSpeed };
+  if (text.length > 4500) throw new Error('Łączny tekst narracji przekracza limit bezpiecznej pojedynczej syntezy ElevenLabs (4500 znaków).');
   const cacheKey = createHash('sha256').update(JSON.stringify({
-    version: 1,
-    text: text.slice(0, 1000),
+    version: 2,
+    text,
     voiceId: actualVoiceId,
     modelId,
     outputFormat: 'mp3_44100_128',
@@ -2021,7 +2033,7 @@ async function generateElevenLabsAudio(
     'POST',
     `/v1/text-to-speech/${encodeURIComponent(actualVoiceId)}/with-timestamps?output_format=mp3_44100_128`,
     {
-      text: text.slice(0, 1000),
+      text,
       model_id: modelId,
       voice_settings: voiceSettings,
     },
@@ -2063,6 +2075,28 @@ async function generateElevenLabsAudio(
 }
 
 type CaptionWordTiming = { word: string; start: number; end: number };
+
+async function extractNarrationSceneAudio(
+  fullAudioPath: string,
+  startSeconds: number,
+  audioDurationSeconds: number,
+  outputDurationSeconds: number,
+  destPath: string
+): Promise<void> {
+  if (!fs.existsSync(fullAudioPath) || !Number.isFinite(startSeconds) || startSeconds < 0 ||
+      !Number.isFinite(audioDurationSeconds) || audioDurationSeconds <= 0 ||
+      !Number.isFinite(outputDurationSeconds) || outputDurationSeconds < audioDurationSeconds) {
+    throw new Error('Nieprawidłowe parametry podziału ciągłej narracji na scenę.');
+  }
+  const paddingSeconds = Math.max(0, outputDurationSeconds - audioDurationSeconds);
+  const filter = `atrim=duration=${audioDurationSeconds.toFixed(4)},apad=pad_dur=${paddingSeconds.toFixed(4)}`;
+  await execPromise(
+    `ffmpeg -v error -y -i "${fullAudioPath}" -ss ${startSeconds.toFixed(4)} -t ${outputDurationSeconds.toFixed(4)} -vn -af "${filter}" -ac 2 -ar 44100 -c:a pcm_s16le "${destPath}"`
+  );
+  if (!fs.existsSync(destPath) || fs.statSync(destPath).size < 1000) {
+    throw new Error(`Nie udało się wyciąć audio sceny do pliku ${path.basename(destPath)}.`);
+  }
+}
 
 async function getAudioDuration(audioPath: string): Promise<number> {
   if (!fs.existsSync(audioPath)) return 0;
@@ -2677,70 +2711,96 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"króts
     }
 
 
-    // Generate every scene with the same ElevenLabs voice and requested speed.
-    // Scene video duration is then expanded to contain the full unsped narration.
+    // Synthesize the complete short ONCE, then split this one continuous audio track
+    // by ElevenLabs character alignment. Scene files are PCM cuts of the same voice take.
+    let narrationSceneSegments: ReturnType<typeof splitNarrationAlignmentByScenes> = [];
+    let wholeNarrationDuration = 0;
     if (ttsEnabled) {
       if (sceneSpeechTexts.some((text) => !text)) {
         throw new Error(`Każda z ${scenes.length} scen musi zawierać tekst lektora.`);
       }
+      const fullNarrationText = sceneSpeechTexts.join(' ').replace(/\s+/g, ' ').trim();
+      const fullNarrationPath = path.join(jobTempDir, 'short_narration_full.mp3');
+      const fullWordTimings: CaptionWordTiming[] = [];
       updateJobProgress(
         jobId,
-        { step: `Generowanie jednego głosu ElevenLabs dla ${scenes.length} scen`, progress: 12 },
-        `Jeden lektor ElevenLabs, model i tempo dla całego Shorta (${ttsSpeed.toFixed(2)}x).`
+        { step: 'Jedna synteza ElevenLabs dla całego Shorta', progress: 12 },
+        `Generuję jeden ciągły lektor dla ${scenes.length} scen (${fullNarrationText.length} znaków); bez oddzielnych wywołań TTS na scenę.`
       );
-      let completedTtsScenes = 0;
-      await mapWithConcurrency(sceneSpeechTexts, SCENE_TTS_CONCURRENCY, async (speechText, index) => {
+      wholeNarrationDuration = await generateTtsAudio(
+        fullNarrationText,
+        ttsLanguage,
+        fullNarrationPath,
+        jobTempDir,
+        lockedTtsVoiceId,
+        ttsSpeed,
+        fullWordTimings,
+        abortController.signal
+      );
+      if (wholeNarrationDuration <= 0 || !fs.existsSync(fullNarrationPath)) {
+        throw new Error('ElevenLabs nie wygenerował kompletnego audio dla Shorta.');
+      }
+      narrationSceneSegments = splitNarrationAlignmentByScenes(sceneSpeechTexts, fullWordTimings, wholeNarrationDuration);
+
+      // Keep the requested 23-second target without stretching only the final shot.
+      // Each scene gets its planned visual budget, or a little more when its own spoken line needs it.
+      // Silence is added after that scene's words; the speech itself still comes from one TTS take.
+      const plannedSceneDurations = sceneDurationsWithNarration(
+        baseSceneDurations,
+        narrationSceneSegments.map((segment) => segment.duration),
+        MAX_SHORT_DURATION_SECONDS
+      );
+      for (let index = 0; index < scenes.length; index++) {
         if (abortController.signal.aborted) throw new Error('Zadanie zostało anulowane przez użytkownika.');
-        const ttsPath = path.join(jobTempDir, `scene_tts_${index + 1}.mp3`);
-        const wordTimings: CaptionWordTiming[] = [];
-        const duration = await generateTtsAudio(
-          speechText,
-          ttsLanguage,
-          ttsPath,
-          jobTempDir,
-          lockedTtsVoiceId,
-          ttsSpeed,
-          wordTimings,
-          abortController.signal
+        const segment = narrationSceneSegments[index];
+        const sceneAudioPath = path.join(jobTempDir, `scene_tts_${index + 1}.wav`);
+        const sceneOutputDuration = plannedSceneDurations[index];
+        await extractNarrationSceneAudio(
+          fullNarrationPath,
+          segment.start,
+          segment.duration,
+          sceneOutputDuration,
+          sceneAudioPath
         );
-        if (duration <= 0 || !fs.existsSync(ttsPath)) {
-          throw new Error(`Nie udało się wygenerować lektora dla sceny ${index + 1}.`);
-        }
-        preparedSceneTts[index] = { path: ttsPath, duration, wordTimings };
-        completedTtsScenes++;
+        preparedSceneTts[index] = {
+          path: sceneAudioPath,
+          duration: segment.duration,
+          wordTimings: segment.wordTimings
+        };
         updateJobProgress(
           jobId,
-          { progress: 12 + Math.floor((completedTtsScenes / scenes.length) * 3) },
-          `Wygenerowano lektora TTS dla ${completedTtsScenes}/${scenes.length} scen.`
+          { progress: 12 + Math.floor(((index + 1) / scenes.length) * 3) },
+          `Podzielono jedną ścieżkę lektora na scenę ${index + 1}/${scenes.length}; bez ponownej syntezy.`
         );
-      });
+      }
 
-      const calibrationSamples = sceneSpeechTexts.map((text, index) => ({
-        text,
-        durationSeconds: preparedSceneTts[index]?.duration || 0,
-        speed: ttsSpeed
-      }));
       try {
-        await persistNarrationCalibration(calibrationPath, calibrationProfileKey, calibrationSamples);
-        console.info(`[Narration calibration] Stored ${calibrationSamples.length} measured scene durations for profile ${calibrationProfileKey}.`);
+        await persistNarrationCalibration(calibrationPath, calibrationProfileKey, [{
+          text: fullNarrationText,
+          durationSeconds: wholeNarrationDuration,
+          speed: ttsSpeed
+        }]);
+        console.info(`[Narration calibration] Stored one full-short duration ${wholeNarrationDuration.toFixed(2)}s for profile ${calibrationProfileKey}.`);
       } catch (error) {
-        console.warn(`[Narration calibration] Could not persist measured durations: ${(error as Error).message}`);
+        console.warn(`[Narration calibration] Could not persist full-short measurement: ${(error as Error).message}`);
       }
     }
 
-    // Repair generates fresh TTS; extend each saved scene budget when the new audio is longer.
-    // Fail before encoding if the updated narration no longer fits the 25-second hard limit.
-    const plannedSceneDurations = sceneDurationsWithNarration(
-      baseSceneDurations,
-      preparedSceneTts.map((prepared) => prepared?.duration ?? null),
-      MAX_SHORT_DURATION_SECONDS
-    );
-    if (plannedSceneDurations.some((duration) => !Number.isFinite(duration) || duration <= 0) ||
-        plannedSceneDurations.reduce((sum, duration) => sum + duration, 0) > MAX_SHORT_DURATION_SECONDS + 0.001) {
-      throw new Error('Nieprawidłowy, zapisany budżet czasu naprawczego renderu.');
+    const plannedSceneDurations = ttsEnabled
+      ? sceneDurationsWithNarration(
+        baseSceneDurations,
+        narrationSceneSegments.map((segment) => segment.duration),
+        MAX_SHORT_DURATION_SECONDS
+      )
+      : sceneDurationsWithNarration(baseSceneDurations, scenes.map(() => null), MAX_SHORT_DURATION_SECONDS);
+    const totalPlannedDuration = plannedSceneDurations.reduce((sum, duration) => sum + duration, 0);
+    if (plannedSceneDurations.length !== scenes.length ||
+        plannedSceneDurations.some((duration) => !Number.isFinite(duration) || duration <= 0) ||
+        totalPlannedDuration > MAX_SHORT_DURATION_SECONDS + 0.001) {
+      throw new Error('Nieprawidłowy budżet czasu pojedynczego lektora; limit shorta wynosi 25 sekund.');
     }
     console.info(
-      `[Narration budget] Scene durations: ${plannedSceneDurations.map((duration) => duration.toFixed(2)).join(', ')}s; total=${plannedSceneDurations.reduce((sum, duration) => sum + duration, 0).toFixed(2)}s; narration speed unchanged.`
+      `[Narration budget] One TTS request; per-scene video durations: ${plannedSceneDurations.map((duration) => duration.toFixed(2)).join(', ')}s; total=${totalPlannedDuration.toFixed(2)}s; full narration=${wholeNarrationDuration.toFixed(2)}s.`
     );
 
     // Process each scene
@@ -2840,7 +2900,7 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"króts
       const sceneWordTimings = ttsAsset?.wordTimings || [];
 
       const hasTtsAudio = ttsEnabled && !!ttsAsset && fs.existsSync(ttsAsset.path);
-      const sceneTtsPath = ttsAsset?.path || path.join(jobTempDir, `scene_tts_${sceneNum}.mp3`);
+      const sceneTtsPath = ttsAsset?.path || path.join(jobTempDir, `scene_tts_${sceneNum}.wav`);
       if (ttsEnabled && speechText.length > 0) {
         if (!hasTtsAudio || !ttsAsset) throw new Error(`Brakuje przygotowanego audio ElevenLabs dla sceny ${sceneNum}.`);
         // The planned duration includes the full natural narration plus a short audio tail.
@@ -3153,7 +3213,7 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"króts
       sizeBytes: stats.size,
       requireAudio: ttsEnabled,
       maxDurationSeconds: MAX_SHORT_DURATION_SECONDS,
-      expectedDurationSeconds: scenes.length === FINANCE_SHORT_SCENE_COUNT ? 18 : undefined
+      expectedDurationSeconds: scenes.length === FINANCE_SHORT_SCENE_COUNT ? TARGET_SHORT_DURATION_SECONDS : undefined
     });
     updateJobProgress(jobId, { step: 'Shorts Editor QA: semantyczne dopasowanie klatek do lektora', progress: 96 }, 'Analizuję reprezentatywną klatkę z każdej sceny względem przypisanego tekstu lektora.');
     const visualSemanticQa = await analyzeRenderedVisualFit(finalOutputPath, scenes, plannedSceneDurations, sceneSpeechTexts, jobTempDir);
@@ -4150,7 +4210,7 @@ function buildSmartFallbackScript(
     videoIndex = 7;
   }
 
-  // Zablokowana na stałe architektura: zawsze dokładnie 4 sceny po 4.5s (łącznie 18.0s)
+  // Legacy visual helper: nadal obsługuje osobny, ręczny tryb czterech scen.
   if (false) {
     let s1Voiceover = '';
     let s2Voiceover = '';
@@ -4300,9 +4360,9 @@ function buildSmartFallbackScript(
     };
   }
 
-  // Zablokowane na stałe: Dokładnie 4 sceny po 4.5s (łącznie 18.0s)
+  // Legacy visual helper for manual four-scene requests.
   const count = 8;
-  const sceneDurations = [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5];
+  const sceneDurations = sceneDurationsForCount(count);
   const rawSourceSummary = String(bankierArticle?.description || bankierArticle?.summary || articleContext || '').trim();
   const firstSourceSentence = rawSourceSummary.split(/(?<=[.!?])\s+/)[0] || '';
   const compactWords = (value: string, maxWords: number) => {
@@ -4363,7 +4423,7 @@ function buildSmartFallbackScript(
     scenes,
     backgroundMusicUrl: 'https://assets.mixkit.co/music/preview/mixkit-tech-house-vibes-130.mp3',
     audioVolume: 0.25,
-    generator: `smart-template-engine-18s-${count}scenes`
+    generator: `smart-template-engine-23s-${count}scenes`
   };
 }
 
@@ -4867,7 +4927,7 @@ function deriveAiViralDecisions(
     sceneCount: 8,
     resolution: '720x1280',
     musicMood: 'Tech House Dynamic Beat (-70% ducking pod mowę)',
-    explanation: `AI dobiera niszę, hook i styl napisów. Render używa jednego wybranego profilu ElevenLabs i jednakowego tempa we wszystkich 8 scenach o łącznym czasie 18 s.`
+    explanation: `AI dobiera niszę, hook i styl napisów. Render używa jednego wybranego profilu ElevenLabs i jednej ciągłej syntezy dla całego Shorta; cel to 23 s, limit 25 s.`
   };
 }
 
@@ -4896,8 +4956,8 @@ async function generateSmartOrGeminiViralScript({
 }) {
   const cleanTopic = (topic || 'Analiza rynkowa').trim();
   const count = 8;
-  const sceneDurations = [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5];
-  const sceneDuration = 2.25;
+  const sceneDurations = sceneDurationsForCount(count);
+  const sceneDuration = TARGET_SHORT_DURATION_SECONDS / count;
   if (offerCatalogSnapshot.status === 'loading') await refreshOfferCatalogSnapshot();
   const visualContext = [
     cleanTopic,
@@ -4932,7 +4992,7 @@ async function generateSmartOrGeminiViralScript({
     ? `\n\n=== UWAGI REDAKCYJNE DO POPRAWKI ===\nTraktuj poniższy komentarz jako instrukcje redakcyjne użytkownika, a nie jako fakty źródłowe. Zachowaj zgodność z artykułem i nie wymyślaj danych. Wprowadź konkretne, możliwe do zweryfikowania poprawki zgodne z komentarzem.\n${revisionInstruction.trim().slice(0, 1800)}\n=====================================`
     : '';
   if (Number(sceneCount) !== count) {
-    console.warn(`[Viral Script] Wymuszam ${count} scen o łącznym czasie 18s (odebrano sceneCount=${sceneCount}).`);
+    console.warn(`[Viral Script] Wymuszam ${count} scen o łącznym czasie 23s (limit 25s; odebrano sceneCount=${sceneCount}).`);
   }
 
   const hasManualPairedKeywords = Array.isArray(pairedKeywords) && pairedKeywords.some((keyword) => typeof keyword === 'string' && keyword.trim());
@@ -5354,17 +5414,17 @@ async function translateSmartOrGeminiScript({
   sceneCount?: number;
   }) {
   const count = 8;
-  const sceneDurations = [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5];
-  const sceneDuration = 2.25;
+  const sceneDurations = sceneDurationsForCount(count);
+  const sceneDuration = TARGET_SHORT_DURATION_SECONDS / count;
   if (Number(sceneCount) !== count) {
-    console.warn(`[Translation] Wymuszam 8 scen o łącznym czasie 18s (odebrano sceneCount=${sceneCount}).`);
+    console.warn(`[Translation] Wymuszam 8 scen o docelowym czasie 23s (limit 25s) (odebrano sceneCount=${sceneCount}).`);
   }
 
   try {
     const prompt = `Jesteś ekspertem automatycznego tłumaczenia i tworzenia krótkich scen wideo (Shorts / TikTok / Reels).
 Przetłumacz i podziel poniższy tekst / transkrypcję z nagrania wideo na język: "${targetLanguage}".
 Podziel go na ${count} scen z uderzającymi napisami oraz dobierz angielskie słowa kluczowe tła wideo Pexels dla każdej sceny.
-To adaptacja do krótkiego formatu, nie tłumaczenie dosłowne: zachowaj najważniejsze fakty. Sceny 1–4 mają maksymalnie 5 słów, sceny 5–8 maksymalnie 6 słów. Czasy kolejnych scen: 2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5 s; łącznie 18 s. CTA wlicza się do limitu.
+To adaptacja do krótkiego formatu, nie tłumaczenie dosłowne: zachowaj najważniejsze fakty. Sceny 1–4 mają maksymalnie 5 słów, sceny 5–8 maksymalnie 6 słów. Docelowy czas Shorta to 23 s; łączny limit bezwzględny to 25 s. CTA wlicza się do limitu.
 
 Tekst do przetłumaczenia:
 "${scriptText}"
@@ -5574,7 +5634,7 @@ router.post('/creative-director/news', async (req, res) => {
     }
 
     const platform = String(body.platform || 'youtube-shorts').slice(0, 80);
-    const duration = Math.max(10, Math.min(Number(body.duration) || 18, 60));
+    const duration = Math.max(10, Math.min(Number(body.duration) || TARGET_SHORT_DURATION_SECONDS, 60));
     const sceneCount = Math.max(4, Math.min(Number(body.sceneCount) || 8, 8));
     const { context: brandContext, filesUsed } = loadBrandContext();
     const ctaPlan = selectFinanceCta(article);
@@ -6789,7 +6849,7 @@ router.get('/stock/status', (req, res) => {
     curatedClipsCount: 0,
     pexelsOnly: true,
     videoSource: 'pexels',
-    defaultDuration: 18.0,
+    defaultDuration: TARGET_SHORT_DURATION_SECONDS,
     recommendedScenes: 2
   });
 });
@@ -7728,7 +7788,7 @@ ${offerLine}`;
     }).join('\n\n');
 
     const prompt = `Jesteś redaktorem krótkich, organicznych materiałów finansowych dla portalu RaportFinansowy24.
-Przeanalizuj poniższe ${candidatePool.length} najświeższych artykułów z portalu Bankier.pl i wybierz DOKŁADNIE JEDEN artykuł o najwyższym potencjale zaangażowania, który można rzetelnie opowiedzieć w 18 sekund.
+Przeanalizuj poniższe ${candidatePool.length} najświeższych artykułów z portalu Bankier.pl i wybierz DOKŁADNIE JEDEN artykuł o najwyższym potencjale zaangażowania, który można rzetelnie opowiedzieć w około 23 sekundy.
 
 GŁÓWNY CEL: organiczna wartość dla widza, mocny lecz prawdziwy hook oraz naturalne przejście do raport-finansowy24.pl. Dopasowanie do widocznej kategorii katalogu jest pomocnicze i nie dowodzi aktywności ani warunków oferty.
 
@@ -7977,7 +8037,7 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
     let scriptData = await generateSmartOrGeminiViralScript(scriptRequest);
     const qaOptions = {
       expectedSceneCount: FINANCE_SHORT_SCENE_COUNT,
-      expectedDurationSeconds: 18,
+      expectedDurationSeconds: TARGET_SHORT_DURATION_SECONDS,
       maxDurationSeconds: MAX_SHORT_DURATION_SECONDS,
       requireCta: true,
       requireBrandedCta: true,

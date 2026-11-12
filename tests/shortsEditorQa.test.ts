@@ -12,7 +12,7 @@ assert.equal(shouldBlockQa('pass', true), false);
 const scenes = Array.from({ length: 8 }, (_, index) => {
   const narration = index === 0 ? 'Co się zmieniło?' : index === 7 ? 'Policz ratę kredytu.' : `Fakt numer ${index + 1}.`;
   return {
-    duration: index < 4 ? 2 : 2.5,
+    duration: 23 / 8,
     voiceover_text: narration,
     subtitles: narration,
     searchKeyword: `specific financial news shot ${index + 1}`,
@@ -22,8 +22,8 @@ const scenes = Array.from({ length: 8 }, (_, index) => {
 
 const validStoryboard = evaluateShortStoryboard(scenes, {
   expectedSceneCount: 8,
-  expectedDurationSeconds: 18,
-  maxDurationSeconds: 23,
+  expectedDurationSeconds: 23,
+  maxDurationSeconds: 25,
   requireCta: true,
   requireVisualQueries: true,
   requireUniquePexelsIds: true,
@@ -100,15 +100,15 @@ const sixWordScenes = [
   'Sprawdź szczegóły przed decyzją',
   'Policz ratę kredytu.'
 ].map((voiceover_text, index) => ({
-  duration: index < 4 ? 2 : 2.5,
+  duration: 23 / 8,
   voiceover_text,
   subtitles: voiceover_text,
   searchKeyword: `unique topic shot ${index + 1}`
 }));
 const autonomousQaOptions = {
   expectedSceneCount: 8,
-  expectedDurationSeconds: 18,
-  maxDurationSeconds: 23,
+  expectedDurationSeconds: 23,
+  maxDurationSeconds: 25,
   requireCta: true,
   requireCaptionAlignment: true,
   maxNarrationWordsExcludingLast: 32,
@@ -189,10 +189,10 @@ const validMedia = evaluateRenderedShort({
   hasAudio: true,
   width: 720,
   height: 1280,
-  durationSeconds: 18.1,
+  durationSeconds: 23.1,
   sizeBytes: 1_200_000,
   requireAudio: true,
-  expectedDurationSeconds: 18
+  expectedDurationSeconds: 23
 });
 assert.equal(validMedia.status, 'pass');
 
@@ -201,7 +201,7 @@ const brokenMedia = evaluateRenderedShort({
   hasAudio: false,
   width: 1920,
   height: 1080,
-  durationSeconds: 24,
+  durationSeconds: 26,
   sizeBytes: 0,
   requireAudio: true
 });
@@ -227,7 +227,7 @@ const thresholdReport = buildVisualSemanticReport(2, [
   { scene: 2, match: false, confidence: 0.59, reason: 'Słabe dopasowanie.' }
 ], 'gemini-3.8-flash');
 assert.equal(thresholdReport.findings.find((finding) => finding.scene === 1)?.severity, 'blocker');
-assert.equal(thresholdReport.findings.find((finding) => finding.scene === 2)?.severity, 'warning');
+assert.equal(thresholdReport.findings.find((finding) => finding.scene === 2)?.severity, 'blocker', 'jawne match=false blokuje niezależnie od niskiej pewności');
 
 const incompleteSemanticReport = buildVisualSemanticReport(2, [semanticResults[0]], 'gemini-3.8-flash');
 assert.equal(incompleteSemanticReport.status, 'review');

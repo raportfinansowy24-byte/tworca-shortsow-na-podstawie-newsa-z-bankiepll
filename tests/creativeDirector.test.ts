@@ -44,6 +44,18 @@ assert.match(fallback.scenes[0].visualQuery, /National Bank of Poland/i);
 assert.doesNotMatch(fallback.scenes[0].visualQuery, /crypto|cryptocurrency/i);
 assert.notEqual(buildArticleVisualQuery(article, 'RPP pozostaje w centrum sporu.', 0), 'financial market chart dynamic');
 
+const landArticle = {
+  title: 'Ziemia pod budowę domu za pół ceny? To miasto ma świetną ofertę dla młodych',
+  description: 'Miasto Suwałki przygotowało ofertę sprzedaży działek budowlanych dla młodych osób.'
+};
+const landQueries = Array.from({ length: 8 }, (_, index) => buildArticleVisualQuery(landArticle, 'Działki budowlane dla młodych mieszkańców.', index));
+assert.ok(landQueries[0].includes('vacant residential building plots'));
+assert.ok(landQueries[1].includes('land surveyor'));
+assert.ok(landQueries[2].includes('young couple'));
+assert.equal(new Set(landQueries).size, 8, 'każda scena ma otrzymać odrębne, konkretne zapytanie dla działek');
+assert.ok(landQueries.every((query) => /land|plot|parcel|couple|surveyor|construction/i.test(query)));
+assert.ok(landQueries.every((query) => !/tram|roof|parking|insurance/i.test(query)), 'zapytania działkowe nie mogą prowadzić do stocków tramwajów, dachów, parkingów ani polis');
+
 const renderScenes = mapCreativeDirectorPlanToRenderScenes(fallback, 'Wejdź na raport-finansowy24.pl i policz ratę kredytu.', 'SPRAWDŹ WPŁYW NA RATĘ\nRAPORT-FINANSOWY24.PL');
 assert.equal(renderScenes.length, 8);
 assert.equal(renderScenes[0].voiceover_text, fallback.hook);
@@ -52,7 +64,7 @@ assert.match(renderScenes[7].subtitles, /RAPORT-FINANSOWY24\.PL/);
 assert.equal(renderScenes[0].visualQuery, fallback.scenes[0].visualQuery);
 assert.equal(renderScenes[0].motionSound.motion, 'hero-zoom');
 assert.equal(renderScenes[7].motionSound.motion, 'end-card');
-assert.ok(Math.abs(renderScenes.reduce((sum, scene) => sum + scene.duration, 0) - 18) < 0.001);
+assert.ok(Math.abs(renderScenes.reduce((sum, scene) => sum + scene.duration, 0) - 23) < 0.001);
 assert.throws(() => mapCreativeDirectorPlanToRenderScenes({ ...fallback, scenes: fallback.scenes.slice(0, 7) }), /dokładnie 8 scen/);
 assert.throws(() => mapCreativeDirectorPlanToRenderScenes({
   ...fallback,
@@ -74,8 +86,8 @@ assert.equal(parsed.sourceTitle, undefined);
 const missingQueryPlan = parseCreativeDirectorPlan(JSON.stringify({
   title: 'Plan', hook: 'Hook', scenes: [{ purpose: 'hook', voiceover: 'Hook', caption: 'HOOK' }]
 }), { article });
-assert.equal(missingQueryPlan.scenes[0].visualQuery, '');
+assert.match(missingQueryPlan.scenes[0].visualQuery, /National Bank of Poland/i, 'gdy artykuł ma rozpoznany anchor, zapytanie jest uzupełniane deterministycznie');
 assert.throws(() => mapCreativeDirectorPlanToRenderScenes({ ...missingQueryPlan, scenes: Array.from({ length: 8 }, (_, index) => ({
-  ...missingQueryPlan.scenes[0], start: index * 2.25, end: (index + 1) * 2.25, visualQuery: ''
+  ...missingQueryPlan.scenes[0], start: index * (23 / 8), end: (index + 1) * (23 / 8), visualQuery: ''
 })) }), /zapytania wizualnego/);
 console.log('Creative Director tests passed');

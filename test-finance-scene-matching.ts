@@ -37,4 +37,32 @@ assert.equal(classifyFinanceVisualCategory(savingsNews), 'savings-deposits');
 const savingsPlan = getFinanceSceneVisualPlan(savingsNews, 4);
 assert.ok(savingsPlan?.every((scene) => /saving|deposit|interest|account|bank/i.test(scene.primaryKeyword)), 'Wizualizacje oszczędności powinny pozostawać w kategorii kont i depozytów.');
 
-console.log('PASS: klasyfikacja tematów, cztery odrębne sceny i odrzucanie nietrafionych klipów.');
+
+const landNews = 'Ziemia pod budowę domu za pół ceny. Suwałki oferują młodym osobom działki budowlane.';
+assert.equal(classifyFinanceVisualCategory(landNews), 'real-estate-land');
+const landPlan = getFinanceSceneVisualPlan(landNews, 8);
+assert.equal(landPlan?.length, 8, 'land storyboard ma osobne zapytania dla ośmiu scen');
+assert.ok(landPlan?.[0].primaryKeyword.includes('vacant residential building plots'));
+assert.equal(isVisualQueryAlignedWithNews(landNews, 'aerial view of vacant residential building plots parcel boundaries'), true);
+assert.equal(isVisualQueryAlignedWithNews(landNews, 'tram street city traffic timelapse'), false, 'tramwaje i generyczne ulice nie są dopasowaniem do działek');
+
+const matchingLandClip = scorePexelsCandidate(
+  landNews,
+  'aerial view of vacant residential building plots with parcel boundaries',
+  'https://www.pexels.com/video/drone-aerial-view-of-empty-residential-land-plots-123456/'
+);
+assert.equal(matchingLandClip.relevant, true, 'slug Pexels opisujący działki ma przejść dopasowanie');
+const tramClip = scorePexelsCandidate(
+  landNews,
+  'small polish town exterior street footage',
+  'https://www.pexels.com/video/tram-streetcar-city-traffic-123456/'
+);
+assert.equal(tramClip.relevant, false, 'materiał z tramwajem powinien zostać jawnie odrzucony dla Suwałk i programu działek');
+const insuranceClip = scorePexelsCandidate(
+  landNews,
+  'real estate purchase contract documents',
+  'https://www.pexels.com/video/home-insurance-policy-form-123456/'
+);
+assert.equal(insuranceClip.relevant, false, 'formularz ubezpieczenia domu nie może zastępować umowy sprzedaży działki');
+
+console.log('PASS: klasyfikacja tematów, sceny działek, semantyczne dopasowanie Pexels i odrzucanie nietrafionych klipów.');

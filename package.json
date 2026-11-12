@@ -27,6 +27,7 @@
     "test:campaign-tracking": "tsx tests/campaignTracking.test.ts",
     "test:render-optimizations": "tsx tests/renderOptimizations.test.ts",
     "test:qa-repair": "tsx tests/qaRepair.test.ts",
+    "test:single-narration": "tsx tests/singleNarration.test.ts",
     "test:short-pipeline": "tsx tests/shortPipeline.test.ts",
     "test:shorts-editor-qa": "tsx tests/shortsEditorQa.test.ts",
     "test:source-fact-qa": "tsx tests/sourceFactQa.test.ts",

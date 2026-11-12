@@ -53,10 +53,10 @@ export function sceneDurationsForCount(sceneCount: number): number[] {
   }
 
   if (sceneCount === FINANCE_SHORT_SCENE_COUNT) {
-    return [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5];
+    return Array.from({ length: FINANCE_SHORT_SCENE_COUNT }, () => TARGET_SHORT_DURATION_SECONDS / FINANCE_SHORT_SCENE_COUNT);
   }
 
-  return Array.from({ length: sceneCount }, () => 18 / sceneCount);
+  return Array.from({ length: sceneCount }, () => TARGET_SHORT_DURATION_SECONDS / sceneCount);
 }
 
 /**

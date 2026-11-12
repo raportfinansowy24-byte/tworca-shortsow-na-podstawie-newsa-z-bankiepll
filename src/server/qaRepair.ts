@@ -111,7 +111,7 @@ export function selectQaRepairCandidates(
     const sceneIndex = oneBasedScene - 1;
     const scene = scenes[sceneIndex];
     const qaResult = resultByScene.get(oneBasedScene);
-    if (!scene || scene.source !== 'pexels' || scene.visualMode === 'data_visual' || !scene.videoUrl || !qaResult || qaResult.match || qaResult.confidence < 0.8) continue;
+    if (!scene || scene.source !== 'pexels' || scene.visualMode === 'data_visual' || !scene.videoUrl || !qaResult || qaResult.match) continue;
     const narration = String(scene.voiceover_text || scene.subtitles || scene.caption || '').trim();
     if (!narration) continue;
     const repairQuery = buildArticleVisualQuery(article, narration, (sceneIndex + 1) % 8);

@@ -13,13 +13,13 @@ const report: QaRepairReport = {
     { code: 'visual_analysis_missing_scene', severity: 'warning', scene: 5, message: 'Brak wyniku.' }
   ],
   visualAnalysis: { results: [
-    { scene: 3, match: false, confidence: 0.92, reason: 'Kryptowaluty.' },
+    { scene: 3, match: false, confidence: 0.25, reason: 'Niska pewność, ale widoczny temat jest sprzeczny z lektorem.' },
     { scene: 4, match: false, confidence: 0.6, reason: 'Niepewne.' },
     { scene: 5, match: false, confidence: 0.95, reason: 'missing.' }
   ] }
 };
 const candidates = selectQaRepairCandidates(scenes, report, article);
-assert.equal(candidates.length, 1, 'naprawiana jest tylko scena z blockerem i wysoką pewnością');
+assert.equal(candidates.length, 1, 'naprawa obejmuje jawne match=false także przy niskiej pewności modelu');
 assert.equal(candidates[0].sceneIndex, 2);
 assert.equal(candidates[0].narration, 'Narracja sceny 3');
 assert.match(candidates[0].repairQuery, /National Bank of Poland/i);

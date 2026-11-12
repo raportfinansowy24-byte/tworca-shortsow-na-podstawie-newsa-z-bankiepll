@@ -93,7 +93,9 @@ export function buildVisualSemanticReport(
     }
     if (result.match) continue;
 
-    const severity = result.confidence >= 0.6 ? 'blocker' : 'warning';
+    // A provider's explicit match=false is a failed visual gate regardless of its confidence score.
+    // Low confidence is a reason to repair/re-check, not a reason to publish mismatched footage.
+    const severity = 'blocker';
     findings.push({
       code: 'visual_narration_mismatch',
       severity,

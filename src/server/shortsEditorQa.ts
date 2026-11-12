@@ -1,5 +1,5 @@
 import { evaluateSourceEvidence } from './sourceFactQa';
-import { isSafeFinanceDataVisualSvg } from './sceneContract';
+import { isSafeFinanceDataVisualSvg, MAX_SHORT_DURATION_SECONDS, TARGET_SHORT_DURATION_SECONDS } from './sceneContract';
 
 export type ShortsEditorQaSeverity = 'blocker' | 'warning';
 export type ShortsEditorQaStatus = 'pass' | 'review' | 'blocked';
@@ -118,7 +118,7 @@ function clampScore(score: number): number {
 export function evaluateShortStoryboard(rawScenes: unknown, options: ShortsEditorQaOptions = {}): ShortsEditorQaReport {
   const scenes = Array.isArray(rawScenes) ? rawScenes.map(sceneObject) : [];
   const expectedSceneCount = options.expectedSceneCount;
-  const maxDurationSeconds = options.maxDurationSeconds ?? 23;
+  const maxDurationSeconds = options.maxDurationSeconds ?? MAX_SHORT_DURATION_SECONDS;
   const findings: ShortsEditorQaFinding[] = [];
   let score = 100;
 
@@ -148,7 +148,7 @@ export function evaluateShortStoryboard(rawScenes: unknown, options: ShortsEdito
     const rawDuration = Number(scene.duration ?? scene.scene_duration ?? scene.sceneDuration);
     const duration = Number.isFinite(rawDuration) && rawDuration > 0
       ? rawDuration
-      : scenes.length > 0 ? 18 / scenes.length : 0;
+      : scenes.length > 0 ? TARGET_SHORT_DURATION_SECONDS / scenes.length : 0;
 
     totalDuration += duration;
     narrations.push(normalizeText(narration));
@@ -271,7 +271,7 @@ export function buildShortsEditorQaRevisionInstruction(report: ShortsEditorQaRep
   return [
     'SHORTS EDITOR QA — JEDNA OGRANICZONA POPRAWKA PLANU PRZED RENDEREM',
     'Zachowaj ten sam artykuł i wyłącznie potwierdzone fakty. Nie twórz nowego tematu ani nie wymyślaj liczb.',
-    'Zwróć dokładnie 8 scen na około 18 sekund. Pierwsze ujęcie ma zatrzymać uwagę od razu; ostatnie ma zawierać zatwierdzone CTA.',
+    'Zwróć dokładnie 8 scen na około 23 sekundy (maksymalnie 25 sekund). Pierwsze ujęcie ma zatrzymać uwagę od razu; ostatnie ma zawierać zatwierdzone CTA.',
     'Każda scena ma mieć krótką narrację, identyczną treść napisów i konkretne, unikalne zapytanie wizualne odnoszące się do tej kwestii.',
     'Każda scena faktograficzna musi zawierać sourceEvidence: krótki, dosłowny cytat z przekazanego artykułu. Cytat musi zawierać wykorzystane liczby i nie może być parafrazowany ani wymyślony.',
     'Usuń powtórzone zdania, ogólniki i niepotrzebne słowa. Nie czytaj URL-i lektorem. Nie zmieniaj polityki CTA.',
@@ -288,7 +288,7 @@ export function evaluateRenderedShort(metrics: RenderedShortMetrics): ShortsEdit
     findings.push(finding);
     score -= finding.severity === 'blocker' ? 35 : 10;
   };
-  const maxDurationSeconds = metrics.maxDurationSeconds ?? 23;
+  const maxDurationSeconds = metrics.maxDurationSeconds ?? MAX_SHORT_DURATION_SECONDS;
 
   if (!metrics.hasVideo) {
     addFinding({ code: 'missing_video_stream', severity: 'blocker', message: 'Gotowy plik nie zawiera strumienia wideo.' });
