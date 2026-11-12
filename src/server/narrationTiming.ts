@@ -1,4 +1,5 @@
 export const DEFAULT_SECONDS_PER_SPEECH_UNIT = 0.4;
+export const NARRATION_ESTIMATE_SAFETY_FACTOR = 1.15;
 export const MAX_NARRATION_CALIBRATION_SAMPLES = 80;
 
 export type NarrationCalibrationStore = {
@@ -81,13 +82,17 @@ export function getCalibratedSecondsPerSpeechUnit(
   profileKey: string
 ): number {
   const samples = store.profiles[profileKey] || [];
-  if (samples.length >= 3) return median(samples.slice(-MAX_NARRATION_CALIBRATION_SAMPLES));
+  const conservativeEstimate = (secondsPerUnit: number) =>
+    Math.min(1.2, secondsPerUnit * NARRATION_ESTIMATE_SAFETY_FACTOR);
+  if (samples.length >= 3) {
+    return conservativeEstimate(median(samples.slice(-MAX_NARRATION_CALIBRATION_SAMPLES)));
+  }
   if (samples.length > 0) {
     const observed = median(samples);
     const confidence = samples.length / 5;
-    return DEFAULT_SECONDS_PER_SPEECH_UNIT * (1 - confidence) + observed * confidence;
+    return conservativeEstimate(DEFAULT_SECONDS_PER_SPEECH_UNIT * (1 - confidence) + observed * confidence);
   }
-  return DEFAULT_SECONDS_PER_SPEECH_UNIT;
+  return conservativeEstimate(DEFAULT_SECONDS_PER_SPEECH_UNIT);
 }
 
 export function recordNarrationCalibrationSamples(

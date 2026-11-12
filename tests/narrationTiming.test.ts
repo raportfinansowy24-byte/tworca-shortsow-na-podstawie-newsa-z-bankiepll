@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   DEFAULT_SECONDS_PER_SPEECH_UNIT,
+  NARRATION_ESTIMATE_SAFETY_FACTOR,
   countNarrationSpeechUnits,
   emptyNarrationCalibrationStore,
   estimateNarrationDurationSeconds,
@@ -24,9 +25,14 @@ calibration = recordNarrationCalibrationSamples(calibration, profileKey, [
   { text: 'Raz dwa trzy cztery', durationSeconds: 2.4, speed: 1 },
   { text: 'Raz dwa trzy cztery', durationSeconds: 2.2, speed: 1 }
 ]);
-assert.ok(Math.abs(getCalibratedSecondsPerSpeechUnit(calibration, profileKey) - 0.55) < 0.001);
+assert.ok(Math.abs(
+  getCalibratedSecondsPerSpeechUnit(calibration, profileKey) - 0.55 * NARRATION_ESTIMATE_SAFETY_FACTOR
+) < 0.001, 'kalibracja używa mediany z 15% marginesem na różnice długości rzeczywistego TTS');
 assert.equal(parseNarrationCalibrationStore({ version: 9, profiles: { bad: [0.4] } }).version, 1);
-assert.equal(getCalibratedSecondsPerSpeechUnit(emptyNarrationCalibrationStore(), 'missing'), DEFAULT_SECONDS_PER_SPEECH_UNIT);
+assert.ok(Math.abs(
+  getCalibratedSecondsPerSpeechUnit(emptyNarrationCalibrationStore(), 'missing') -
+  DEFAULT_SECONDS_PER_SPEECH_UNIT * NARRATION_ESTIMATE_SAFETY_FACTOR
+) < 0.001, 'estymacja bez historii również ma bezpieczny margines');
 
 const base = [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5];
 const shortTexts = ['Raz dwa.', 'Trzy cztery.', 'Pięć sześć.', 'Siedem osiem.', 'Dziewięć.', 'Dziesięć.', 'Jedenaście.', 'Sprawdź raport-finansowy24.pl.'];
