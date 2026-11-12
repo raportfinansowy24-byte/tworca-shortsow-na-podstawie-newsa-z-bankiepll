@@ -35,8 +35,7 @@ export function hasNarrationWithinWordRanges(
 ): boolean {
   if (!Array.isArray(rawScenes) || rawScenes.length !== sceneRanges.length) return false;
   const counts = rawScenes.map((value) => {
-    const scene = sceneObject(value);
-    const narration = firstText(scene, ['voiceover_text', 'voiceoverText', 'voiceover', 'narration', 'speech', 'subtitles', 'caption', 'text']);
+    const narration = getSceneNarrationText(value);
     return countWords(narration);
   });
   if (counts.some((count, index) => count < sceneRanges[index].min || count > sceneRanges[index].max)) return false;
@@ -89,6 +88,33 @@ function firstText(scene: Record<string, unknown>, keys: string[]): string {
     if (typeof value === 'string' && value.trim()) return value.trim();
   }
   return '';
+}
+
+const SCENE_NARRATION_KEYS = [
+  'voiceover_text',
+  'voiceoverText',
+  'voiceover',
+  'narration',
+  'speech',
+  'subtitles',
+  'caption',
+  'text',
+  'tekst_głosowy'
+];
+
+export function getSceneNarrationText(value: unknown): string {
+  const scene = sceneObject(value);
+  const narration = firstText(scene, SCENE_NARRATION_KEYS);
+  if (narration) {
+    // Normalize model aliases before downstream code reads canonical renderer fields.
+    if (typeof scene.voiceover_text !== 'string' || !scene.voiceover_text.trim()) {
+      scene.voiceover_text = narration;
+    }
+    if (typeof scene.subtitles !== 'string' || !scene.subtitles.trim()) {
+      scene.subtitles = narration;
+    }
+  }
+  return narration;
 }
 
 function normalizeText(value: string): string {

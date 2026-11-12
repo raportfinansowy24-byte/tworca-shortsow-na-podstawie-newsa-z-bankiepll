@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { buildShortsEditorQaRevisionInstruction, evaluateRenderedShort, evaluateShortStoryboard, hasNarrationWithinWordRanges, shouldBlockQa } from '../src/server/shortsEditorQa';
+import { buildShortsEditorQaRevisionInstruction, evaluateRenderedShort, evaluateShortStoryboard, getSceneNarrationText, hasNarrationWithinWordRanges, shouldBlockQa } from '../src/server/shortsEditorQa';
 import { buildBrandedCtaSvg } from '../src/server/brandEndCard';
 import { buildVisualAnalysisUnavailableReport, buildVisualSemanticReport, parseVisualSemanticResponse } from '../src/server/shortsVisualSemanticQa';
 import { selectFinanceCta } from '../src/server/financeCtaStrategy';
@@ -33,6 +33,7 @@ const validStoryboard = evaluateShortStoryboard(scenes, {
 assert.equal(validStoryboard.status, 'pass');
 
 assert.equal(validStoryboard.score, 100);
+
 const brandedCtaScenes = scenes.map((scene, index) => index === 7
   ? { ...scene, visualMode: 'data_visual', visualSvg: buildBrandedCtaSvg('SPRAWDŹ SZCZEGÓŁY') }
   : scene);
@@ -60,6 +61,35 @@ const generatedNarrationRanges = [
 assert.equal(hasNarrationWithinWordRanges(generatedNarrationAt32Words, generatedNarrationRanges, { min: 30, max: 36 }), true);
 assert.equal(hasNarrationWithinWordRanges(generatedNarrationAt32Words, Array.from({ length: 8 }, (_, index) => ({ min: 1, max: index < 4 ? 3 : 4 })), { min: 30, max: 36 }), false, 'nowy target ma być akceptowany zamiast starego limitu 28 słów');
 assert.equal(hasNarrationWithinWordRanges(generatedNarrationAt32Words, generatedNarrationRanges, { min: 35, max: 36 }), false, 'łączny limit narracji ma być egzekwowany');
+
+// OpenAI may return equivalent narration fields while leaving canonical keys blank.
+// Normalize all supported aliases before rendering so validation and renderer see the same speech.
+assert.equal(getSceneNarrationText({
+  voiceover_text: '',
+  subtitles: '',
+  voiceover: 'GPW ma szanse rosnąć.',
+  text: 'Nie używaj tego pola, jeśli voiceover już istnieje.'
+}), 'GPW ma szanse rosnąć.');
+assert.equal(getSceneNarrationText({
+  voiceover_text: '',
+  subtitles: '',
+  text: 'Tekst lektora zwrócony w polu text.'
+}), 'Tekst lektora zwrócony w polu text.');
+const aliasedNarrationScenes = generatedNarrationAt32Words.map((scene) => ({
+  voiceover_text: '',
+  subtitles: '',
+  voiceover: scene.voiceover_text
+}));
+assert.equal(
+  hasNarrationWithinWordRanges(aliasedNarrationScenes, generatedNarrationRanges, { min: 30, max: 36 }),
+  true,
+  'walidacja ma używać tego samego aliasu narracji, który później normalizuje renderer'
+);
+assert.equal(aliasedNarrationScenes[0].voiceover_text, generatedNarrationAt32Words[0].voiceover_text);
+assert.equal(aliasedNarrationScenes[0].subtitles, generatedNarrationAt32Words[0].voiceover_text);
+assert.equal(aliasedNarrationScenes[0].voiceover, generatedNarrationAt32Words[0].voiceover_text);
+
+
 const draftWithPlaceholderCta = [
   ...Array.from({ length: 4 }, (_, index) => ({ voiceover_text: `Hook numer ${index + 1} dziś` })),
   ...Array.from({ length: 3 }, (_, index) => ({ voiceover_text: `Ważny fakt numer ${index + 1} teraz` })),
