@@ -26,7 +26,7 @@ export interface StockFootageGridProps {
   /** List of scenes with videoUrl, thumbnailUrl, subtitles, duration */
   scenes: ViralScene[];
   /** Callback when user changes/replaces video footage for a scene */
-  onUpdateSceneVideo?: (sceneIndex: number, newVideo: { videoUrl: string; thumbnailUrl: string; searchKeyword?: string; photographer?: string; source?: 'pexels' | 'curated' }) => void;
+  onUpdateSceneVideo?: (sceneIndex: number, newVideo: { videoUrl: string; thumbnailUrl: string; searchKeyword?: string; photographer?: string; source?: 'pexels' | 'pixabay' | 'curated'; pixabayId?: number; pexelsId?: number; stockId?: string; sourcePageUrl?: string; width?: number; height?: number }) => void;
   /** Callback to start rendering after verification */
   onStartRender?: (verifiedScenes: ViralScene[]) => void;
   /** Callback to re-fetch/regenerate stock footage for all scenes */
@@ -101,7 +101,7 @@ export const StockFootageGrid: React.FC<StockFootageGridProps> = ({
       const q = scene.searchKeyword || viralBase;
       const res = await fetch(`/api/stock/search-pexels?query=${encodeURIComponent(q)}&per_page=12`);
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Błąd pobierania ujęć z Pexels');
+      if (!res.ok) throw new Error(data.error || 'Błąd pobierania ujęć stockowych');
       
       const videos: PexelsVideoItem[] = data.videos || [];
       if (videos.length > 0) {
@@ -114,12 +114,18 @@ export const StockFootageGrid: React.FC<StockFootageGridProps> = ({
           thumbnailUrl: selected.thumbnailUrl,
           searchKeyword: selected.searchKeyword || q,
           photographer: selected.photographer,
-          source: selected.source || 'pexels'
+          source: selected.source || 'pexels',
+          pixabayId: selected.pixabayId,
+          pexelsId: selected.pexelsId,
+          stockId: selected.stockId,
+          sourcePageUrl: selected.sourcePageUrl,
+          width: selected.width,
+          height: selected.height
         });
         setVerifiedScenes((prev) => ({ ...prev, [sceneIndex]: true }));
         onToast?.('success', '⚡ Viral Boost Aktywowany', `Scena #${sceneIndex + 1} otrzymała dynamiczne, wyselekcjonowane ujęcie 9:16 z Pexels!`);
       } else {
-        onToast?.('info', 'Brak alternatyw', 'Pexels nie zwrócił dodatkowych ujęć dla tego zapytania.');
+        onToast?.('info', 'Brak alternatyw', 'Pexels ani Pixabay nie zwróciły dodatkowych ujęć dla tego zapytania.');
       }
     } catch (err) {
       onToast?.('error', 'Błąd Viral Boost', (err as Error).message);
@@ -146,16 +152,16 @@ export const StockFootageGrid: React.FC<StockFootageGridProps> = ({
       const res = await fetch(`/api/stock/search-pexels?query=${encodeURIComponent(query.trim())}&per_page=12`);
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || 'Nie udało się pobrać ujęć z Pexels');
+        throw new Error(data.error || 'Nie udało się pobrać ujęć stockowych');
       }
       setSearchResults(data.videos || []);
       if ((data.videos || []).length === 0) {
-        setSearchError('Brak ujęć pionowych dla tego hasła. Spróbuj innego zapytania.');
+        setSearchError('Brak pasujących klipów stockowych dla tego hasła. Spróbuj innego zapytania.');
       }
     } catch (err) {
       const msg = (err as Error).message;
       setSearchError(msg);
-      onToast?.('error', 'Błąd Pexels', msg);
+      onToast?.('error', 'Błąd stocków', msg);
     } finally {
       setSearchingPexels(false);
     }
@@ -168,10 +174,16 @@ export const StockFootageGrid: React.FC<StockFootageGridProps> = ({
       thumbnailUrl: video.thumbnailUrl,
       searchKeyword: searchQuery,
       photographer: video.photographer,
-      source: video.source || 'pexels'
+      source: video.source || 'pexels',
+      pixabayId: video.pixabayId,
+      pexelsId: video.pexelsId,
+      stockId: video.stockId,
+      sourcePageUrl: video.sourcePageUrl,
+      width: video.width,
+      height: video.height
     });
     setVerifiedScenes((prev) => ({ ...prev, [swapModalSceneIndex]: true }));
-    onToast?.('success', 'Podmieniono ujęcie', `Wybrano nowe ujęcie z Pexels dla Sceny #${swapModalSceneIndex + 1}`);
+    onToast?.('success', 'Podmieniono ujęcie', `Wybrano nowe ujęcie stockowe dla Sceny #${swapModalSceneIndex + 1}`);
     setSwapModalSceneIndex(null);
   };
 
@@ -286,7 +298,7 @@ export const StockFootageGrid: React.FC<StockFootageGridProps> = ({
                 <div className="flex items-center gap-1.5">
                   <span className="px-2 py-0.5 rounded bg-slate-800 text-[10px] font-bold text-slate-300 uppercase flex items-center gap-1">
                     <Camera className="w-3 h-3 text-cyan-400" />
-                    {scene.source === 'pexels' ? 'Pexels 9:16 HD' : 'Stock 9:16'}
+                    {scene.source === 'pexels' ? 'Pexels 9:16 HD' : scene.source === 'pixabay' ? 'Pixabay Stock' : 'Stock 9:16'}
                   </span>
 
                   <button
@@ -627,7 +639,7 @@ export const StockFootageGrid: React.FC<StockFootageGridProps> = ({
                   ) : (
                     <Search className="w-3.5 h-3.5" />
                   )}
-                  <span>Szukaj w Pexels</span>
+                  <span>Szukaj stocków</span>
                 </button>
               </form>
 
@@ -680,7 +692,7 @@ export const StockFootageGrid: React.FC<StockFootageGridProps> = ({
                       >
                         <img
                           src={video.thumbnailUrl}
-                          alt={video.photographer || 'Pexels clip'}
+                          alt={video.photographer || 'Stock clip'}
                           className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
                           loading="lazy"
                         />
@@ -695,14 +707,15 @@ export const StockFootageGrid: React.FC<StockFootageGridProps> = ({
 
                         {/* Bottom Tag */}
                         <div className="relative z-10 p-2 text-[10px] text-slate-300 truncate">
-                          {video.photographer ? `fot. ${video.photographer}` : 'Pexels HD'}
+                          {video.source === 'pixabay' ? 'Pixabay' : 'Pexels'}{video.photographer ? ` · fot. ${video.photographer}` : ''}
+                          {video.sourcePageUrl && video.source === 'pixabay' ? <a href={video.sourcePageUrl} target="_blank" rel="noreferrer" className="ml-1 underline" onClick={(event) => event.stopPropagation()}>Źródło</a> : null}
                         </div>
                       </div>
                     ))}
                   </div>
                 ) : (
                   <div className="py-16 text-center text-xs text-slate-500">
-                    Wpisz frazę i kliknij „Szukaj w Pexels”, aby wyświetlić ujęcia.
+                    Wpisz frazę i kliknij „Szukaj stocków”, aby wyświetlić ujęcia z Pexels lub Pixabay.
                   </div>
                 )}
               </div>

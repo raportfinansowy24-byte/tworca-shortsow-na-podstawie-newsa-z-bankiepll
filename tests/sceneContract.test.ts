@@ -77,6 +77,11 @@ const distinctPexels = Array.from({ length: 8 }, (_, i) => ({ source: 'pexels', 
 assert.equal(hasUniquePexelsSceneIds(distinctPexels), true);
 assert.equal(hasUniquePexelsSceneIds([...distinctPexels.slice(0, 7), distinctPexels[0]]), false);
 assert.equal(hasUniquePexelsSceneIds(distinctPexels.slice(0, 7)), false);
+const distinctPixabay = Array.from({ length: 8 }, (_, i) => ({ source: 'pixabay', pexelsId: 1_000_000_000_000 + i + 1, pixabayId: i + 1, stockId: 'pixabay:' + (i + 1) }));
+assert.equal(hasUniquePexelsSceneIds(distinctPixabay), true, 'zaakceptuj unikalne ID Pixabay namespacowane poza zakresem Pexels');
+assert.equal(hasUniquePexelsSceneIds([...distinctPixabay.slice(0, 7), distinctPixabay[0]]), false, 'blokuj powtórzone ID stock');
+assert.equal(hasUniquePexelsSceneIds([...distinctPixabay.slice(0, 7), { ...distinctPixabay[7], pixabayId: undefined }]), false, 'Pixabay musi zachować oryginalne ID dostawcy');
+
 const safeFinanceDataSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="720" height="1280" viewBox="0 0 720 1280"><rect width="720" height="1280" fill="#fff"/></svg>';
 assert.equal(isSafeFinanceDataVisualSvg(safeFinanceDataSvg), true);
 assert.equal(isSafeFinanceDataVisualSvg(safeFinanceDataSvg.replace('<rect', '<script>alert(1)</script><rect')), false);
@@ -90,6 +95,9 @@ assert.equal(hasCompleteFinanceSceneVisualAssets([...mixedVisualAssets.slice(0, 
 assert.equal(hasCompleteFinanceSceneVisualAssets([{ ...mixedVisualAssets[0], visualSvg: '' }, ...mixedVisualAssets.slice(1)]), false);
 assert.equal(hasCompleteFinanceSceneVisualAssets([{ ...mixedVisualAssets[0], visualSvg: safeFinanceDataSvg.replace('<rect', '<script>alert(1)</script><rect') }, ...mixedVisualAssets.slice(1)]), false);
 assert.equal(hasCompleteFinanceSceneVisualAssets(Array.from({ length: 8 }, () => ({ visualMode: 'data_visual', visualSvg: safeFinanceDataSvg }))), true);
+assert.equal(hasCompleteFinanceSceneVisualAssets(distinctPixabay.map((scene) => ({ ...scene, visualMode: 'matched_clip', videoUrl: 'https://cdn.pixabay.com/video/clip.mp4' }))), true, 'Pixabay może legalnie uzupełnić wszystkie sceny stockowe');
+assert.equal(hasCompleteFinanceSceneVisualAssets(distinctPixabay.map((scene, index) => ({ ...scene, pixabayId: index === 7 ? undefined : scene.pixabayId, visualMode: 'matched_clip' }))), false, 'nie akceptuj Pixabay bez oryginalnego ID');
+
 
 assert.deepEqual(sceneRequestMetadata('auto-pilot-news', 'id_123', 'fallback'), { source: 'auto-pilot-news', requestId: 'id_123' });
 assert.equal(sceneRequestMetadata('bad source!', 'id_123', 'api-client').source, 'api-client');

@@ -221,7 +221,7 @@ export function evaluateShortStoryboard(rawScenes: unknown, options: ShortsEdito
     if (Number.isSafeInteger(rawVisualId) && rawVisualId > 0) {
       visualIds.push(rawVisualId);
     } else if (options.requireUniquePexelsIds && scene.visualMode !== 'data_visual') {
-      addFinding({ code: 'missing_visual_asset_id', severity: 'blocker', message: `Scena ${sceneNumber} nie ma rozpoznanego ID klipu Pexels.`, scene: sceneNumber });
+      addFinding({ code: 'missing_visual_asset_id', severity: 'blocker', message: `Scena ${sceneNumber} nie ma rozpoznanego ID klipu stockowego.`, scene: sceneNumber });
     }
   });
 
@@ -256,7 +256,7 @@ export function evaluateShortStoryboard(rawScenes: unknown, options: ShortsEdito
   });
 
   if (options.requireUniquePexelsIds && new Set(visualIds).size !== visualIds.length) {
-    addFinding({ code: 'repeated_visual_asset', severity: 'blocker', message: 'Co najmniej dwie sceny używają tego samego klipu Pexels.' });
+    addFinding({ code: 'repeated_visual_asset', severity: 'blocker', message: 'Co najmniej dwie sceny używają tego samego klipu stockowego.' });
   }
 
   if (options.requireCta && scenes.length > 0) {

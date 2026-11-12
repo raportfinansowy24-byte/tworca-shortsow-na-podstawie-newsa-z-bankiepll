@@ -58,7 +58,7 @@ export interface CreativeDirectorRenderScene {
   motionSound: MotionSoundSpec;
 }
 
-/** Build a scene-specific Pexels query from an article-grounded, visible subject. */
+/** Build a scene-specific Pexels/Pixabay query from an article-grounded, visible subject. */
 export function buildArticleVisualQuery(article: CreativeDirectorArticle, narration: string, sceneIndex: number): string {
   const source = `${article.title} ${article.description || ''} ${article.summary || ''} ${article.keyTakeaway || ''} ${narration}`;
   const lower = source.toLocaleLowerCase('pl-PL').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -142,13 +142,13 @@ ZASADY RZETELNOŚCI:
 
 REŻYSERIA UJĘĆ I WYSZUKIWANIE PEXELS:
 - Dla każdej sceny podaj osobne, niepowtarzalne visualQuery po angielsku: konkretny widoczny podmiot + czynność + miejsce lub obiekt; używaj słów, które mogą wystąpić w opisie stockowego klipu.
-- visualQuery jest zapytaniem do wyszukiwarki Pexels, nie promptem generatora: nie umieszczaj w nim parametrów kamery, nazw obiektywów, abstrakcyjnych emocji ani faktów/danych, których nie widać w scenie.
+- visualQuery jest zapytaniem do wyszukiwarki Pexels/Pixabay, nie promptem generatora: nie umieszczaj w nim parametrów kamery, nazw obiektywów, abstrakcyjnych emocji ani faktów/danych, których nie widać w scenie.
 - Dobieraj obraz do dokładnej wypowiedzi sceny i źródła. Nie zastępuj konkretu generycznym stockiem finansowym; nie wymyślaj wykresów, kwot, nazw, logo ani informacji ekranowych. Jeśli news opisuje działki/grunty, szukaj wyłącznie niezabudowanych parceli, pomiaru granic, geodety lub oglądania gruntu — nigdy dachów, parkingów ani polis ubezpieczeniowych.
 - W polu camera opisz filmowalne kadrowanie/rozmiar planu, jeden spójny ruch kamery oraz obiektyw lub głębię ostrości. Nie łącz sprzecznych ruchów.
 - W polu visualMood opisz konkretny schemat światła, atmosferę i grading oraz fizycznie wiarygodne relacje światła z otoczeniem.
 - directorBrief ma podsumować spójną estetykę całości i zawierać krótką wskazówkę dźwiękową; nie dodawaj scen ani faktów poza zatwierdzonym storyboardem.
 - Jeśli news wymienia miasto, nie przedstawiaj generycznego stocku jako nagrania z tego miasta. Nie wybieraj infrastruktury miejskiej (np. tramwajów), jeśli źródło nie potwierdza jej obecności; w razie braku lokalnego stocku użyj neutralnego, uczciwie ilustracyjnego obrazu lub planszy danych.
-- Ujęcia są wyszukiwane i dobierane z Pexels przez istniejący resolver. Opis kamery kieruje storyboardem, ale nie gwarantuje, że pobrany stock zawiera dokładnie taki ruch; nie twierdź, że resolver syntetyzuje brakujący ruch.
+- Ujęcia są wyszukiwane i dobierane z Pexels/Pixabay przez istniejący resolver. Opis kamery kieruje storyboardem, ale nie gwarantuje, że pobrany stock zawiera dokładnie taki ruch; nie twierdź, że resolver syntetyzuje brakujący ruch.
 
 KONTEKST MARKI:
 ${brandContext}
@@ -186,7 +186,7 @@ WYMAGANY JSON:
       "voiceover": "tekst lektora tej sceny",
       "caption": "NAPIS NA EKRANIE",
       "sourceEvidence": "dosłowny fragment artykułu wspierający wypowiedź",
-      "visualQuery": "unique English Pexels search query: visible subject, action, setting",
+      "visualQuery": "unique English Pexels/Pixabay search query: visible subject, action, setting",
       "visualMood": "lighting design, atmosphere, physically plausible light, color grade",
       "camera": "shot size and framing, one coherent camera move, lens or depth of field"
     }
@@ -194,7 +194,7 @@ WYMAGANY JSON:
   "riskFlags": ["opcjonalne ostrzeżenia redakcyjne"]
 }
 
-Sceny powinny tworzyć logiczną sekwencję: hook, fakt, znaczenie dla odbiorcy, kontekst, konsekwencja, praktyczny wniosek, CTA. Używaj technicznych określeń wizualnych zamiast ogólnych przymiotników. Każda z ${sceneCount} scen ma mieć odrębne visualQuery; kamera, kadr, światło i optyka należą do camera/visualMood, a nie do zapytania Pexels.`;
+Sceny powinny tworzyć logiczną sekwencję: hook, fakt, znaczenie dla odbiorcy, kontekst, konsekwencja, praktyczny wniosek, CTA. Używaj technicznych określeń wizualnych zamiast ogólnych przymiotników. Każda z ${sceneCount} scen ma mieć odrębne visualQuery; kamera, kadr, światło i optyka należą do camera/visualMood, a nie do zapytania Pexels/Pixabay.`;
 }
 
 function cleanJsonText(text: string): string {

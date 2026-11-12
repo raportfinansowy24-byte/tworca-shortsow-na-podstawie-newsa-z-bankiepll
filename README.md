@@ -36,7 +36,7 @@ Aplikacja zawiera pełny stos:
 │  - Auto-Pilot AI: scraping newsów Bankier.pl, scoring wiralowości      │
 │  - Storyboard Draft Preview: podgląd scen, tekstu i plansz przed renderem│
 │  - Rendering Queue: pasek postępu renderu, podgląd HTML5 MP4 inline    │
-│  - Monitor Usług: latencja i stan FFmpeg, Pexels API, ElevenLabs API   │
+│  - Monitor Usług: latencja i stan FFmpeg, Pexels/Pixabay Stock API, ElevenLabs API   │
 │  - Zarządzanie eksportem do Google Drive, Google Sheets i Postiz        │
 └────────────────────────────────────┬───────────────────────────────────┘
                                      │ REST / SSE
@@ -101,7 +101,7 @@ Aplikacja zawiera pełny stos:
 |---|---|---|
 | `GET` | `/api/health` | Lekki endpoint zdrowia (FFmpeg, czcionka Anton, aktywne zadania, deployment Fly.io) |
 | `GET` | `/api/healthz` | Bezzwłoczny probe liveness dla load balancera Fly.io |
-| `GET` | `/api/services/health` | Szczegółowa diagnostyka połączeń z FFmpeg, Pexels i ElevenLabs |
+| `GET` | `/api/services/health` | Szczegółowa diagnostyka połączeń z FFmpeg, Pexels, Pixabay i ElevenLabs |
 | `POST` | `/api/combine-scenes` | Główny endpoint montażu wideo z pełnym storyboardem i QA |
 | `POST` | `/api/auto-pilot-shorts` | Automatyczne pobranie newsu, wygenerowanie 4 scen i render |
 | `GET` | `/api/jobs/:jobId` | Status zadania renderowania (`queued`, `processing`, `completed`, `failed`) |
@@ -114,7 +114,7 @@ Aplikacja zawiera pełny stos:
 
 ## 🔒 Zasady Bezpieczeństwa i Zgodności
 
-- **Sekrety**: Żadne klucze API (`GEMINI_API_KEY`, `ELEVENLABS_API_KEY`, `PEXELS_API_KEY`) nie wyciekają do kodu klienta przeglądarki — wszelkie integracje zewnętrzne działają wyłącznie po stronie serwera Node.js.
+- **Sekrety**: Żadne klucze API (`GEMINI_API_KEY`, `ELEVENLABS_API_KEY`, `PEXELS_API_KEY`, `PIXABAY_API_KEY`) nie wyciekają do kodu klienta przeglądarki — wszelkie integracje zewnętrzne działają wyłącznie po stronie serwera Node.js.
 - **Bezpieczeństwo logowania błędów**: Błędy SDK modeli AI są sanityzowane przed wypisaniem do konsoli (`sanitizeModelErrorSummary`), aby nie ujawniać surowych tokenów ani nie wywoływać fałszywych alarmów skanera błędów.
 - **Rzetelność finansowa**: Aplikacja nie generuje niesprawdzonych wskaźników RRSO/oprocentowania. Dane dynamiczne są kontrolowane przez moduł `sourceFactQa`, a materiały przykładowe są oznaczone redakcyjnie jako niemające charakteru rekomendacji inwestycyjnej.
 
@@ -211,7 +211,8 @@ Skonfiguruj plik `.env` w oparciu o `.env.example`. Na Fly.io wartości ustawiaj
 | `GEMINI_API_KEY` | Opcjonalnie dla AI | Jedyny awaryjny fallback po błędzie OpenAI: Gemini 3.8 Flash (`gemini-3.8-flash`); bez starszych modeli Gemini |
 | `ELEVENLABS_API_KEY` | Tak dla TTS | Klucz ElevenLabs API dla syntezy głosu lektora |
 | `ELEVENLABS_VOICE_ID` | Nie | Domyślnie `onwK4e9ZLuTAKqWW03F9` (Daniel) |
-| `PEXELS_API_KEY` | Tak dla wideo | Klucz Pexels API do wyszukiwania pionowych klipów stockowych |
+| `PEXELS_API_KEY` | Opcjonalnie, podstawowy dostawca | Klucz Pexels API do wyszukiwania klipów stockowych |
+| `PIXABAY_API_KEY` | Opcjonalnie, fallback | Klucz Pixabay API do wyszukiwania filmów stockowych; zapytania API są buforowane przez minimum 24 godziny zgodnie z wymaganiami dostawcy |
 | `TELEGRAM_BOT_TOKEN` | Opcjonalnie | Token bota Telegrama do interaktywnej akceptacji wideo |
 | `TELEGRAM_CHAT_ID` | Opcjonalnie | ID czatu Telegram, na który wysyłany jest gotowy plik MP4 |
 | `TELEGRAM_WEBHOOK_SECRET` | Opcjonalnie | Sekret autoryzacyjny nagłówka webhooka Telegrama |

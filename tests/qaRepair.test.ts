@@ -27,6 +27,11 @@ assert.notEqual(candidates[0].repairQuery, candidates[0].originalQuery);
 assert.deepEqual(validatedPexelsRepairMetadata({ source: 'pexels', pexelsId: 102 }), { source: 'pexels', pexelsId: 102 });
 assert.deepEqual(validatedPexelsRepairMetadata({ source: 'pexels', pexelsId: '102' }), {}, 'nie zachowuj ID w niekanonicznym formacie');
 assert.deepEqual(validatedPexelsRepairMetadata({ source: 'other', pexelsId: 102 }), {});
+const validPixabayMetadata = { source: 'pixabay', pexelsId: 1_000_000_000_123, pixabayId: 123, stockId: 'pixabay:123', sourcePageUrl: 'https://pixabay.com/videos/id-123/' };
+assert.deepEqual(validatedPexelsRepairMetadata(validPixabayMetadata), validPixabayMetadata, 'zachowaj poprawne ID, provider i stronę źródłową Pixabay');
+assert.deepEqual(validatedPexelsRepairMetadata({ ...validPixabayMetadata, stockId: 'pixabay:999' }), {}, 'odrzuć niespójny identyfikator stock');
+assert.deepEqual(validatedPexelsRepairMetadata({ ...validPixabayMetadata, sourcePageUrl: 'https://evil.example/pixabay.com/video' }), {}, 'odrzuć obcy host źródła');
+
 const apiNormalizedScenes = scenes.map((scene) => ({
   ...scene,
   source: undefined,
@@ -43,6 +48,13 @@ assert.equal(repaired[2].videoUrl, 'https://new-video/3.mp4');
 assert.equal(repaired[2].pexelsId, 999);
 assert.equal(repaired[0], scenes[0], 'zaakceptowane sceny są zachowane bez zmian');
 assert.equal(repaired[7], scenes[7], 'zaakceptowane sceny nie są ponownie pobierane');
+const pixabayRepaired = applyQaRepairAssets(scenes, [{ sceneIndex: 2, visualQuery: candidates[0].repairQuery, videoUrl: 'https://cdn.pixabay.com/video/new.mp4', pexelsId: 1_000_000_000_123, source: 'pixabay', pixabayId: 123, stockId: 'pixabay:123', sourcePageUrl: 'https://pixabay.com/videos/id-123/', width: 1080, height: 1920 }]);
+assert.equal(pixabayRepaired[2].source, 'pixabay');
+assert.equal(pixabayRepaired[2].pixabayId, 123);
+assert.equal(pixabayRepaired[2].stockId, 'pixabay:123');
+assert.equal(pixabayRepaired[2].width, 1080);
+assert.equal(pixabayRepaired[2].height, 1920);
+
 
 const dataVisualScenes = scenes.map((scene, index) => index === 2 ? { ...scene, visualMode: 'data_visual' } : scene);
 assert.equal(selectQaRepairCandidates(dataVisualScenes, report, article).length, 0, 'nie zastępujemy wykresów/visualizacji danymi stockiem');

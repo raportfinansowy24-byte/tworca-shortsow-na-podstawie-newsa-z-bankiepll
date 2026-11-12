@@ -1,6 +1,6 @@
 # Creative Director — RaportFinansowy24
 
-Moduł Creative Director dodaje markową warstwę planowania przed istniejącym pipeline’em `/api/auto-pilot-shorts`. Nie zastępuje Pexels, TTS, FFmpeg, Telegram approval ani eksportu do Google Drive.
+Moduł Creative Director dodaje markową warstwę planowania przed istniejącym pipeline’em `/api/auto-pilot-shorts`. Nie zastępuje Pexels/Pixabay, TTS, FFmpeg, Telegram approval ani eksportu do Google Drive.
 
 ## Pliki marki
 
@@ -30,17 +30,17 @@ Przykładowe żądanie:
 }
 ```
 
-Odpowiedź zawiera `plan` z hookiem, tekstem, CTA, hashtagami, rekomendowanym głosem, technicznym `directorBrief`, ośmioma beatami scen oraz `riskFlags`. Każda scena zawiera angielskie `visualQuery`, które można przekazać do istniejącego dopasowania Pexels.
+Odpowiedź zawiera `plan` z hookiem, tekstem, CTA, hashtagami, rekomendowanym głosem, technicznym `directorBrief`, ośmioma beatami scen oraz `riskFlags`. Każda scena zawiera angielskie `visualQuery`, które można przekazać do istniejącego dopasowania Pexels/Pixabay.
 
-## Cinema Director + Pexels
+## Cinema Director + Pexels/Pixabay
 
-Prompty głównego generatora shortów z Pexels oraz Creative Directora rozdzielają dwa rodzaje wskazówek: `searchKeyword`/`visualQuery` jest krótkim, literalnym zapytaniem po angielsku (widoczny podmiot, czynność, miejsce/obiekt) dla wyszukiwarki Pexels; `camera` opisuje rozmiar planu, pojedynczy spójny ruch i optykę; `visualMood` opisuje światło, atmosferę i grading. `directorBrief` streszcza ciągłość estetyczną oraz dźwięk. Zapytania scen mają być odrębne i nie mogą zawierać fikcyjnych danych, niewidocznych szczegółów ani samych abstrakcyjnych emocji. Własne `pairedKeywords` przekazane jawnie przez klienta zachowują pierwszeństwo; w pozostałych przypadkach główny generator wyszukuje klipy po zapytaniu konkretnej sceny wygenerowanym przez model.
+Prompty głównego generatora shortów z Pexels/Pixabay oraz Creative Directora rozdzielają dwa rodzaje wskazówek: `searchKeyword`/`visualQuery` jest krótkim, literalnym zapytaniem po angielsku (widoczny podmiot, czynność, miejsce/obiekt) dla wyszukiwarki Pexels/Pixabay; `camera` opisuje rozmiar planu, pojedynczy spójny ruch i optykę; `visualMood` opisuje światło, atmosferę i grading. `directorBrief` streszcza ciągłość estetyczną oraz dźwięk. Zapytania scen mają być odrębne i nie mogą zawierać fikcyjnych danych, niewidocznych szczegółów ani samych abstrakcyjnych emocji. Własne `pairedKeywords` przekazane jawnie przez klienta zachowują pierwszeństwo; w pozostałych przypadkach główny generator wyszukuje klipy po zapytaniu konkretnej sceny wygenerowanym przez model.
 
-Podczas renderu `mapCreativeDirectorPlanToRenderScenes()` zachowuje `visualQuery`, `camera` i `visualMood`, a `/api/auto-pilot-shorts` przekazuje wyszukiwanie do `resolveStockOrPexelsVideoDetailed()`. Resolver wyszukuje pionowe klipy Pexels, stosuje istniejące reguły trafności tematycznej oraz odrzuca ID użyte wcześniej w danym filmie. Kierunek kamery jest wskazówką reżyserską/storyboardową, nie operacją na pobranym pliku: nie gwarantuje dokładnego ruchu kamery, ruchu wirtualnego ani zgodności każdego wyniku stockowego z moodem. Standardowy `finance-v2` celowo tworzy własne, źródłowe wizualizacje danych i nie powinien być automatycznie zamieniany na stock Pexels. Harmonogram może nadal wybierać tę ścieżkę; sama aktualizacja promptów nie przełącza jego trybu.
+Podczas renderu `mapCreativeDirectorPlanToRenderScenes()` zachowuje `visualQuery`, `camera` i `visualMood`, a `/api/auto-pilot-shorts` przekazuje wyszukiwanie do `resolveStockOrPexelsVideoDetailed()`. Resolver wyszukuje pionowe klipy Pexels/Pixabay, stosuje istniejące reguły trafności tematycznej oraz odrzuca ID użyte wcześniej w danym filmie. Kierunek kamery jest wskazówką reżyserską/storyboardową, nie operacją na pobranym pliku: nie gwarantuje dokładnego ruchu kamery, ruchu wirtualnego ani zgodności każdego wyniku stockowego z moodem. Standardowy `finance-v2` celowo tworzy własne, źródłowe wizualizacje danych i nie powinien być automatycznie zamieniany na stock Pexels/Pixabay. Harmonogram może nadal wybierać tę ścieżkę; sama aktualizacja promptów nie przełącza jego trybu.
 
 ## Karty danych GPW
 
-Generator sprawdza, czy scena omawia indeks GPW i procentową zmianę potwierdzoną w tytule, opisie lub podsumowaniu artykułu (m.in. WIG20, WIG30, mWIG40, sWIG80 i WIG-Banki). Gdy etykieta lub wartość pasuje do lektora/napisu, tworzy lokalną kartę SVG zamiast wyszukiwać stock Pexels dla tej sceny. Karta pokazuje wyłącznie wartość wyciągniętą ze źródła; brak danych, sprzeczna liczba lub niespójna scena nie uruchamia karty. Short może więc zawierać mieszankę bezpiecznych plansz SVG i klipów Pexels, przy czym ID klipów nadal muszą być unikalne.
+Generator sprawdza, czy scena omawia indeks GPW i procentową zmianę potwierdzoną w tytule, opisie lub podsumowaniu artykułu (m.in. WIG20, WIG30, mWIG40, sWIG80 i WIG-Banki). Gdy etykieta lub wartość pasuje do lektora/napisu, tworzy lokalną kartę SVG zamiast wyszukiwać stock Pexels/Pixabay dla tej sceny. Karta pokazuje wyłącznie wartość wyciągniętą ze źródła; brak danych, sprzeczna liczba lub niespójna scena nie uruchamia karty. Short może więc zawierać mieszankę bezpiecznych plansz SVG i klipów Pexels/Pixabay, przy czym ID klipów nadal muszą być unikalne.
 
 Walidację integracji promptu uruchom przez `npm run test:creative-director`.
 

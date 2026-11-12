@@ -39,7 +39,8 @@
     "test:finance-chart": "tsx tests/financeChartVisual.test.ts",
     "test:adaptive-music": "tsx tests/adaptiveMusicStrategy.test.ts",
     "test:model-routing": "tsx tests/modelRouting.test.ts",
-    "test:pexels-candidate-visual-qa": "tsx tests/pexelsCandidateVisualQa.test.ts"
+    "test:pexels-candidate-visual-qa": "tsx tests/pexelsCandidateVisualQa.test.ts",
+    "test:pixabay-video-provider": "tsx tests/pixabayVideoProvider.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

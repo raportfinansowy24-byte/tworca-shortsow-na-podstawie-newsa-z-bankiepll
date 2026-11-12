@@ -104,6 +104,7 @@ export const ServiceStatusMonitor: React.FC<ServiceStatusMonitorProps> = ({
   };
 
   const pexels = data?.services.pexels;
+  const pixabay = data?.services.pixabay;
   const ffmpeg = data?.services.ffmpeg;
   const elevenLabs = data?.services.elevenLabs;
   const overall = data?.status || 'unhealthy';
@@ -125,7 +126,7 @@ export const ServiceStatusMonitor: React.FC<ServiceStatusMonitorProps> = ({
               Monitoring Usług Wideo w Czasie Rzeczywistym
             </h3>
             <p className="text-xs text-slate-400">
-              Pexels API · FFmpeg Renderer · ElevenLabs Voice Synthesizer
+              Pexels + Pixabay Stock API · FFmpeg Renderer · ElevenLabs Voice Synthesizer
             </p>
           </div>
         </div>
@@ -175,7 +176,7 @@ export const ServiceStatusMonitor: React.FC<ServiceStatusMonitorProps> = ({
       )}
 
       {/* Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-5">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mt-5">
         {/* 1. Pexels API Card */}
         <div
           data-testid="pexels_health_card"
@@ -205,6 +206,37 @@ export const ServiceStatusMonitor: React.FC<ServiceStatusMonitorProps> = ({
             <div className="flex items-center gap-1">
               <Key className="w-3 h-3 text-slate-500" />
               <span>Klucz: {pexels?.hasKey ? 'Obecny' : 'Brak'}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* 2. Pixabay API Card */}
+        <div
+          data-testid="pixabay_health_card"
+          className="p-4 rounded-xl bg-slate-950/60 border border-slate-800/80 hover:border-slate-700/80 transition-all flex flex-col justify-between"
+        >
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-lg bg-violet-500/10 text-violet-400">
+                  <Video className="w-4 h-4" />
+                </div>
+                <span className="font-semibold text-sm text-slate-200">Pixabay API · Fallback</span>
+              </div>
+              {pixabay ? renderStatusBadge(pixabay.status) : <span className="text-xs text-slate-500">...</span>}
+            </div>
+            <p className="text-xs text-slate-400 line-clamp-2 min-h-[32px]">
+              {pixabay?.message || 'Ładowanie stanu Pixabay API...'}
+            </p>
+          </div>
+          <div className="mt-4 pt-3 border-t border-slate-800/60 flex items-center justify-between text-[11px] text-slate-400">
+            <div className="flex items-center gap-1">
+              <Clock className="w-3 h-3 text-slate-500" />
+              <span>Opóźnienie: {pixabay?.latencyMs !== undefined ? `${pixabay.latencyMs} ms` : '—'}</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <Key className="w-3 h-3 text-slate-500" />
+              <span>Klucz: {pixabay?.hasKey ? 'Obecny' : 'Brak'}</span>
             </div>
           </div>
         </div>

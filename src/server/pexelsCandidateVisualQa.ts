@@ -16,11 +16,12 @@ export interface SelectedPexelsVisualCandidate {
   reason: string;
 }
 
-export function isTrustedPexelsPreviewUrl(value: string): boolean {
+export function isTrustedStockPreviewUrl(value: string): boolean {
   try {
     const url = new URL(value);
     return url.protocol === 'https:' &&
-      (url.hostname === 'pexels.com' || url.hostname.endsWith('.pexels.com'));
+      (url.hostname === 'pexels.com' || url.hostname.endsWith('.pexels.com') ||
+        url.hostname === 'pixabay.com' || url.hostname.endsWith('.pixabay.com'));
   } catch {
     return false;
   }
@@ -47,3 +48,6 @@ export function selectVisuallyVerifiedPexelsCandidate(
     .sort((a, b) => b.score - a.score);
   return accepted[0] || null;
 }
+
+/** Backward-compatible alias; the validator now accepts both configured stock providers. */
+export const isTrustedPexelsPreviewUrl = isTrustedStockPreviewUrl;

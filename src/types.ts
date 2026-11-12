@@ -92,6 +92,7 @@ export interface DetailedServicesHealth {
     pexels: ServiceHealthItem & {
       hasKey: boolean;
     };
+    pixabay?: ServiceHealthItem & { hasKey: boolean };
     elevenLabs: ServiceHealthItem & {
       hasKey: boolean;
       voiceId?: string;
@@ -174,9 +175,15 @@ export interface ViralScene {
   searchKeyword: string;
   videoUrl: string;
   thumbnailUrl?: string;
-  source?: 'pexels' | 'curated';
+  source?: 'pexels' | 'pixabay' | 'curated';
   photographer?: string;
+  photographerUrl?: string;
   pexelsId?: number;
+  pixabayId?: number;
+  stockId?: string;
+  sourcePageUrl?: string;
+  width?: number;
+  height?: number;
   captionStyle: CaptionStyle;
   trimStart?: number;
   trimEnd?: number;
@@ -192,7 +199,11 @@ export interface PexelsVideoItem {
   duration?: number;
   photographer?: string;
   photographerUrl?: string;
-  source?: 'pexels' | 'curated';
+  source?: 'pexels' | 'pixabay' | 'curated';
+  pixabayId?: number;
+  pexelsId?: number;
+  stockId?: string;
+  sourcePageUrl?: string;
 }
 
 export interface ViralScriptResponse {

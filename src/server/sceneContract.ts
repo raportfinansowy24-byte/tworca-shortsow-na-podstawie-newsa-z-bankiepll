@@ -20,7 +20,7 @@ export function getSceneCountError(expectedSceneCount: unknown, actualSceneCount
 export function hasUniquePexelsSceneIds(scenes: unknown): boolean {
   if (!Array.isArray(scenes) || scenes.length !== FINANCE_SHORT_SCENE_COUNT) return false;
   const ids = scenes.map((scene: any) => scene?.pexelsId);
-  return scenes.every((scene: any) => scene?.source === 'pexels' && Number.isSafeInteger(scene?.pexelsId)) &&
+  return scenes.every((scene: any) => ['pexels', 'pixabay'].includes(scene?.source) && Number.isSafeInteger(scene?.pexelsId) && scene.pexelsId > 0 && (scene.source !== 'pixabay' || (Number.isSafeInteger(scene?.pixabayId) && typeof scene.pixabayId === 'number' && scene.pixabayId > 0 && scene.stockId === 'pixabay:' + scene.pixabayId))) &&
     new Set(ids).size === FINANCE_SHORT_SCENE_COUNT;
 }
 
@@ -41,7 +41,8 @@ export function hasCompleteFinanceSceneVisualAssets(scenes: unknown): boolean {
       if (!isSafeFinanceDataVisualSvg(scene.visualSvg)) return false;
       continue;
     }
-    if (scene?.source !== 'pexels' || !Number.isSafeInteger(scene?.pexelsId) || scene.pexelsId <= 0) return false;
+    if (!['pexels', 'pixabay'].includes(scene?.source) || !Number.isSafeInteger(scene?.pexelsId) || scene.pexelsId <= 0) return false;
+    if (scene.source === 'pixabay' && (!Number.isSafeInteger(scene?.pixabayId) || typeof scene.pixabayId !== 'number' || scene.pixabayId <= 0 || scene.stockId !== 'pixabay:' + scene.pixabayId)) return false;
     pexelsIds.push(scene.pexelsId);
   }
   return new Set(pexelsIds).size === pexelsIds.length;

@@ -64,7 +64,8 @@ import { buildConcatArgs, FAST_H264_OPTIONS, isValidConcatenatedVideo } from './
 import { getDeploymentInfo } from './src/server/deploymentInfo';
 import { requestOpenAiVisualQa, retryVisualQa, runVisualQaWithFallback } from './src/server/visualQaProviders';
 import { splitNarrationAlignmentByScenes } from './src/server/singleNarration';
-import { isTrustedPexelsPreviewUrl, selectVisuallyVerifiedPexelsCandidate } from './src/server/pexelsCandidateVisualQa';
+import { isTrustedStockPreviewUrl, selectVisuallyVerifiedPexelsCandidate } from './src/server/pexelsCandidateVisualQa';
+import { mapPixabayVideoCandidates } from './src/server/pixabayVideoProvider';
 import { GEMINI_FALLBACK_MODEL, isRetryableModelProviderError, OPENAI_PRIMARY_MODEL, requestOpenAiScript } from './src/server/modelRouting';
 
 const execPromise = promisify(exec);
@@ -297,8 +298,11 @@ export interface ResolvedStockVideo {
   thumbnailUrl: string;
   searchKeyword?: string;
   selectionScore?: number;
-  source: 'pexels';
+  source: 'pexels' | 'pixabay';
   pexelsId?: number;
+  pixabayId?: number;
+  stockId?: string;
+  sourcePageUrl?: string;
   width?: number;
   height?: number;
   duration?: number;
@@ -314,6 +318,9 @@ type PexelsSearchCacheEntry = {
 
 const pexelsSearchCache = new Map<string, PexelsSearchCacheEntry>();
 const pexelsSearchInFlight = new Map<string, Promise<any>>();
+const pixabaySearchCache = new Map<string, PexelsSearchCacheEntry>();
+const pixabaySearchInFlight = new Map<string, Promise<any>>();
+const PIXABAY_SEARCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 function getPexelsCacheTtlMs(): number {
   const configured = Number(process.env.PEXELS_CACHE_TTL_SECONDS || 21600);
@@ -375,6 +382,73 @@ async function fetchPexelsSearchData(searchUrl: string, headers: Record<string, 
     return await request;
   } finally {
     pexelsSearchInFlight.delete(searchUrl);
+  }
+}
+
+
+async function fetchPixabayVideoSearchData(query: string): Promise<any> {
+  const apiKey = process.env.PIXABAY_API_KEY?.trim();
+  if (!apiKey) throw new Error('Brak PIXABAY_API_KEY.');
+  const normalizedQuery = String(query || '').trim().slice(0, 100);
+  if (!normalizedQuery) throw new Error('Puste zapytanie Pixabay.');
+  const params = new URLSearchParams({ key: apiKey, q: normalizedQuery, video_type: 'film', safesearch: 'true', per_page: '30', lang: 'en' });
+  const requestUrl = 'https://pixabay.com/api/videos/?' + params.toString();
+  // Keep the API key out of cache keys, persisted metadata, and logs.
+  const cacheKey = 'pixabay:' + createHash('sha256').update('videos|' + normalizedQuery + '|film|true|30|en').digest('hex');
+  const now = Date.now();
+  const cached = pixabaySearchCache.get(cacheKey);
+  if (cached && cached.expiresAt > now) return cached.data;
+  if (cached) pixabaySearchCache.delete(cacheKey);
+  const pending = pixabaySearchInFlight.get(cacheKey);
+  if (pending) return pending;
+  const request = (async () => {
+    // Persist API responses on Fly's mounted volume so machine restarts do not
+    // bypass Pixabay's mandatory 24-hour response cache.
+    const cacheDirectory = path.join(EXPORTS_DIR, 'pixabay_api_cache');
+    const cacheFile = path.join(cacheDirectory, cacheKey.replace(/[^a-zA-Z0-9_-]/g, '_') + '.json');
+    try {
+      const stored = JSON.parse(await fs.promises.readFile(cacheFile, 'utf8')) as { cachedAt?: number; data?: unknown };
+      const ageMs = Date.now() - Number(stored.cachedAt || 0);
+      if (stored.data && Number.isFinite(ageMs) && ageMs >= 0 && ageMs < PIXABAY_SEARCH_CACHE_TTL_MS) {
+        pixabaySearchCache.set(cacheKey, { expiresAt: Number(stored.cachedAt) + PIXABAY_SEARCH_CACHE_TTL_MS, data: stored.data });
+        console.log('[Pixabay Cache] DISK HIT query="' + normalizedQuery + '"');
+        return stored.data;
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        console.warn('[Pixabay Cache] Nie udało się odczytać pliku cache: ' + (error as Error).message);
+      }
+    }
+    const response = await fetch(requestUrl, { headers: { Accept: 'application/json', 'User-Agent': 'RaportFinansowy24-Shorts/1.0' }, signal: AbortSignal.timeout(12000) });
+    if (!response.ok) throw new Error('Pixabay API HTTP ' + response.status + ': ' + response.statusText);
+    const data = await response.json();
+    const cachedAt = Date.now();
+    await fs.promises.mkdir(cacheDirectory, { recursive: true });
+    await fs.promises.writeFile(cacheFile, JSON.stringify({ cachedAt, data }), { encoding: 'utf8', mode: 0o600 });
+    pixabaySearchCache.set(cacheKey, { expiresAt: cachedAt + PIXABAY_SEARCH_CACHE_TTL_MS, data });
+    console.log('[Pixabay Cache] DISK SET query="' + normalizedQuery + '" TTL=24h');
+    return data;
+  })();
+  pixabaySearchInFlight.set(cacheKey, request);
+  try { return await request; } finally { pixabaySearchInFlight.delete(cacheKey); }
+}
+
+async function searchPixabayVideoCandidates(query: string, options: {
+  context?: string; sceneIndex: number; avoidVideoIds: number[]; requireTopicMatch: boolean; targetDurationSeconds: number;
+}): Promise<ResolvedStockVideo[]> {
+  if (!process.env.PIXABAY_API_KEY?.trim()) return [];
+  try {
+    const data = await fetchPixabayVideoSearchData(query);
+    const candidates = mapPixabayVideoCandidates(data, {
+      query, context: options.context, sceneIndex: options.sceneIndex,
+      avoidVideoIds: options.avoidVideoIds, requireTopicMatch: options.requireTopicMatch,
+      targetDurationSeconds: options.targetDurationSeconds
+    });
+    console.log('[Pixabay Search] Scena ' + (options.sceneIndex + 1) + ': query="' + query + '", kandydaci=' + candidates.length + '.');
+    return candidates.slice(0, 5);
+  } catch (error) {
+    console.warn('[Pixabay API] Wyszukiwanie nieudane dla "' + query + '": ' + (error as Error).message);
+    return [];
   }
 }
 
@@ -772,18 +846,17 @@ async function searchPexelsVideoDetailed(
   return null;
 }
 
-async function verifyPexelsVisualCandidates(
+async function verifyStockVisualCandidates(
   candidates: ResolvedStockVideo[],
   context: string,
   sceneQuery: string,
   sceneIndex: number
-): Promise<ResolvedStockVideo> {
+): Promise<ResolvedStockVideo | null> {
   const openAiApiKey = process.env.OPENAI_API_KEY?.trim();
   const geminiApiKey = process.env.GEMINI_API_KEY?.trim();
   if (!openAiApiKey && !geminiApiKey) {
-    throw new Error('Pre-renderowa kontrola obrazu Pexels wymaga OPENAI_API_KEY lub GEMINI_API_KEY.');
+    throw new Error('Pre-renderowa kontrola obrazu stock wymaga OPENAI_API_KEY lub GEMINI_API_KEY.');
   }
-
   const shortlist = [...candidates]
     .filter((item) => Number.isSafeInteger(item.pexelsId) && (item.previewImageUrls?.length || 0) > 0)
     .sort((a, b) => (b.selectionScore ?? -Infinity) - (a.selectionScore ?? -Infinity))
@@ -791,11 +864,8 @@ async function verifyPexelsVisualCandidates(
   const downloaded = await Promise.all(shortlist.map(async (candidate) => {
     const frames = await Promise.all((candidate.previewImageUrls || []).slice(0, 2).map(async (imageUrl) => {
       try {
-        if (!isTrustedPexelsPreviewUrl(imageUrl)) return null;
-        const response = await fetch(imageUrl, {
-          signal: AbortSignal.timeout(10000),
-          redirect: 'error'
-        });
+        if (!isTrustedStockPreviewUrl(imageUrl)) return null;
+        const response = await fetch(imageUrl, { signal: AbortSignal.timeout(10000), redirect: 'error' });
         if (!response.ok) return null;
         const mimeType = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
         if (!['image/jpeg', 'image/png', 'image/webp'].includes(mimeType)) return null;
@@ -803,80 +873,60 @@ async function verifyPexelsVisualCandidates(
         if (bytes.length === 0 || bytes.length > 4 * 1024 * 1024) return null;
         return { mimeType, data: bytes.toString('base64') };
       } catch (error) {
-        console.warn('[Pexels visual precheck] Klatka kandydata ' + candidate.pexelsId + ' niedostępna: ' + (error as Error).message);
+        console.warn('[Stock visual precheck] Klatka ' + candidate.source + ':' + candidate.pexelsId + ' niedostępna: ' + (error as Error).message);
         return null;
       }
     }));
     return { candidate, frames: frames.filter((frame): frame is { mimeType: string; data: string } => Boolean(frame)) };
   }));
-  const verified = downloaded.filter((item) => item.frames.length > 0).map((item) => item.candidate);
-  const framesByCandidate = downloaded.filter((item) => item.frames.length > 0).map((item) => item.frames);
-  if (!verified.length) {
-    throw new Error('Brak dostępnych klatek Pexels do kontroli wizualnej sceny ' + (sceneIndex + 1) + '.');
-  }
-
+  const usable = downloaded.filter((item) => item.frames.length > 0);
+  if (!usable.length) return null;
+  const verified = usable.map((item) => item.candidate);
   const imageParts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [];
-  verified.forEach((candidate, index) => {
-    framesByCandidate[index].forEach((frame, frameIndex) => {
-      imageParts.push({
-        text: 'KANDYDAT ' + (index + 1) + ', PEXELS ID ' + candidate.pexelsId + ', klatka ' + (frameIndex + 1) + '.'
-      });
-      imageParts.push({ inlineData: frame });
-    });
-  });
-
+  usable.forEach((item, index) => item.frames.forEach((frame, frameIndex) => {
+    const candidate = item.candidate;
+    imageParts.push({ text: 'KANDYDAT ' + (index + 1) + ', ŹRÓDŁO ' + candidate.source + ', STOCK ID ' + (candidate.stockId || candidate.pexelsId) + ', kadr ' + (candidate.width || '?') + 'x' + (candidate.height || '?') + ', klatka ' + (frameIndex + 1) + '.' });
+    imageParts.push({ inlineData: frame });
+  }));
   const instructions = [
-    'Porównaj rzeczywiste klatki podglądowe kandydatów Pexels z tematem jednej sceny filmu finansowo-informacyjnego.',
+    'Porównaj rzeczywiste klatki podglądowe kandydatów stockowych (Pexels lub Pixabay) z tematem jednej sceny filmu finansowo-informacyjnego.',
     'Kontekst artykułu i narracji: ' + context.slice(0, 1800),
     'Docelowa scena: ' + sceneQuery,
     'Akceptuj ogólne ujęcie ilustracyjne, jeśli pokazuje główny temat lub czynność. Nie wymagaj widoczności konkretnego miasta, urzędu, kwoty ani nazwy programu.',
-    'Odrzuć obrazy sprzeczne z tematem, przypadkowe abstrakcje i inne kategorie (np. kryptowaluty zamiast nieruchomości). Oceniaj zgodność, nie estetykę.',
+    'Odrzuć obrazy sprzeczne z tematem i inne kategorie. Dla poziomego klipu oceń, czy główny obiekt pozostanie widoczny po centralnym przycięciu do 9:16.',
     'Otrzymujesz ' + verified.length + ' kandydatów. Zwróć dokładnie jeden wynik dla każdego, pole scene to numer kandydata.',
     'Zwróć wyłącznie JSON: {"results":[{"scene":1,"match":true,"confidence":0.0,"reason":"krótkie uzasadnienie po polsku"}]}. match=true tylko dla sensownej ilustracji sceny.'
   ].join('\n');
-
   const providers: Array<{ model: string; analyze: () => Promise<ReturnType<typeof parseCompleteVisualSemanticResponse>> }> = [];
-  if (openAiApiKey) {
-    providers.push({
-      model: 'openai:' + OPENAI_PRIMARY_MODEL,
-      analyze: async () => retryVisualQa(async () => {
-        const text = await requestOpenAiVisualQa({ apiKey: openAiApiKey, model: OPENAI_PRIMARY_MODEL, instructions, imageParts });
-        return parseCompleteVisualSemanticResponse(text, verified.length);
-      }, { maxAttempts: 2, delaysMs: [700] })
-    });
-  }
-  if (geminiApiKey) {
-    providers.push({
-      model: GEMINI_FALLBACK_MODEL,
-      analyze: async () => retryVisualQa(async () => {
-        const response = await ai.models.generateContent({
-          model: GEMINI_FALLBACK_MODEL,
-          contents: [{ role: 'user', parts: [{ text: instructions }, ...imageParts] }],
-          config: { responseMimeType: 'application/json' }
-        });
-        if (!response.text?.trim()) throw new Error('Gemini zwrócił pustą odpowiedź w kontroli Pexels.');
-        return parseCompleteVisualSemanticResponse(response.text, verified.length);
-      }, { maxAttempts: 2, delaysMs: [700] })
-    });
-  }
-  const { model, result } = await runVisualQaWithFallback(providers, (provider, error) => {
-    console.warn('[Pexels visual precheck] Provider ' + provider + ' nie zadziałał: ' + error.message);
+  if (openAiApiKey) providers.push({
+    model: 'openai:' + OPENAI_PRIMARY_MODEL,
+    analyze: async () => retryVisualQa(async () => {
+      const text = await requestOpenAiVisualQa({ apiKey: openAiApiKey, model: OPENAI_PRIMARY_MODEL, instructions, imageParts });
+      return parseCompleteVisualSemanticResponse(text, verified.length);
+    }, { maxAttempts: 2, delaysMs: [700] })
   });
-  const selected = selectVisuallyVerifiedPexelsCandidate(
-    verified.map((candidate, index) => ({
-      pexelsId: candidate.pexelsId!,
-      selectionScore: candidate.selectionScore || 0,
-      visual: result.find((item) => item.scene === index + 1)
-    })),
-    0.68
-  );
+  if (geminiApiKey) providers.push({
+    model: GEMINI_FALLBACK_MODEL,
+    analyze: async () => retryVisualQa(async () => {
+      const response = await ai.models.generateContent({ model: GEMINI_FALLBACK_MODEL, contents: [{ role: 'user', parts: [{ text: instructions }, ...imageParts] }], config: { responseMimeType: 'application/json' } });
+      if (!response.text?.trim()) throw new Error('Gemini zwrócił pustą odpowiedź w kontroli stock.');
+      return parseCompleteVisualSemanticResponse(response.text, verified.length);
+    }, { maxAttempts: 2, delaysMs: [700] })
+  });
+  const { model, result } = await runVisualQaWithFallback(providers, (provider, error) => {
+    console.warn('[Stock visual precheck] Provider ' + provider + ' nie zadziałał: ' + error.message);
+  });
+  const selected = selectVisuallyVerifiedPexelsCandidate(verified.map((candidate, index) => ({
+    pexelsId: candidate.pexelsId!, selectionScore: candidate.selectionScore || 0,
+    visual: result.find((item) => item.scene === index + 1)
+  })), 0.68);
   if (!selected) {
-    const reasons = result.map((item) => 'kandydat ' + item.scene + ': ' + (item.reason || 'brak zgodności')).join('; ');
-    throw new Error('Żaden klip Pexels nie przeszedł kontroli przed renderem (provider ' + model + '): ' + reasons);
+    console.warn('[Stock visual precheck] Żaden kandydat nie przeszedł kontroli sceny ' + (sceneIndex + 1) + '.');
+    return null;
   }
   const picked = verified.find((candidate) => candidate.pexelsId === selected.pexelsId);
-  if (!picked) throw new Error('Kontrola wizualna zwróciła nieznany klip Pexels.');
-  console.log('[Pexels visual precheck] Scena ' + (sceneIndex + 1) + ' zaakceptowała klip ' + picked.pexelsId + ' (' + model + ', confidence ' + selected.confidence.toFixed(2) + ').');
+  if (!picked) throw new Error('Kontrola wizualna zwróciła nieznany klip stock.');
+  console.log('[Stock visual precheck] Scena ' + (sceneIndex + 1) + ' zaakceptowała ' + picked.source + ' ' + (picked.stockId || picked.pexelsId) + ' (' + model + ', confidence ' + selected.confidence.toFixed(2) + ').');
   return picked;
 }
 
@@ -1032,60 +1082,55 @@ async function resolveStockOrPexelsVideoDetailed(
   options?: { context?: string; requirePexels?: boolean; targetDurationSeconds?: number }
 ): Promise<ResolvedStockVideo> {
   const pexelsKey = process.env.PEXELS_API_KEY?.trim();
-  if (!pexelsKey) {
-    throw new Error('Brak PEXELS_API_KEY. Materiały wideo mogą pochodzić wyłącznie z Pexels.');
-  }
-
+  const pixabayKey = process.env.PIXABAY_API_KEY?.trim();
+  if (!pexelsKey && !pixabayKey) throw new Error('Brak PEXELS_API_KEY i PIXABAY_API_KEY. Skonfiguruj przynajmniej jednego dostawcę stocków.');
   const avoidIds = avoidVideoIds ?? [];
   const targetDurationSeconds = options?.targetDurationSeconds ?? (index < 4 ? 8 : 12);
   const searchQueries = getShortGptSearchQueries(query, index, options?.context);
-  const candidates: ResolvedStockVideo[] = [];
-  const candidateCollector: ResolvedStockVideo[] = [];
+  const strictSemantic = Boolean(options?.context?.trim() || options?.requirePexels);
+  const visualContext = options?.context?.trim() || query;
 
-  for (const candidateQuery of searchQueries) {
-    console.log(`[Pexels Search] Zapytanie ${candidateQuery === searchQueries[0] ? 'główne' : 'alternatywne'}: "${candidateQuery}" dla sceny #${index + 1}...`);
-    const result = await searchPexelsVideoDetailed(candidateQuery, {
-      sceneIndex: index,
-      avoidVideoIds: avoidIds,
-      context: options?.context,
-      requireTopicMatch: options?.requirePexels,
-      targetDurationSeconds,
-      candidateCollector
-    });
-    if (result) candidates.push(result);
-  }
-
-  const uniqueCollected = [...new Map(
-    [...candidateCollector, ...candidates]
-      .filter((item) => Number.isSafeInteger(item.pexelsId))
-      .map((item) => [item.pexelsId!, item])
-  ).values()].sort((a, b) => (b.selectionScore ?? -Infinity) - (a.selectionScore ?? -Infinity));
-
-  if (uniqueCollected.length > 0) {
-    if (options?.context?.trim() || options?.requirePexels) {
-      return await verifyPexelsVisualCandidates(uniqueCollected, options?.context?.trim() || query, query, index);
+  if (pexelsKey) {
+    const candidates: ResolvedStockVideo[] = [];
+    const candidateCollector: ResolvedStockVideo[] = [];
+    for (const candidateQuery of searchQueries) {
+      console.log('[Pexels Search] Zapytanie: "' + candidateQuery + '" dla sceny #' + (index + 1) + '...');
+      const result = await searchPexelsVideoDetailed(candidateQuery, {
+        sceneIndex: index, avoidVideoIds: avoidIds, context: options?.context,
+        requireTopicMatch: options?.requirePexels, targetDurationSeconds, candidateCollector
+      });
+      if (result) candidates.push(result);
     }
-    return uniqueCollected[0];
-  }
+    const uniquePexels = [...new Map([...candidateCollector, ...candidates]
+      .filter((item) => item.source === 'pexels' && Number.isSafeInteger(item.pexelsId))
+      .map((item) => [item.pexelsId!, item])).values()]
+      .sort((a, b) => (b.selectionScore ?? -Infinity) - (a.selectionScore ?? -Infinity));
+    if (uniquePexels.length > 0) {
+      if (!strictSemantic) return uniquePexels[0];
+      const verifiedPexels = await verifyStockVisualCandidates(uniquePexels, visualContext, query, index);
+      if (verifiedPexels) return verifiedPexels;
+      console.warn('[Stock fallback] Pexels nie dostarczył zaakceptowanego obrazu dla sceny ' + (index + 1) + '; próbuję Pixabay.');
+    } else console.warn('[Stock fallback] Pexels nie znalazł kandydatów dla sceny ' + (index + 1) + '; próbuję Pixabay.');
+  } else console.warn('[Stock fallback] Brak PEXELS_API_KEY; scena ' + (index + 1) + ' będzie wyszukiwana w Pixabay.');
 
-  // Never relax semantic matching when an article/scene context is available.
-  // A generic city, rooftop or parking clip is worse than an explicit missing-asset error.
-  if (options?.context?.trim() || options?.requirePexels) {
-    throw new Error(`Pexels nie znalazł klipu spełniającego kryteria semantyczne sceny ${index + 1}: "${query}". Nie zaakceptowano generycznego materiału zastępczego.`);
+  if (pixabayKey) {
+    const pixabayQueries = [...new Set(searchQueries.slice(0, 2).map((value) => value.slice(0, 100).trim()).filter(Boolean))];
+    const pixabayCandidates = (await Promise.all(pixabayQueries.map((candidateQuery) => searchPixabayVideoCandidates(candidateQuery, {
+      context: options?.context, sceneIndex: index, avoidVideoIds: avoidIds,
+      requireTopicMatch: options?.requirePexels === true || Boolean(options?.context?.trim()), targetDurationSeconds
+    })))).flat();
+    const uniquePixabay = [...new Map(pixabayCandidates
+      .filter((item) => item.source === 'pixabay' && Number.isSafeInteger(item.pexelsId))
+      .map((item) => [item.pexelsId!, item])).values()]
+      .sort((a, b) => (b.selectionScore ?? -Infinity) - (a.selectionScore ?? -Infinity));
+    if (uniquePixabay.length > 0) {
+      if (!strictSemantic) return uniquePixabay[0];
+      const verifiedPixabay = await verifyStockVisualCandidates(uniquePixabay, visualContext, query, index);
+      if (verifiedPixabay) return verifiedPixabay;
+    }
   }
-
-  for (const candidateQuery of searchQueries) {
-    const relaxedResult = await searchPexelsVideoDetailed(candidateQuery, {
-      sceneIndex: index,
-      avoidVideoIds: avoidIds,
-      context: undefined,
-      requireTopicMatch: false,
-      targetDurationSeconds
-    });
-    if (relaxedResult) return relaxedResult;
-  }
-
-  throw new Error(`Nie znaleziono odpowiedniego klipu Pexels dla sceny ${index + 1}: "${query}". Render został zatrzymany bez użycia obcego źródła.`);
+  const providers = [pexelsKey ? 'Pexels' : null, pixabayKey ? 'Pixabay' : null].filter(Boolean).join(' i ');
+  throw new Error('Żaden dostawca (' + providers + ') nie znalazł klipu spełniającego kryteria sceny ' + (index + 1) + ': "' + query + '". Materiał generyczny nie został zaakceptowany.');
 }
 
 // Asynchronous stock or Pexels video resolver
@@ -1254,6 +1299,9 @@ function summarizeScenesForHistory(scenes: unknown[]): Record<string, unknown>[]
       visualMood: shortText(scene.visualMood, 220),
       source: shortText(scene.videoSource ?? scene.source, 80),
       pexelsId: Number.isFinite(pexelsId) && pexelsId > 0 ? pexelsId : undefined,
+      pixabayId: Number.isSafeInteger(scene.pixabayId) && typeof scene.pixabayId === 'number' && scene.pixabayId > 0 ? scene.pixabayId : undefined,
+      stockId: shortText(scene.stockId, 100),
+      sourcePageUrl: shortText(scene.sourcePageUrl, 300),
       duration: typeof scene.duration === 'number' && Number.isFinite(scene.duration) ? scene.duration : undefined
     };
   });
@@ -1519,7 +1567,7 @@ async function createTelegramRevisionJob(parentJobId: string, feedback: string):
   if (!parent) throw new Error('Nie znaleziono zadania bazowego do poprawy.');
   const revisionNumber = nextTelegramRevisionNumber(parent.revisionNumber);
   if (revisionNumber === null) throw new Error('Osiągnięto limit 5 rund poprawek dla tego shorta.');
-  if (!process.env.PEXELS_API_KEY?.trim()) throw new Error('Brak PEXELS_API_KEY; nie można wygenerować poprawionych ujęć.');
+  if (!process.env.PEXELS_API_KEY?.trim() && !process.env.PIXABAY_API_KEY?.trim()) throw new Error('Brak PEXELS_API_KEY i PIXABAY_API_KEY; nie można wyszukać stocków.');
 
   const metadata = parent.shortMetadata || {};
   const topic = parent.articleTitle || parent.title || parent.approvalTitle || 'Short z Bankier.pl';
@@ -1546,7 +1594,7 @@ async function createTelegramRevisionJob(parentJobId: string, feedback: string):
 
   const scenes = Array.isArray(scriptData.scenes) ? scriptData.scenes : [];
   if (!hasCompleteFinanceSceneVisualAssets(scenes)) {
-    throw new Error('Poprawiona wersja musi zawierać poprawne karty danych i unikalne klipy Pexels.');
+    throw new Error('Poprawiona wersja musi zawierać poprawne karty danych i unikalne klipy stockowe.');
   }
 
   const jobId = `job_revision_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -1937,6 +1985,11 @@ interface SceneInput {
   videoUrl?: string;
   source?: string;
   pexelsId?: number;
+  pixabayId?: number;
+  stockId?: string;
+  sourcePageUrl?: string;
+  width?: number;
+  height?: number;
   imageUrl?: string;
   visualSvg?: string;
   visualMode?: 'data_visual' | 'matched_clip';
@@ -2990,7 +3043,7 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"króts
           const downloadMessage = (downloadError as Error).message || String(downloadError);
           const pexelsId = Number((scene as any).pexelsId ?? (scene as any).pexels_id);
           const sceneSource = String((scene as any).source ?? (scene as any).videoSource ?? '').toLowerCase();
-          const isPexelsAsset = sceneSource === 'pexels' || (Number.isInteger(pexelsId) && pexelsId > 0);
+          const isPexelsAsset = sceneSource === 'pexels' || (!sceneSource && Number.isInteger(pexelsId) && pexelsId > 0 && pexelsId < 1000000000000);
 
           if (!isPexelsAsset || !Number.isInteger(pexelsId) || pexelsId <= 0 || !/HTTP 403/.test(downloadMessage)) {
             throw downloadError;
@@ -3096,7 +3149,10 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"króts
 
       // Render & Normalize Scene with FFmpeg
       const normalizedScenePath = path.join(jobTempDir, `norm_scene_${sceneNum}.mp4`);
-      const scaleFilter = `scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=decrease,pad=${targetWidth}:${targetHeight}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps=${targetFps}`;
+      const isPixabayLandscape = (scene as any).source === 'pixabay' && Number((scene as any).width) > Number((scene as any).height);
+      const scaleFilter = isPixabayLandscape
+        ? `scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=increase,crop=${targetWidth}:${targetHeight},setsar=1,fps=${targetFps}`
+        : `scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=decrease,pad=${targetWidth}:${targetHeight}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps=${targetFps}`;
       const motionSpec = (scene as any).motionSound || (payload.pipelinePlan ? motionSoundSpecForBeat((scene as any).beat) : null);
       const hasCreativeCameraMove = typeof (scene as any).camera === 'string' && (scene as any).camera.trim().length > 0;
       const motionFilter = motionSpec && (isImage || hasCreativeCameraMove)
@@ -3392,7 +3448,7 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"króts
       if (payload.qaRepairAttempt !== 1 && renderedQa.status !== 'blocked' && visualSemanticQa.status === 'blocked' && payload.qaRepairArticle) {
         const repairCandidates = selectQaRepairCandidates(scenes as any, combinedQa as any, payload.qaRepairArticle);
         if (repairCandidates.length > 0) {
-          type Replacement = { sceneIndex: number; visualQuery: string; videoUrl: string; thumbnailUrl?: string; pexelsId: number; searchKeyword?: string; photographer?: string; photographerUrl?: string };
+          type Replacement = { sceneIndex: number; visualQuery: string; videoUrl: string; thumbnailUrl?: string; pexelsId: number; source: 'pexels' | 'pixabay'; pixabayId?: number; stockId?: string; sourcePageUrl?: string; width?: number; height?: number; searchKeyword?: string; photographer?: string; photographerUrl?: string };
           const isRepairJobActive = () => {
             const currentJob = jobsStore.get(jobId);
             const currentExecution = activeJobExecutions.get(jobId);
@@ -3416,6 +3472,12 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"króts
                 videoUrl: resolved.videoUrl,
                 thumbnailUrl: resolved.thumbnailUrl,
                 pexelsId: resolved.pexelsId,
+                source: resolved.source,
+                pixabayId: resolved.pixabayId,
+                stockId: resolved.stockId,
+                sourcePageUrl: resolved.sourcePageUrl,
+                width: resolved.width,
+                height: resolved.height,
                 searchKeyword: resolved.searchKeyword,
                 photographer: resolved.photographer,
                 photographerUrl: resolved.photographerUrl
@@ -3775,7 +3837,7 @@ async function getDetailedServicesHealth() {
           status: 'online',
           hasKey: true,
           latencyMs: pexelsLatency,
-          message: 'Pexels API odpowiada prawidłowo i autoryzuje wyszukiwanie klipów.',
+          message: 'Pexels API odpowiada prawidłowo i autoryzuje wyszukiwanie klipów (dostawca podstawowy).',
           checkedAt
         };
       } else {
@@ -3794,6 +3856,32 @@ async function getDetailedServicesHealth() {
         message: `Nie udało się nawiązać połączenia z Pexels API: ${(error as Error).message}`,
         checkedAt
       };
+    }
+  }
+
+  // 3. Pixabay API (fallback stock provider; API responses are cached for 24h)
+  let pixabayHealth: {
+    status: 'online' | 'degraded' | 'offline' | 'key_missing';
+    latencyMs?: number;
+    message: string;
+    hasKey: boolean;
+    checkedAt: string;
+  };
+  const pixabayKey = process.env.PIXABAY_API_KEY?.trim();
+  if (!pixabayKey) {
+    pixabayHealth = { status: 'key_missing', hasKey: false, message: 'Brak opcjonalnego klucza PIXABAY_API_KEY; fallback Pixabay jest wyłączony.', checkedAt };
+  } else {
+    const pixabayStart = Date.now();
+    try {
+      const data = await fetchPixabayVideoSearchData('finance');
+      const pixabayLatency = Date.now() - pixabayStart;
+      if (Array.isArray(data?.hits)) {
+        pixabayHealth = { status: 'online', hasKey: true, latencyMs: pixabayLatency, message: 'Pixabay Video API autoryzowane; fallback stockowy gotowy.', checkedAt };
+      } else {
+        pixabayHealth = { status: 'degraded', hasKey: true, latencyMs: pixabayLatency, message: 'Pixabay API zwróciło nieoczekiwany format odpowiedzi.', checkedAt };
+      }
+    } catch (error) {
+      pixabayHealth = { status: 'offline', hasKey: true, message: 'Nie udało się połączyć z Pixabay Video API: ' + (error as Error).message, checkedAt };
     }
   }
 
@@ -3854,9 +3942,11 @@ async function getDetailedServicesHealth() {
     }
   }
 
-  const overallStatus = (ffmpegHealth.status === 'online' && pexelsHealth.status === 'online' && elevenLabsHealth.status === 'online')
+  const stockProviderOnline = pexelsHealth.status === 'online' || pixabayHealth.status === 'online';
+  const stockProviderConfigured = pexelsHealth.hasKey || pixabayHealth.hasKey;
+  const overallStatus = (ffmpegHealth.status === 'online' && stockProviderOnline && elevenLabsHealth.status === 'online')
     ? 'healthy'
-    : (ffmpegHealth.status === 'offline' || pexelsHealth.status === 'offline' || elevenLabsHealth.status === 'offline')
+    : (ffmpegHealth.status === 'offline' || elevenLabsHealth.status === 'offline' || (stockProviderConfigured && !stockProviderOnline && (pexelsHealth.status === 'offline' || pixabayHealth.status === 'offline')))
       ? 'unhealthy'
       : 'degraded';
 
@@ -3866,6 +3956,7 @@ async function getDetailedServicesHealth() {
     services: {
       ffmpeg: ffmpegHealth,
       pexels: pexelsHealth,
+      pixabay: pixabayHealth,
       elevenLabs: elevenLabsHealth
     }
   };
@@ -3933,6 +4024,8 @@ router.get('/supervisor/status', async (_req, res) => {
     primaryModel: OPENAI_PRIMARY_MODEL,
     fallbackModel: process.env.GEMINI_API_KEY ? GEMINI_FALLBACK_MODEL : null,
     pexels: Boolean(process.env.PEXELS_API_KEY),
+    pixabay: Boolean(process.env.PIXABAY_API_KEY),
+    stockProvider: process.env.PEXELS_API_KEY ? 'pexels-primary' : (process.env.PIXABAY_API_KEY ? 'pixabay-primary' : 'unconfigured'),
     elevenLabs: Boolean(process.env.ELEVENLABS_API_KEY),
     telegramApproval: Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID && process.env.TELEGRAM_WEBHOOK_SECRET),
     supabaseHistory: hasSupabaseHistoryConfiguration(),
@@ -3953,7 +4046,7 @@ router.get('/supervisor/status', async (_req, res) => {
     !envReady.appAuth ? 'APP_AUTH_SECRET (minimum 32 characters)' : null,
     !envReady.machineToken ? 'BANKIER_SHORTS_API_TOKEN' : null,
     !envReady.openai ? 'OPENAI_API_KEY (required primary provider)' : null,
-    !envReady.pexels ? 'PEXELS_API_KEY' : null,
+    !envReady.pexels && !envReady.pixabay ? 'PEXELS_API_KEY or PIXABAY_API_KEY' : null,
     !envReady.elevenLabs ? 'ELEVENLABS_API_KEY' : null
   ].filter(Boolean);
 
@@ -4246,6 +4339,8 @@ function normalizeSceneItem(sc: any, idx: number, totalCount: number): SceneInpu
     sourceEvidence: typeof sc.sourceEvidence === 'string' ? sc.sourceEvidence.slice(0, 600) : undefined,
     videoUrl,
     ...validatedPexelsRepairMetadata(sc),
+    width: Number.isFinite(Number(sc.width)) && Number(sc.width) > 0 ? Number(sc.width) : undefined,
+    height: Number.isFinite(Number(sc.height)) && Number(sc.height) > 0 ? Number(sc.height) : undefined,
     duration,
     motionSound: sc.motionSound && typeof sc.motionSound === 'object' ? sc.motionSound : undefined,
     visualQuery: typeof sc.visualQuery === 'string' ? sc.visualQuery : undefined,
@@ -5354,8 +5449,8 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
             context: visualContext,
             requirePexels: requireNewsPexels
           });
-          if (requireNewsPexels && (resolved.source !== 'pexels' || !resolved.pexelsId)) {
-            console.warn(`[Pexels Warning] Scena ${idx + 1} nie otrzymała klipu Pexels.`);
+          if (requireNewsPexels && (!['pexels', 'pixabay'].includes(resolved.source) || !resolved.pexelsId)) {
+            console.warn(`[Stock Warning] Scena ${idx + 1} nie otrzymała poprawnego klipu stockowego.`);
           }
           if (resolved.pexelsId) {
             usedPexelsIds.push(resolved.pexelsId);
@@ -5373,6 +5468,11 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
             photographer: resolved.photographer,
             photographerUrl: resolved.photographerUrl,
             pexelsId: resolved.pexelsId,
+            pixabayId: resolved.pixabayId,
+            stockId: resolved.stockId,
+            sourcePageUrl: resolved.sourcePageUrl,
+            width: resolved.width,
+            height: resolved.height,
             searchKeyword: targetKeyword,
             captionStyle: sc.captionStyle || {
               position: 'center',
@@ -5489,8 +5589,8 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
       context: visualContext,
       requirePexels: requireNewsPexels
     });
-    if (requireNewsPexels && (resolved.source !== 'pexels' || !resolved.pexelsId)) {
-      console.warn(`[Pexels Warning] Scena ${idx + 1} nie otrzymała klipu Pexels.`);
+    if (requireNewsPexels && (!['pexels', 'pixabay'].includes(resolved.source) || !resolved.pexelsId)) {
+      console.warn(`[Stock Warning] Scena ${idx + 1} nie otrzymała poprawnego klipu stockowego.`);
     }
     if (resolved.pexelsId) {
       usedPexelsIds.push(resolved.pexelsId);
@@ -5505,6 +5605,11 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
       photographer: resolved.photographer,
       photographerUrl: resolved.photographerUrl,
       pexelsId: resolved.pexelsId,
+      pixabayId: resolved.pixabayId,
+      stockId: resolved.stockId,
+      sourcePageUrl: resolved.sourcePageUrl,
+      width: resolved.width,
+      height: resolved.height,
       searchKeyword: targetKw,
       captionStyle: {
         ...(sc.captionStyle || {}),
@@ -5631,6 +5736,11 @@ Wymagania JSON:
             photographer: resolved.photographer,
             photographerUrl: resolved.photographerUrl,
             pexelsId: resolved.pexelsId,
+            pixabayId: resolved.pixabayId,
+            stockId: resolved.stockId,
+            sourcePageUrl: resolved.sourcePageUrl,
+            width: resolved.width,
+            height: resolved.height,
             captionStyle: {
               position: 'center' as const,
               animation: 'single-word' as const,
@@ -5701,8 +5811,8 @@ Wymagania JSON:
       usedPexelsIds,
       { context: scriptText, requirePexels: true }
     );
-    if (resolved.source !== 'pexels' || !resolved.pexelsId) {
-      throw new Error(`Scena tłumaczenia ${idx + 1} nie otrzymała klipu Pexels.`);
+    if (!['pexels', 'pixabay'].includes(resolved.source) || !resolved.pexelsId) {
+      throw new Error(`Scena tłumaczenia ${idx + 1} nie otrzymała klipu stockowego.`);
     }
     usedPexelsIds.push(resolved.pexelsId);
     scenesWithVideo.push({
@@ -5712,8 +5822,13 @@ Wymagania JSON:
       searchKeyword: resolved.searchKeyword || searchKeyword,
       videoUrl: resolved.videoUrl,
       thumbnailUrl: resolved.thumbnailUrl,
-      source: 'pexels',
+      source: resolved.source,
       pexelsId: resolved.pexelsId,
+      pixabayId: resolved.pixabayId,
+      stockId: resolved.stockId,
+      sourcePageUrl: resolved.sourcePageUrl,
+      width: resolved.width,
+      height: resolved.height,
       photographer: resolved.photographer,
       photographerUrl: resolved.photographerUrl,
       captionStyle: {
@@ -5914,10 +6029,10 @@ router.post('/auto-pilot-shorts', async (req, res) => {
     const rawScenesList = extractScenesFromPayload(body);
     let lockSceneDurations = body.lockSceneDurations === true;
 
-    if ((!rawScenesList || rawScenesList.length === 0) && !useFinancePipeline && !useCreativeDirectorPlan && !process.env.PEXELS_API_KEY?.trim()) {
+    if ((!rawScenesList || rawScenesList.length === 0) && !useFinancePipeline && !useCreativeDirectorPlan && !process.env.PEXELS_API_KEY?.trim() && !process.env.PIXABAY_API_KEY?.trim()) {
       return res.status(503).json({
-        error: 'Auto-Pilot wymaga klucza PEXELS_API_KEY, aby dobrać osiem różnych klipów Pexels.',
-        requiredConfig: 'PEXELS_API_KEY',
+        error: 'Auto-Pilot wymaga PEXELS_API_KEY lub PIXABAY_API_KEY, aby dobrać klipy stockowe.',
+        requiredConfig: 'PEXELS_API_KEY lub PIXABAY_API_KEY',
         fallbackDisabled: true
       });
     }
@@ -5971,8 +6086,8 @@ router.post('/auto-pilot-shorts', async (req, res) => {
           String(scene.voiceover_text || ''),
           String(scene.subtitles || '')
         ));
-      if (dataVisuals.some((visual: any) => !visual) && !process.env.PEXELS_API_KEY?.trim()) {
-        return res.status(503).json({ error: 'Storyboard wymaga PEXELS_API_KEY dla scen bez potwierdzonych danych do plansz informacyjnych.', requiredConfig: 'PEXELS_API_KEY', fallbackDisabled: true });
+      if (dataVisuals.some((visual: any) => !visual) && !process.env.PEXELS_API_KEY?.trim() && !process.env.PIXABAY_API_KEY?.trim()) {
+        return res.status(503).json({ error: 'Storyboard wymaga PEXELS_API_KEY lub PIXABAY_API_KEY dla scen bez potwierdzonych danych do plansz informacyjnych.', requiredConfig: 'PEXELS_API_KEY lub PIXABAY_API_KEY', fallbackDisabled: true });
       }
       const visualContext = [article.title, article.description, article.summary, body.articleContext].filter(Boolean).join('\n');
       const usedPexelsIds: number[] = [];
@@ -5999,7 +6114,7 @@ router.post('/auto-pilot-shorts', async (req, res) => {
           targetDurationSeconds: scene.duration
         });
         if (!resolved.pexelsId || usedPexelsIds.includes(resolved.pexelsId)) {
-          throw new Error(`Nie udało się dopasować unikalnego klipu Pexels do sceny ${index + 1}. Render przerwany.`);
+          throw new Error(`Nie udało się dopasować unikalnego klipu stockowego do sceny ${index + 1}. Render przerwany.`);
         }
         usedPexelsIds.push(resolved.pexelsId);
         resolvedScenes.push({
@@ -6010,6 +6125,11 @@ router.post('/auto-pilot-shorts', async (req, res) => {
           visualMode: 'matched_clip',
           source: resolved.source,
           pexelsId: resolved.pexelsId,
+          pixabayId: resolved.pixabayId,
+          stockId: resolved.stockId,
+          sourcePageUrl: resolved.sourcePageUrl,
+      width: resolved.width,
+      height: resolved.height,
           photographer: resolved.photographer,
           photographerUrl: resolved.photographerUrl,
           searchKeyword: resolved.searchKeyword,
@@ -6017,7 +6137,7 @@ router.post('/auto-pilot-shorts', async (req, res) => {
         });
       }
       if (!hasCompleteFinanceSceneVisualAssets(resolvedScenes)) {
-        throw new Error('Storyboard nie uzyskał kompletnego zestawu plansz ze źródłowymi danymi i unikalnych klipów Pexels. Render przerwany.');
+        throw new Error('Storyboard nie uzyskał kompletnego zestawu plansz ze źródłowymi danymi i unikalnych klipów stockowych. Render przerwany.');
       }
       const hashtags = Array.isArray(suppliedPlan.hashtags) ? suppliedPlan.hashtags.slice(0, 8).join(' ') : '#shorts #finanse';
       scriptData = { ...suppliedPlan, cta: ctaPlan.spokenText, ctaDestination: ctaPlan.destinationPath, ctaUrl: ctaPlan.destinationUrl, scenes: resolvedScenes };
@@ -6028,11 +6148,11 @@ router.post('/auto-pilot-shorts', async (req, res) => {
       const dataVisualCount = resolvedScenes.filter((scene) => scene.visualMode === 'data_visual').length;
       console.info(`[Creative Director Render] article=${submittedTitle.slice(0, 100)} scenes=${resolvedScenes.length} dataVisuals=${dataVisualCount} pexels=${usedPexelsIds.length} CTA=${ctaPlan.destinationPath}`);
     } else if (rawScenesList && rawScenesList.length > 0) {
-      const requiresPexels = body.requirePexelsClips === true || rawScenesList.some((scene: any) => scene?.source === 'pexels');
+      const requiresStockClips = body.requireStockClips === true || body.requirePexelsClips === true || rawScenesList.some((scene: any) => scene?.source === 'pexels' || scene?.source === 'pixabay');
       const hasDataVisuals = rawScenesList.some((scene: any) => scene?.visualMode === 'data_visual');
-      if ((requiresPexels || hasDataVisuals) && !hasCompleteFinanceSceneVisualAssets(rawScenesList)) {
+      if ((requiresStockClips || hasDataVisuals) && !hasCompleteFinanceSceneVisualAssets(rawScenesList)) {
         return res.status(400).json({
-          error: 'Short wymaga poprawnych plansz SVG i/lub ośmiu różnych klipów Pexels z unikalnymi pexelsId. Render przerwany.',
+          error: 'Short wymaga poprawnych plansz SVG i/lub ośmiu różnych klipów stockowych z unikalnymi identyfikatorami. Render przerwany.',
           expectedSceneCount: FINANCE_SHORT_SCENE_COUNT,
           fallbackDisabled: true
         });
@@ -6040,7 +6160,7 @@ router.post('/auto-pilot-shorts', async (req, res) => {
       scenesToRender = rawScenesList.map((sc: any, idx: number) =>
         normalizeSceneItem(sc, idx, rawScenesList.length)
       );
-      if ((requiresPexels || hasDataVisuals) && !hasCompleteFinanceSceneVisualAssets(scenesToRender)) {
+      if ((requiresStockClips || hasDataVisuals) && !hasCompleteFinanceSceneVisualAssets(scenesToRender)) {
         return res.status(400).json({ error: 'Co najmniej jedna scena straciła prawidłowy asset wizualny podczas normalizacji.', expectedSceneCount: FINANCE_SHORT_SCENE_COUNT, fallbackDisabled: true });
       }
 
@@ -6349,11 +6469,11 @@ router.post('/combine-scenes', async (req, res) => {
   }
 
   const expectedSceneCount = body.expectedSceneCount;
-  const requiresPexels = body.requirePexelsClips === true || scenesList.some((scene: any) => scene?.source === 'pexels');
+  const requiresStockClips = body.requireStockClips === true || body.requirePexelsClips === true || scenesList.some((scene: any) => scene?.source === 'pexels' || scene?.source === 'pixabay');
   const hasDataVisuals = scenesList.some((scene: any) => scene?.visualMode === 'data_visual');
-  if ((requiresPexels || hasDataVisuals) && !hasCompleteFinanceSceneVisualAssets(scenesList)) {
+  if ((requiresStockClips || hasDataVisuals) && !hasCompleteFinanceSceneVisualAssets(scenesList)) {
     return res.status(400).json({
-      error: 'Short wymaga poprawnych plansz SVG i/lub ośmiu różnych klipów Pexels z unikalnymi pexelsId. Render przerwany.',
+      error: 'Short wymaga poprawnych plansz SVG i/lub ośmiu różnych klipów stockowych z unikalnymi identyfikatorami. Render przerwany.',
       expectedSceneCount: FINANCE_SHORT_SCENE_COUNT,
       receivedSceneCount: scenesList.length,
       fallbackDisabled: true
@@ -6366,7 +6486,7 @@ router.post('/combine-scenes', async (req, res) => {
   let normalizedScenes = scenesList.map((sc: any, idx: number) =>
     normalizeSceneItem(sc, idx, scenesList!.length)
   );
-  if ((requiresPexels || hasDataVisuals) && !hasCompleteFinanceSceneVisualAssets(normalizedScenes)) {
+  if ((requiresStockClips || hasDataVisuals) && !hasCompleteFinanceSceneVisualAssets(normalizedScenes)) {
     return res.status(400).json({ error: 'Co najmniej jedna scena straciła prawidłowy asset wizualny podczas normalizacji.', expectedSceneCount: FINANCE_SHORT_SCENE_COUNT, receivedSceneCount: scenesList.length, fallbackDisabled: true });
   }
   const combineSceneDurations = sceneDurationsForCount(expectedSceneCount as number);
@@ -6618,9 +6738,9 @@ const handleInboundWebhook = async (req: express.Request, res: express.Response)
           duration: body.duration || 10
         }, 0, 1)];
       } else if (hasTopic) {
-        // Topic-only webhook requests must fetch every stock clip from Pexels.
-        if (!process.env.PEXELS_API_KEY?.trim()) {
-          throw new Error('Brak PEXELS_API_KEY. Webhook nie może użyć zastępczego źródła klipów.');
+        // Topic-only webhook requests must fetch every stock clip from a configured provider.
+        if (!process.env.PEXELS_API_KEY?.trim() && !process.env.PIXABAY_API_KEY?.trim()) {
+          throw new Error('Brak PEXELS_API_KEY i PIXABAY_API_KEY. Webhook nie może wyszukać klipów stockowych.');
         }
         const topicName = String(body.topic || body.prompt || 'Fascynujący świat AI');
         const smartScript = buildSmartFallbackScript(topicName, 'Viral Shorts', String(body.language || 'Polski'), 8);
@@ -6634,16 +6754,21 @@ const handleInboundWebhook = async (req: express.Request, res: express.Response)
             usedPexelsIds,
             { context: topicName, requirePexels: true }
           );
-          if (resolved.source !== 'pexels' || !resolved.pexelsId) {
-            throw new Error(`Scena ${idx + 1} nie otrzymała klipu z Pexels.`);
+          if (!['pexels', 'pixabay'].includes(resolved.source) || !resolved.pexelsId) {
+            throw new Error(`Scena ${idx + 1} nie otrzymała klipu stockowego.`);
           }
           usedPexelsIds.push(resolved.pexelsId);
           scenesToRender.push({
             ...scene,
             videoUrl: resolved.videoUrl,
             thumbnailUrl: resolved.thumbnailUrl,
-            source: 'pexels',
+            source: resolved.source,
             pexelsId: resolved.pexelsId,
+            pixabayId: resolved.pixabayId,
+            stockId: resolved.stockId,
+            sourcePageUrl: resolved.sourcePageUrl,
+            width: resolved.width,
+            height: resolved.height,
             photographer: resolved.photographer,
             photographerUrl: resolved.photographerUrl
           });
@@ -6969,69 +7094,60 @@ router.get('/jobs/:jobId/thumbnail', async (req, res) => {
   res.status(404).json({ error: 'Nie udało się pobrać ani wygenerować miniatury wideo' });
 });
 
-// Endpoint: Stock & Pexels Configuration Status (/api/stock/status)
+// Endpoint: Stock Provider Configuration Status (/api/stock/status)
 router.get('/stock/status', (req, res) => {
   res.json({
     success: true,
     hasPexelsKey: !!(process.env.PEXELS_API_KEY && process.env.PEXELS_API_KEY.trim()),
+    hasPixabayKey: !!(process.env.PIXABAY_API_KEY && process.env.PIXABAY_API_KEY.trim()),
     curatedClipsCount: 0,
-    pexelsOnly: true,
-    videoSource: 'pexels',
+    pexelsOnly: false,
+    providers: ['pexels', 'pixabay'],
+    primaryProvider: process.env.PEXELS_API_KEY?.trim() ? 'pexels' : 'pixabay',
+    fallbackProvider: process.env.PEXELS_API_KEY?.trim() && process.env.PIXABAY_API_KEY?.trim() ? 'pixabay' : null,
+    videoSource: 'pexels+pixabay',
     defaultDuration: TARGET_SHORT_DURATION_SECONDS,
     recommendedScenes: 2
   });
 });
 
-// Endpoint: Search Pexels Vertical Stock Videos (/api/stock/search-pexels)
+// Endpoint: Search primary Pexels stock, then fallback to Pixabay when Pexels returns no candidates.
 router.get('/stock/search-pexels', async (req, res) => {
   try {
     const query = (req.query.query as string) || 'stock market chart';
     const perPage = Math.min(24, Math.max(1, Number(req.query.per_page) || 8));
-    const videos = await searchPexelsMultiple(query, perPage);
+    if (!process.env.PEXELS_API_KEY?.trim() && !process.env.PIXABAY_API_KEY?.trim()) {
+      return res.status(503).json({ success: false, query, error: 'Brak PEXELS_API_KEY i PIXABAY_API_KEY.' });
+    }
 
-    if (!process.env.PEXELS_API_KEY?.trim()) {
-      return res.status(503).json({
-        success: false,
-        query,
-        source: 'pexels',
-        error: 'Brak PEXELS_API_KEY. Wyszukiwanie klipów jest dostępne wyłącznie przez Pexels.'
+    let videos: ResolvedStockVideo[] = process.env.PEXELS_API_KEY?.trim()
+      ? await searchPexelsMultiple(query, perPage)
+      : [];
+    if (videos.length === 0 && process.env.PIXABAY_API_KEY?.trim()) {
+      videos = await searchPixabayVideoCandidates(query, {
+        sceneIndex: 0, avoidVideoIds: [], requireTopicMatch: false, targetDurationSeconds: 12
       });
     }
     if (videos.length === 0) {
-      return res.status(404).json({
-        success: false,
-        query,
-        count: 0,
-        source: 'pexels',
-        error: 'Pexels nie zwrócił pasujących klipów. Nie podstawiono materiałów z innego serwisu.'
-      });
+      return res.status(404).json({ success: false, query, count: 0, error: 'Pexels i Pixabay nie zwróciły pasujących klipów.' });
     }
-
-    return res.json({
-      success: true,
-      query,
-      count: videos.length,
-      source: 'pexels',
-      videos
-    });
+    return res.json({ success: true, query, count: videos.length, source: videos[0].source, videos });
   } catch (error) {
-    console.error('Error searching Pexels footage:', error);
-    return res.status(500).json({
-      error: 'Błąd wyszukiwania materiałów Pexels',
-      details: (error as Error).message
-    });
+    console.error('Error searching stock footage:', error);
+    return res.status(500).json({ error: 'Błąd wyszukiwania materiałów stockowych', details: (error as Error).message });
   }
 });
 
 // Backward-compatible endpoint: curated third-party stock pools are disabled.
-// All generated stock footage is now sourced from Pexels only.
+// Generated stock footage uses Pexels first and Pixabay as an optional fallback.
 router.get('/stock/curated', (_req, res) => {
   res.json({
     success: true,
     count: 0,
-    source: 'pexels-only',
+    source: 'stock-search',
+    providers: ['pexels', 'pixabay'],
     clips: [],
-    message: 'Zewnętrzne pule klipów zastępczych są wyłączone. Użyj wyszukiwarki Pexels.'
+    message: 'Zewnętrzne pule klipów zastępczych są wyłączone. Użyj wyszukiwarki stockowej Pexels/Pixabay.'
   });
 });
 
@@ -7050,7 +7166,7 @@ router.post('/stock/fetch-scene-footage', async (req, res) => {
       article?.summary,
       article?.category
     ].filter((part) => typeof part === 'string' && part.trim()).join('\n');
-    const mustUseMatchedPexels = requirePexelsMatch === true || Boolean(article && typeof article === 'object');
+    const mustUseMatchedStock = requirePexelsMatch === true || Boolean(article && typeof article === 'object');
 
     const usedPexelsIds: number[] = Array.isArray(avoidIds) ? [...avoidIds] : [];
     const resolved = [];
@@ -7059,7 +7175,7 @@ router.post('/stock/fetch-scene-footage', async (req, res) => {
       const query = queries[idx];
       const item = await resolveStockOrPexelsVideoDetailed(query, idx, usedPexelsIds, {
         context: visualContext,
-        requirePexels: mustUseMatchedPexels
+        requirePexels: mustUseMatchedStock
       });
       if (item.pexelsId) {
         usedPexelsIds.push(item.pexelsId);

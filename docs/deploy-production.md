@@ -4,7 +4,7 @@ Skrypt `scripts/deploy-production.sh` wdraża aktualny `main` do aplikacji Fly.i
 
 Skrypt uruchamia lint, testy pipeline’u oraz produkcyjny build. Następnie wykonuje `fly deploy --remote-only --yes`, czeka na `GET /api/health` ze statusem `online` i wypisuje wyłącznie niesekretne informacje diagnostyczne. Wartości sekretów nigdy nie są drukowane.
 
-Wymagane sekrety Fly.io to `APP_AUTH_SECRET`, `BANKIER_SHORTS_API_TOKEN`, `GEMINI_API_KEY`, `PEXELS_API_KEY`, `ELEVENLABS_API_KEY`, `SUPABASE_URL` i `SUPABASE_KEY`. Ustawia się je wcześniej przez `fly secrets set`.
+Wymagane sekrety Fly.io to `APP_AUTH_SECRET`, `BANKIER_SHORTS_API_TOKEN`, `GEMINI_API_KEY`, `PEXELS_API_KEY` albo `PIXABAY_API_KEY` (wymagany co najmniej jeden dostawca stocków), `ELEVENLABS_API_KEY`, `SUPABASE_URL`, `SUPABASE_KEY`. Ustawia się je wcześniej przez `fly secrets set`.
 
 Najpierw można wykonać walidację bez wdrażania:
 

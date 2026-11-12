@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   isTrustedPexelsPreviewUrl,
+  isTrustedStockPreviewUrl,
   selectVisuallyVerifiedPexelsCandidate
 } from '../src/server/pexelsCandidateVisualQa';
 
@@ -12,6 +13,8 @@ assert.equal(isTrustedPexelsPreviewUrl('https://evilpexels.com/frame.jpg'), fals
 assert.equal(isTrustedPexelsPreviewUrl('https://pexels.com.evil.example/frame.jpg'), false);
 assert.equal(isTrustedPexelsPreviewUrl('https://example.com/pexels.com/frame.jpg'), false);
 assert.equal(isTrustedPexelsPreviewUrl('not a url'), false);
+assert.equal(isTrustedStockPreviewUrl('https://cdn.pixabay.com/video/preview.jpg'), true);
+assert.equal(isTrustedStockPreviewUrl('https://pixabay.com.evil.example/preview.jpg'), false);
 
 const verified = selectVisuallyVerifiedPexelsCandidate([
   { pexelsId: 101, selectionScore: 220, visual: { scene: 1, match: false, confidence: 0.99, reason: 'Pokazuje kryptowaluty zamiast działki.' } },

@@ -6,19 +6,29 @@ export interface QaRepairScene {
   visualQuery?: string;
   videoUrl?: string;
   pexelsId?: number;
+  pixabayId?: number;
+  stockId?: string;
+  sourcePageUrl?: string;
+  width?: number;
+  height?: number;
   voiceover_text?: string;
   subtitles?: string;
   caption?: string;
   [key: string]: unknown;
 }
 
-/** Preserve only canonical Pexels metadata that passed the route's ID validation. */
-export function validatedPexelsRepairMetadata(scene: unknown): Partial<Pick<QaRepairScene, 'source' | 'pexelsId'>> {
+/** Preserve canonical stock metadata only when provider and identifiers agree. */
+export function validatedPexelsRepairMetadata(scene: unknown): Partial<Pick<QaRepairScene, 'source' | 'pexelsId' | 'pixabayId' | 'stockId' | 'sourcePageUrl'>> {
   if (!scene || typeof scene !== 'object') return {};
   const candidate = scene as Record<string, unknown>;
   const pexelsId = candidate.pexelsId;
-  if (candidate.source !== 'pexels' || !Number.isSafeInteger(pexelsId) || (pexelsId as number) <= 0) return {};
-  return { source: 'pexels', pexelsId: pexelsId as number };
+  if (!Number.isSafeInteger(pexelsId) || (pexelsId as number) <= 0) return {};
+  if (candidate.source === 'pexels') return { source: 'pexels', pexelsId: pexelsId as number };
+  const pixabayId = candidate.pixabayId;
+  if (candidate.source === 'pixabay' && Number.isSafeInteger(pixabayId) && (pixabayId as number) > 0 && candidate.stockId === `pixabay:${pixabayId}` && typeof candidate.sourcePageUrl === 'string' && /^https:\/\/([a-z0-9-]+\.)?pixabay\.com\//i.test(candidate.sourcePageUrl)) {
+    return { source: 'pixabay', pexelsId: pexelsId as number, pixabayId: pixabayId as number, stockId: candidate.stockId, sourcePageUrl: candidate.sourcePageUrl };
+  }
+  return {};
 }
 
 export interface QaRepairReport {
@@ -41,7 +51,7 @@ export class QaRepairCancelledError extends Error {
   }
 }
 
-/** Resolve candidates sequentially while reserving every original and newly selected Pexels ID. */
+/** Resolve candidates sequentially while reserving every original and newly selected stock ID. */
 export async function resolveUniqueQaRepairAssets<Candidate, Asset extends { pexelsId?: number }>(
   candidates: Candidate[],
   existingIds: number[],
@@ -55,7 +65,7 @@ export async function resolveUniqueQaRepairAssets<Candidate, Asset extends { pex
     const asset = await resolve(candidate, [...usedIds]);
     if (!shouldContinue()) throw new QaRepairCancelledError();
     if (!Number.isSafeInteger(asset.pexelsId) || !asset.pexelsId || usedIds.has(asset.pexelsId)) {
-      throw new Error(`Pexels zwrócił nieprawidłowy lub powielony identyfikator klipu: ${String(asset.pexelsId)}.`);
+      throw new Error(`Dostawca stocków zwrócił nieprawidłowy lub powielony identyfikator klipu: ${String(asset.pexelsId)}.`);
     }
     usedIds.add(asset.pexelsId);
     resolvedAssets.push(asset);
@@ -111,7 +121,7 @@ export function selectQaRepairCandidates(
     const sceneIndex = oneBasedScene - 1;
     const scene = scenes[sceneIndex];
     const qaResult = resultByScene.get(oneBasedScene);
-    if (!scene || scene.source !== 'pexels' || scene.visualMode === 'data_visual' || !scene.videoUrl || !qaResult || qaResult.match) continue;
+    if (!scene || !['pexels', 'pixabay'].includes(String(scene.source)) || scene.visualMode === 'data_visual' || !scene.videoUrl || !qaResult || qaResult.match) continue;
     const narration = String(scene.voiceover_text || scene.subtitles || scene.caption || '').trim();
     if (!narration) continue;
     const repairQuery = buildArticleVisualQuery(article, narration, (sceneIndex + 1) % 8);
@@ -124,7 +134,7 @@ export function selectQaRepairCandidates(
 /** Replace only failed scenes' asset metadata/query; never mutate narration or timing or approved scenes. */
 export function applyQaRepairAssets<T extends QaRepairScene>(
   scenes: T[],
-  replacements: Array<{ sceneIndex: number; visualQuery: string; videoUrl: string; thumbnailUrl?: string; pexelsId: number; searchKeyword?: string; photographer?: string; photographerUrl?: string }>
+  replacements: Array<{ sceneIndex: number; visualQuery: string; videoUrl: string; thumbnailUrl?: string; pexelsId: number; source?: string; pixabayId?: number; stockId?: string; sourcePageUrl?: string; width?: number; height?: number; searchKeyword?: string; photographer?: string; photographerUrl?: string }>
 ): T[] {
   const updated = scenes.slice();
   for (const replacement of replacements) {
@@ -136,6 +146,12 @@ export function applyQaRepairAssets<T extends QaRepairScene>(
       videoUrl: replacement.videoUrl,
       thumbnailUrl: replacement.thumbnailUrl,
       pexelsId: replacement.pexelsId,
+      source: replacement.source || current.source,
+      pixabayId: replacement.pixabayId,
+      stockId: replacement.stockId,
+      sourcePageUrl: replacement.sourcePageUrl,
+      width: replacement.width,
+      height: replacement.height,
       searchKeyword: replacement.searchKeyword,
       photographer: replacement.photographer,
       photographerUrl: replacement.photographerUrl
