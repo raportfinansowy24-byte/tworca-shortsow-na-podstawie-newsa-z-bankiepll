@@ -225,13 +225,41 @@ const validMedia = evaluateRenderedShort({
   expectedDurationSeconds: 23
 });
 assert.equal(validMedia.status, 'pass');
+const extendedMedia = evaluateRenderedShort({
+  hasVideo: true,
+  hasAudio: true,
+  width: 720,
+  height: 1280,
+  durationSeconds: 27.9,
+  sizeBytes: 1_200_000,
+  requireAudio: true,
+  maxDurationSeconds: 28,
+  expectedDurationSeconds: 23
+});
+assert.equal(extendedMedia.status, 'pass', 'dłuższy lektor może wykorzystać uzgodniony zapas do 28 s');
+assert.equal(extendedMedia.findings.some((finding) => finding.code === 'output_duration_off_target'), false);
+
+const truncatedMedia = evaluateRenderedShort({
+  hasVideo: true,
+  hasAudio: true,
+  width: 720,
+  height: 1280,
+  durationSeconds: 19.5,
+  sizeBytes: 1_200_000,
+  requireAudio: true,
+  maxDurationSeconds: 28,
+  expectedDurationSeconds: 23
+});
+assert.equal(truncatedMedia.status, 'review', 'zbyt krótki film nadal wymaga kontroli');
+assert.ok(truncatedMedia.findings.some((finding) => finding.code === 'output_duration_off_target'));
+
 
 const brokenMedia = evaluateRenderedShort({
   hasVideo: true,
   hasAudio: false,
   width: 1920,
   height: 1080,
-  durationSeconds: 26,
+  durationSeconds: 29,
   sizeBytes: 0,
   requireAudio: true
 });

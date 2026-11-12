@@ -165,7 +165,7 @@ CTA wymagane przez politykę redakcyjną: ${ctaText || 'Wejdź na raport-finanso
 PARAMETRY:
 Platforma: ${platform}
 Język: ${language}
-Długość docelowa: ${duration} sekund; limit bezwzględny 25 sekund
+Długość docelowa: ${duration} sekund; limit bezwzględny 28 sekund
 Liczba beatów/scen: ${sceneCount}
 
 WYMAGANY JSON:

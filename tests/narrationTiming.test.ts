@@ -26,13 +26,24 @@ calibration = recordNarrationCalibrationSamples(calibration, profileKey, [
   { text: 'Raz dwa trzy cztery', durationSeconds: 2.2, speed: 1 }
 ]);
 assert.ok(Math.abs(
-  getCalibratedSecondsPerSpeechUnit(calibration, profileKey) - 0.55 * NARRATION_ESTIMATE_SAFETY_FACTOR
-) < 0.001, 'kalibracja używa mediany z 15% marginesem na różnice długości rzeczywistego TTS');
+  getCalibratedSecondsPerSpeechUnit(calibration, profileKey) - 0.6 * NARRATION_ESTIMATE_SAFETY_FACTOR
+) < 0.001, 'kalibracja wybiera konserwatywny 85. percentyl i dodaje 30% marginesu');
 assert.equal(parseNarrationCalibrationStore({ version: 9, profiles: { bad: [0.4] } }).version, 1);
+const oneSampleCalibration = recordNarrationCalibrationSamples(emptyNarrationCalibrationStore(), profileKey, [
+  { text: 'Raz dwa trzy cztery', durationSeconds: 2.4, speed: 1 }
+]);
+assert.ok(Math.abs(
+  getCalibratedSecondsPerSpeechUnit(oneSampleCalibration, profileKey) - 0.6 * NARRATION_ESTIMATE_SAFETY_FACTOR
+) < 0.001, 'już pierwszy pomiar rzeczywistego TTS jest używany bez rozcieńczania medianą defaultu');
+const slowSampleCalibration = recordNarrationCalibrationSamples(emptyNarrationCalibrationStore(), profileKey, [
+  { text: 'Raz dwa trzy cztery', durationSeconds: 3.2, speed: 1 }
+]);
+assert.ok(getCalibratedSecondsPerSpeechUnit(slowSampleCalibration, profileKey) > 0.9, 'wolniejsza próbka natychmiast zwiększa estymację');
+
 assert.ok(Math.abs(
   getCalibratedSecondsPerSpeechUnit(emptyNarrationCalibrationStore(), 'missing') -
   DEFAULT_SECONDS_PER_SPEECH_UNIT * NARRATION_ESTIMATE_SAFETY_FACTOR
-) < 0.001, 'estymacja bez historii również ma bezpieczny margines');
+) < 0.001, 'estymacja bez historii również ma 30% bezpiecznego marginesu');
 
 const base = [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5];
 const shortTexts = ['Raz dwa.', 'Trzy cztery.', 'Pięć sześć.', 'Siedem osiem.', 'Dziewięć.', 'Dziesięć.', 'Jedenaście.', 'Sprawdź raport-finansowy24.pl.'];

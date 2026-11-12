@@ -297,7 +297,7 @@ export function buildShortsEditorQaRevisionInstruction(report: ShortsEditorQaRep
   return [
     'SHORTS EDITOR QA — JEDNA OGRANICZONA POPRAWKA PLANU PRZED RENDEREM',
     'Zachowaj ten sam artykuł i wyłącznie potwierdzone fakty. Nie twórz nowego tematu ani nie wymyślaj liczb.',
-    'Zwróć dokładnie 8 scen na około 23 sekundy (maksymalnie 25 sekund). Pierwsze ujęcie ma zatrzymać uwagę od razu; ostatnie ma zawierać zatwierdzone CTA.',
+    'Zwróć dokładnie 8 scen na około 23 sekundy (maksymalnie 28 sekund). Pierwsze ujęcie ma zatrzymać uwagę od razu; ostatnie ma zawierać zatwierdzone CTA.',
     'Każda scena ma mieć krótką narrację, identyczną treść napisów i konkretne, unikalne zapytanie wizualne odnoszące się do tej kwestii.',
     'Każda scena faktograficzna musi zawierać sourceEvidence: krótki, dosłowny cytat z przekazanego artykułu. Cytat musi zawierać wykorzystane liczby i nie może być parafrazowany ani wymyślony.',
     'Usuń powtórzone zdania, ogólniki i niepotrzebne słowa. Nie czytaj URL-i lektorem. Nie zmieniaj polityki CTA.',
@@ -340,8 +340,15 @@ export function evaluateRenderedShort(metrics: RenderedShortMetrics): ShortsEdit
     if (Number(metrics.durationSeconds) < 6) {
       addFinding({ code: 'output_too_short', severity: 'warning', message: `Gotowy film trwa tylko ${Number(metrics.durationSeconds).toFixed(2)} s.` });
     }
-    if (typeof metrics.expectedDurationSeconds === 'number' && Math.abs(Number(metrics.durationSeconds) - metrics.expectedDurationSeconds) > 3) {
-      addFinding({ code: 'output_duration_off_target', severity: 'warning', message: `Gotowy film znacząco odbiega od planowanej długości ${metrics.expectedDurationSeconds} s.` });
+    // Longer speech-led renders may use the explicitly allowed reserve up to maxDurationSeconds.
+    // Do not warn merely because a valid narration expanded beyond the 23s editorial target.
+    if (typeof metrics.expectedDurationSeconds === 'number' &&
+        Number(metrics.durationSeconds) < metrics.expectedDurationSeconds - 3) {
+      addFinding({
+        code: 'output_duration_off_target',
+        severity: 'warning',
+        message: 'Gotowy film jest wyraźnie krótszy od planowanych ' + metrics.expectedDurationSeconds + ' s.'
+      });
     }
   }
   if (!Number.isFinite(metrics.sizeBytes) || Number(metrics.sizeBytes) <= 0) {

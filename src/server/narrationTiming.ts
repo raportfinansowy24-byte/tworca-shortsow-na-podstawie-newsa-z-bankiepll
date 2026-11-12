@@ -1,5 +1,5 @@
 export const DEFAULT_SECONDS_PER_SPEECH_UNIT = 0.4;
-export const NARRATION_ESTIMATE_SAFETY_FACTOR = 1.15;
+export const NARRATION_ESTIMATE_SAFETY_FACTOR = 1.3;
 export const MAX_NARRATION_CALIBRATION_SAMPLES = 80;
 
 export type NarrationCalibrationStore = {
@@ -71,12 +71,6 @@ export function parseNarrationCalibrationStore(value: unknown): NarrationCalibra
   return { version: 1, profiles };
 }
 
-function median(values: number[]): number {
-  const sorted = [...values].sort((left, right) => left - right);
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
-}
-
 export function getCalibratedSecondsPerSpeechUnit(
   store: NarrationCalibrationStore,
   profileKey: string
@@ -85,12 +79,16 @@ export function getCalibratedSecondsPerSpeechUnit(
   const conservativeEstimate = (secondsPerUnit: number) =>
     Math.min(1.2, secondsPerUnit * NARRATION_ESTIMATE_SAFETY_FACTOR);
   if (samples.length >= 3) {
-    return conservativeEstimate(median(samples.slice(-MAX_NARRATION_CALIBRATION_SAMPLES)));
+    const sorted = samples.slice(-MAX_NARRATION_CALIBRATION_SAMPLES).sort((left, right) => left - right);
+    // Prefer the 85th percentile over the median: one short/fast take must not
+    // make later estimates optimistic for the same voice and model.
+    const percentileIndex = Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.85) - 1);
+    return conservativeEstimate(Math.max(DEFAULT_SECONDS_PER_SPEECH_UNIT, sorted[percentileIndex]));
   }
   if (samples.length > 0) {
-    const observed = median(samples);
-    const confidence = samples.length / 5;
-    return conservativeEstimate(DEFAULT_SECONDS_PER_SPEECH_UNIT * (1 - confidence) + observed * confidence);
+    // Until enough samples exist, retain the slowest observation instead of blending
+    // it down toward a default which can hide a naturally slower voice.
+    return conservativeEstimate(Math.max(DEFAULT_SECONDS_PER_SPEECH_UNIT, ...samples));
   }
   return conservativeEstimate(DEFAULT_SECONDS_PER_SPEECH_UNIT);
 }

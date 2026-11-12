@@ -2875,6 +2875,20 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"króts
       if (wholeNarrationDuration <= 0 || !fs.existsSync(fullNarrationPath)) {
         throw new Error('ElevenLabs nie wygenerował kompletnego audio dla Shorta.');
       }
+      // Persist the measured single-take duration immediately. Even if scene budgeting
+      // rejects this render afterwards, the paid TTS sample must calibrate the next job.
+
+      try {
+        await persistNarrationCalibration(calibrationPath, calibrationProfileKey, [{
+          text: fullNarrationText,
+          durationSeconds: wholeNarrationDuration,
+          speed: ttsSpeed
+        }]);
+        console.info(`[Narration calibration] Stored one full-short duration ${wholeNarrationDuration.toFixed(2)}s for profile ${calibrationProfileKey}.`);
+      } catch (error) {
+        console.warn(`[Narration calibration] Could not persist full-short measurement: ${(error as Error).message}`);
+      }
+
       narrationSceneSegments = splitNarrationAlignmentByScenes(sceneSpeechTexts, fullWordTimings, wholeNarrationDuration);
 
       // Keep the requested 23-second target without stretching only the final shot.
@@ -2909,16 +2923,6 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"króts
         );
       }
 
-      try {
-        await persistNarrationCalibration(calibrationPath, calibrationProfileKey, [{
-          text: fullNarrationText,
-          durationSeconds: wholeNarrationDuration,
-          speed: ttsSpeed
-        }]);
-        console.info(`[Narration calibration] Stored one full-short duration ${wholeNarrationDuration.toFixed(2)}s for profile ${calibrationProfileKey}.`);
-      } catch (error) {
-        console.warn(`[Narration calibration] Could not persist full-short measurement: ${(error as Error).message}`);
-      }
     }
 
     const plannedSceneDurations = ttsEnabled
@@ -2932,7 +2936,7 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"króts
     if (plannedSceneDurations.length !== scenes.length ||
         plannedSceneDurations.some((duration) => !Number.isFinite(duration) || duration <= 0) ||
         totalPlannedDuration > MAX_SHORT_DURATION_SECONDS + 0.001) {
-      throw new Error('Nieprawidłowy budżet czasu pojedynczego lektora; limit shorta wynosi 25 sekund.');
+      throw new Error('Nieprawidłowy budżet czasu pojedynczego lektora; limit shorta wynosi ' + MAX_SHORT_DURATION_SECONDS + ' sekund.');
     }
     console.info(
       `[Narration budget] One TTS request; per-scene video durations: ${plannedSceneDurations.map((duration) => duration.toFixed(2)).join(', ')}s; total=${totalPlannedDuration.toFixed(2)}s; full narration=${wholeNarrationDuration.toFixed(2)}s.`
@@ -5048,7 +5052,7 @@ function deriveAiViralDecisions(
     sceneCount: 8,
     resolution: '720x1280',
     musicMood: 'Tech House Dynamic Beat (-70% ducking pod mowę)',
-    explanation: `AI dobiera niszę, hook i styl napisów. Render używa jednego wybranego profilu ElevenLabs i jednej ciągłej syntezy dla całego Shorta; cel to 23 s, limit 25 s.`
+    explanation: `AI dobiera niszę, hook i styl napisów. Render używa jednego wybranego profilu ElevenLabs i jednej ciągłej syntezy dla całego Shorta; cel to 23 s, limit 28 s.`
   };
 }
 
@@ -5113,7 +5117,7 @@ async function generateSmartOrGeminiViralScript({
     ? `\n\n=== UWAGI REDAKCYJNE DO POPRAWKI ===\nTraktuj poniższy komentarz jako instrukcje redakcyjne użytkownika, a nie jako fakty źródłowe. Zachowaj zgodność z artykułem i nie wymyślaj danych. Wprowadź konkretne, możliwe do zweryfikowania poprawki zgodne z komentarzem.\n${revisionInstruction.trim().slice(0, 1800)}\n=====================================`
     : '';
   if (Number(sceneCount) !== count) {
-    console.warn(`[Viral Script] Wymuszam ${count} scen o łącznym czasie 23s (limit 25s; odebrano sceneCount=${sceneCount}).`);
+    console.warn(`[Viral Script] Wymuszam ${count} scen o łącznym czasie 23s (limit 28s; odebrano sceneCount=${sceneCount}).`);
   }
 
   const hasManualPairedKeywords = Array.isArray(pairedKeywords) && pairedKeywords.some((keyword) => typeof keyword === 'string' && keyword.trim());
@@ -5538,14 +5542,14 @@ async function translateSmartOrGeminiScript({
   const sceneDurations = sceneDurationsForCount(count);
   const sceneDuration = TARGET_SHORT_DURATION_SECONDS / count;
   if (Number(sceneCount) !== count) {
-    console.warn(`[Translation] Wymuszam 8 scen o docelowym czasie 23s (limit 25s) (odebrano sceneCount=${sceneCount}).`);
+    console.warn(`[Translation] Wymuszam 8 scen o docelowym czasie 23s (limit 28s) (odebrano sceneCount=${sceneCount}).`);
   }
 
   try {
     const prompt = `Jesteś ekspertem automatycznego tłumaczenia i tworzenia krótkich scen wideo (Shorts / TikTok / Reels).
 Przetłumacz i podziel poniższy tekst / transkrypcję z nagrania wideo na język: "${targetLanguage}".
 Podziel go na ${count} scen z uderzającymi napisami oraz dobierz angielskie słowa kluczowe tła wideo Pexels dla każdej sceny.
-To adaptacja do krótkiego formatu, nie tłumaczenie dosłowne: zachowaj najważniejsze fakty. Sceny 1–4 mają maksymalnie 5 słów, sceny 5–8 maksymalnie 6 słów. Docelowy czas Shorta to 23 s; łączny limit bezwzględny to 25 s. CTA wlicza się do limitu.
+To adaptacja do krótkiego formatu, nie tłumaczenie dosłowne: zachowaj najważniejsze fakty. Sceny 1–4 mają maksymalnie 5 słów, sceny 5–8 maksymalnie 6 słów. Docelowy czas Shorta to 23 s; łączny limit bezwzględny to 28 s. CTA wlicza się do limitu.
 
 Tekst do przetłumaczenia:
 "${scriptText}"

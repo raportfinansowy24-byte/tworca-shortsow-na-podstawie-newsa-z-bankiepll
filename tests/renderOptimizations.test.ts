@@ -23,12 +23,12 @@ const validProbe = {
   ],
   format: { duration: '18.0' }
 };
-assert.equal(isValidConcatenatedVideo(validProbe, 720, 1280, true, 25, 18), true);
-assert.equal(isValidConcatenatedVideo({ ...validProbe, format: { duration: '24.8' } }, 720, 1280, true, 25, 24.8), true, 'dopuszcza poprawny Short w awaryjnym limicie 25 s');
-assert.equal(isValidConcatenatedVideo(validProbe, 1080, 1920, true, 25, 18), false, 'odrzuca niezgodny wymiar');
-assert.equal(isValidConcatenatedVideo({ ...validProbe, streams: [validProbe.streams[0]] }, 720, 1280, true, 25, 18), false, 'odrzuca brak audio dla renderu z lektorem');
-assert.equal(isValidConcatenatedVideo({ ...validProbe, format: { duration: '25.5' } }, 720, 1280, true, 25, 18), false, 'odrzuca czas przekraczający twardy limit shorta');
-assert.equal(isValidConcatenatedVideo({ ...validProbe, format: { duration: '15.0' } }, 720, 1280, true, 25, 18), false, 'odrzuca wynik krótszy od oczekiwanego, prawdopodobnie ucięty');
+assert.equal(isValidConcatenatedVideo(validProbe, 720, 1280, true, 28, 18), true);
+assert.equal(isValidConcatenatedVideo({ ...validProbe, format: { duration: '27.8' } }, 720, 1280, true, 28, 27.8), true, 'dopuszcza poprawny Short w uzgodnionym limicie 28 s');
+assert.equal(isValidConcatenatedVideo(validProbe, 1080, 1920, true, 28, 18), false, 'odrzuca niezgodny wymiar');
+assert.equal(isValidConcatenatedVideo({ ...validProbe, streams: [validProbe.streams[0]] }, 720, 1280, true, 28, 18), false, 'odrzuca brak audio dla renderu z lektorem');
+assert.equal(isValidConcatenatedVideo({ ...validProbe, format: { duration: '28.5' } }, 720, 1280, true, 28, 18), false, 'odrzuca czas przekraczający twardy limit 28 s');
+assert.equal(isValidConcatenatedVideo({ ...validProbe, format: { duration: '15.0' } }, 720, 1280, true, 28, 18), false, 'odrzuca wynik krótszy od oczekiwanego, prawdopodobnie ucięty');
 
 let active = 0;
 let maxActive = 0;

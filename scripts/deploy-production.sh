@@ -102,6 +102,7 @@ if [[ "$SKIP_TESTS" == false ]]; then
   npm run test:scene-contract
   npm run test:model-routing
   npm run test:visual-qa-providers
+  npm run test:narration-timing
 else
   log "Pominięto testy na żądanie (--skip-tests)."
 fi
