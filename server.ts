@@ -3875,7 +3875,10 @@ async function getDetailedServicesHealth() {
 // Lightweight liveness endpoint for Fly.io. Do not run subprocesses or dependency checks here.
 router.get('/healthz', (_req, res) => {
   res.setHeader('Cache-Control', 'no-store, max-age=0');
-  return res.status(200).json({ status: 'ok' });
+  return res.status(200).json({
+    status: 'ok',
+    deployment: getDeploymentInfo(process.env, serverStartedAt)
+  });
 });
 
 router.get('/services/health', async (_req, res) => {
