@@ -64,6 +64,7 @@ import { buildConcatArgs, FAST_H264_OPTIONS, isValidConcatenatedVideo } from './
 import { getDeploymentInfo } from './src/server/deploymentInfo';
 import { requestOpenAiVisualQa, retryVisualQa, runVisualQaWithFallback } from './src/server/visualQaProviders';
 import { splitNarrationAlignmentByScenes } from './src/server/singleNarration';
+import { selectVisuallyVerifiedPexelsCandidate } from './src/server/pexelsCandidateVisualQa';
 import { GEMINI_FALLBACK_MODEL, isRetryableModelProviderError, OPENAI_PRIMARY_MODEL, requestOpenAiScript } from './src/server/modelRouting';
 
 const execPromise = promisify(exec);
@@ -303,6 +304,7 @@ export interface ResolvedStockVideo {
   duration?: number;
   photographer?: string;
   photographerUrl?: string;
+  previewImageUrls?: string[];
 }
 
 type PexelsSearchCacheEntry = {
@@ -659,7 +661,7 @@ function translateAndEnrichViralKeyword(
 // Dynamically search vertical portrait (9:16) stock video from Pexels API with viral candidate scoring & deduplication
 async function searchPexelsVideoDetailed(
   query: string,
-  options?: { sceneIndex?: number; avoidVideoIds?: number[]; avoidUrls?: string[]; context?: string; requireTopicMatch?: boolean; targetDurationSeconds?: number }
+  options?: { sceneIndex?: number; avoidVideoIds?: number[]; avoidUrls?: string[]; context?: string; requireTopicMatch?: boolean; targetDurationSeconds?: number; candidateCollector?: ResolvedStockVideo[] }
 ): Promise<ResolvedStockVideo | null> {
   const pexelsKey = process.env.PEXELS_API_KEY;
   if (!pexelsKey || !pexelsKey.trim()) return null;
@@ -727,25 +729,40 @@ async function searchPexelsVideoDetailed(
         }
       }
 
-      // Sort by score descending
+      // Shortlist lexical matches; final selection happens only after frame-level vision QA.
       candidates.sort((a, b) => b.score - a.score);
-
-      const picked = candidates[0];
-      if (picked) {
-        console.log(`✓ [Pexels API Wybrano Dynamiczne 9:16] "${enrichedQuery}" (score: ${picked.score}) -> ID ${picked.video.id} (${picked.verticalMp4.width}x${picked.verticalMp4.height}, ${picked.video.duration}s)`);
+      const toResolved = (candidate: typeof candidates[number]): ResolvedStockVideo => {
+        const { video, verticalMp4, score } = candidate;
+        const pictures = Array.isArray(video.video_pictures)
+          ? video.video_pictures.map((item: any) => String(item?.picture || '').trim()).filter((url: string) => /^https:\/\//i.test(url))
+          : [];
+        const previewImageUrls = pictures.length
+          ? [...new Set([pictures[0], pictures[Math.floor(pictures.length / 2)]])].slice(0, 2)
+          : (typeof video.image === 'string' && /^https:\/\//i.test(video.image) ? [video.image] : []);
         return {
-          videoUrl: picked.verticalMp4.link,
-          thumbnailUrl: picked.video.image || picked.video.video_pictures?.[0]?.picture || '',
-          pexelsId: picked.video.id,
-          width: picked.verticalMp4.width,
-          height: picked.verticalMp4.height,
-          duration: picked.video.duration,
-          photographer: picked.video.user?.name,
-          photographerUrl: picked.video.user?.url,
+          videoUrl: verticalMp4.link,
+          thumbnailUrl: video.image || previewImageUrls[0] || '',
+          pexelsId: video.id,
+          width: verticalMp4.width,
+          height: verticalMp4.height,
+          duration: video.duration,
+          photographer: video.user?.name,
+          photographerUrl: video.user?.url,
           searchKeyword: enrichedQuery,
-          selectionScore: picked.score,
+          selectionScore: score,
+          previewImageUrls,
           source: 'pexels'
         };
+      };
+      if (options?.candidateCollector) {
+        for (const candidate of candidates.slice(0, 4)) {
+          const resolved = toResolved(candidate);
+          if (!options.candidateCollector.some((item) => item.pexelsId === resolved.pexelsId)) options.candidateCollector.push(resolved);
+        }
+      }
+      if (candidates[0]) {
+        console.log('[Pexels shortlist] ' + Math.min(4, candidates.length) + ' kandidatów do kontroli obrazu; top ID ' + candidates[0].video.id);
+        return toResolved(candidates[0]);
       }
 
     }
@@ -753,6 +770,112 @@ async function searchPexelsVideoDetailed(
     console.warn(`[Pexels API Błąd]`, (err as Error).message);
   }
   return null;
+}
+
+async function verifyPexelsVisualCandidates(
+  candidates: ResolvedStockVideo[],
+  context: string,
+  sceneQuery: string,
+  sceneIndex: number
+): Promise<ResolvedStockVideo> {
+  const openAiApiKey = process.env.OPENAI_API_KEY?.trim();
+  const geminiApiKey = process.env.GEMINI_API_KEY?.trim();
+  if (!openAiApiKey && !geminiApiKey) {
+    throw new Error('Pre-renderowa kontrola obrazu Pexels wymaga OPENAI_API_KEY lub GEMINI_API_KEY.');
+  }
+
+  const shortlist = [...candidates]
+    .filter((item) => Number.isSafeInteger(item.pexelsId) && (item.previewImageUrls?.length || 0) > 0)
+    .sort((a, b) => (b.selectionScore ?? -Infinity) - (a.selectionScore ?? -Infinity))
+    .slice(0, 5);
+  const downloaded = await Promise.all(shortlist.map(async (candidate) => {
+    const frames = await Promise.all((candidate.previewImageUrls || []).slice(0, 2).map(async (imageUrl) => {
+      try {
+        const parsedUrl = new URL(imageUrl);
+        if (!/(^|\\.)pexels\\.com$/i.test(parsedUrl.hostname)) return null;
+        const response = await fetch(imageUrl, { signal: AbortSignal.timeout(10000) });
+        if (!response.ok) return null;
+        const mimeType = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+        if (!['image/jpeg', 'image/png', 'image/webp'].includes(mimeType)) return null;
+        const bytes = Buffer.from(await response.arrayBuffer());
+        if (bytes.length === 0 || bytes.length > 4 * 1024 * 1024) return null;
+        return { mimeType, data: bytes.toString('base64') };
+      } catch (error) {
+        console.warn('[Pexels visual precheck] Klatka kandydata ' + candidate.pexelsId + ' niedostępna: ' + (error as Error).message);
+        return null;
+      }
+    }));
+    return { candidate, frames: frames.filter((frame): frame is { mimeType: string; data: string } => Boolean(frame)) };
+  }));
+  const verified = downloaded.filter((item) => item.frames.length > 0).map((item) => item.candidate);
+  const framesByCandidate = downloaded.filter((item) => item.frames.length > 0).map((item) => item.frames);
+  if (!verified.length) {
+    throw new Error('Brak dostępnych klatek Pexels do kontroli wizualnej sceny ' + (sceneIndex + 1) + '.');
+  }
+
+  const imageParts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [];
+  verified.forEach((candidate, index) => {
+    framesByCandidate[index].forEach((frame, frameIndex) => {
+      imageParts.push({
+        text: 'KANDYDAT ' + (index + 1) + ', PEXELS ID ' + candidate.pexelsId + ', klatka ' + (frameIndex + 1) + '.'
+      });
+      imageParts.push({ inlineData: frame });
+    });
+  });
+
+  const instructions = [
+    'Porównaj rzeczywiste klatki podglądowe kandydatów Pexels z tematem jednej sceny filmu finansowo-informacyjnego.',
+    'Kontekst artykułu i narracji: ' + context.slice(0, 1800),
+    'Docelowa scena: ' + sceneQuery,
+    'Akceptuj ogólne ujęcie ilustracyjne, jeśli pokazuje główny temat lub czynność. Nie wymagaj widoczności konkretnego miasta, urzędu, kwoty ani nazwy programu.',
+    'Odrzuć obrazy sprzeczne z tematem, przypadkowe abstrakcje i inne kategorie (np. kryptowaluty zamiast nieruchomości). Oceniaj zgodność, nie estetykę.',
+    'Otrzymujesz ' + verified.length + ' kandydatów. Zwróć dokładnie jeden wynik dla każdego, pole scene to numer kandydata.',
+    'Zwróć wyłącznie JSON: {"results":[{"scene":1,"match":true,"confidence":0.0,"reason":"krótkie uzasadnienie po polsku"}]}. match=true tylko dla sensownej ilustracji sceny.'
+  ].join('\n');
+
+  const providers: Array<{ model: string; analyze: () => Promise<ReturnType<typeof parseCompleteVisualSemanticResponse>> }> = [];
+  if (openAiApiKey) {
+    providers.push({
+      model: 'openai:' + OPENAI_PRIMARY_MODEL,
+      analyze: async () => retryVisualQa(async () => {
+        const text = await requestOpenAiVisualQa({ apiKey: openAiApiKey, model: OPENAI_PRIMARY_MODEL, instructions, imageParts });
+        return parseCompleteVisualSemanticResponse(text, verified.length);
+      }, { maxAttempts: 2, delaysMs: [700] })
+    });
+  }
+  if (geminiApiKey) {
+    providers.push({
+      model: GEMINI_FALLBACK_MODEL,
+      analyze: async () => retryVisualQa(async () => {
+        const response = await ai.models.generateContent({
+          model: GEMINI_FALLBACK_MODEL,
+          contents: [{ role: 'user', parts: [{ text: instructions }, ...imageParts] }],
+          config: { responseMimeType: 'application/json' }
+        });
+        if (!response.text?.trim()) throw new Error('Gemini zwrócił pustą odpowiedź w kontroli Pexels.');
+        return parseCompleteVisualSemanticResponse(response.text, verified.length);
+      }, { maxAttempts: 2, delaysMs: [700] })
+    });
+  }
+  const { model, result } = await runVisualQaWithFallback(providers, (provider, error) => {
+    console.warn('[Pexels visual precheck] Provider ' + provider + ' nie zadziałał: ' + error.message);
+  });
+  const selected = selectVisuallyVerifiedPexelsCandidate(
+    verified.map((candidate, index) => ({
+      pexelsId: candidate.pexelsId!,
+      selectionScore: candidate.selectionScore || 0,
+      visual: result.find((item) => item.scene === index + 1)
+    })),
+    0.68
+  );
+  if (!selected) {
+    const reasons = result.map((item) => 'kandydat ' + item.scene + ': ' + (item.reason || 'brak zgodności')).join('; ');
+    throw new Error('Żaden klip Pexels nie przeszedł kontroli przed renderem (provider ' + model + '): ' + reasons);
+  }
+  const picked = verified.find((candidate) => candidate.pexelsId === selected.pexelsId);
+  if (!picked) throw new Error('Kontrola wizualna zwróciła nieznany klip Pexels.');
+  console.log('[Pexels visual precheck] Scena ' + (sceneIndex + 1) + ' zaakceptowała klip ' + picked.pexelsId + ' (' + model + ', confidence ' + selected.confidence.toFixed(2) + ').');
+  return picked;
 }
 
 // ShortGPT generates several search phrases per timed segment and only then
@@ -915,6 +1038,7 @@ async function resolveStockOrPexelsVideoDetailed(
   const targetDurationSeconds = options?.targetDurationSeconds ?? (index < 4 ? 8 : 12);
   const searchQueries = getShortGptSearchQueries(query, index, options?.context);
   const candidates: ResolvedStockVideo[] = [];
+  const candidateCollector: ResolvedStockVideo[] = [];
 
   for (const candidateQuery of searchQueries) {
     console.log(`[Pexels Search] Zapytanie ${candidateQuery === searchQueries[0] ? 'główne' : 'alternatywne'}: "${candidateQuery}" dla sceny #${index + 1}...`);
@@ -923,14 +1047,23 @@ async function resolveStockOrPexelsVideoDetailed(
       avoidVideoIds: avoidIds,
       context: options?.context,
       requireTopicMatch: options?.requirePexels,
-      targetDurationSeconds
+      targetDurationSeconds,
+      candidateCollector
     });
     if (result) candidates.push(result);
   }
 
-  if (candidates.length > 0) {
-    candidates.sort((a, b) => (b.selectionScore ?? -Infinity) - (a.selectionScore ?? -Infinity));
-    return candidates[0];
+  const uniqueCollected = [...new Map(
+    [...candidateCollector, ...candidates]
+      .filter((item) => Number.isSafeInteger(item.pexelsId))
+      .map((item) => [item.pexelsId!, item])
+  ).values()].sort((a, b) => (b.selectionScore ?? -Infinity) - (a.selectionScore ?? -Infinity));
+
+  if (uniqueCollected.length > 0) {
+    if (options?.context?.trim() || options?.requirePexels) {
+      return await verifyPexelsVisualCandidates(uniqueCollected, options?.context?.trim() || query, query, index);
+    }
+    return uniqueCollected[0];
   }
 
   // Never relax semantic matching when an article/scene context is available.

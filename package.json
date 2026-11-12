@@ -38,7 +38,8 @@
     "test:services-health": "tsx tests/servicesHealth.test.ts",
     "test:finance-chart": "tsx tests/financeChartVisual.test.ts",
     "test:adaptive-music": "tsx tests/adaptiveMusicStrategy.test.ts",
-    "test:model-routing": "tsx tests/modelRouting.test.ts"
+    "test:model-routing": "tsx tests/modelRouting.test.ts",
+    "test:pexels-candidate-visual-qa": "tsx tests/pexelsCandidateVisualQa.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
