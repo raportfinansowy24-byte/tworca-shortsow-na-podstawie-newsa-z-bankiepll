@@ -1,5 +1,5 @@
 # Existing Fly app is reused to avoid creating a duplicate application.
-# Keep the existing volume and always-on machine configuration.
+# Use an independent fork on a separate host; preserve the original shorts_data volume for rollback.
 app = "tworca-shortsow-na-podstawie-newsa-z-bankiepll"
 primary_region = "fra"
 kill_signal = "SIGINT"
@@ -17,7 +17,7 @@ kill_timeout = "30s"
   AUTOPILOT_ALLOWED_EMAILS = "raportfinansowy24@gmail.com"
 
 [[mounts]]
-  source = "shorts_data"
+  source = "shorts_data_recovered"
   destination = "/app/exports"
   initial_size = "10gb"
 

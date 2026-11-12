@@ -63,12 +63,15 @@ jobs:
         run: npm run test:supabase-history
 
 
-  inspect_fly_storage:
-    name: Inspect Fly.io machines and persistent volumes
+  deploy_production:
+    name: Recover Fly volume and deploy production
     needs: validate
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 35
+    concurrency:
+      group: shorts-generator-production
+      cancel-in-progress: false
     steps:
       - name: Check out validated commit
         uses: actions/checkout@v4
@@ -85,58 +88,157 @@ jobs:
             echo "is_current=true" >> "$GITHUB_OUTPUT"
           else
             echo "is_current=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Skipping stale Fly storage inspection."
+            echo "::notice::Skipping stale production deployment."
           fi
 
       - name: Set up Fly.io CLI
         if: steps.guard.outputs.is_current == 'true'
         uses: superfly/flyctl-actions/setup-flyctl@98172f70657cb3e15db199af139be99bd3e61200
 
-      - name: Inspect machines and volumes (read-only)
+      - name: Fork the existing persistent volume safely
         if: steps.guard.outputs.is_current == 'true'
+        id: volume
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: |
           set -euo pipefail
           test -n "$FLY_API_TOKEN" || { echo "::error::Missing repository secret FLY_API_TOKEN"; exit 1; }
           APP="tworca-shortsow-na-podstawie-newsa-z-bankiepll"
-          flyctl status --app "$APP"
+          SOURCE_ID="vol_4ql7e0xly8zw1qnr"
+          SOURCE_NAME="shorts_data"
+          TARGET_NAME="shorts_data_recovered"
+          REGION="fra"
+
           machines="$(flyctl machine list --app "$APP" --json)"
-          volumes="$(flyctl volumes list --app "$APP" --json)"
-          echo "MACHINE_SUMMARY:"
           node -e '
             const raw = JSON.parse(process.argv[1]);
             const rows = Array.isArray(raw) ? raw : (raw.machines || raw.data || []);
-            const safe = rows.map(m => ({
-              id: m.id ?? m.ID ?? null,
-              name: m.name ?? m.NAME ?? null,
-              state: m.state ?? m.STATE ?? null,
-              region: m.region ?? m.REGION ?? null,
-              hostStatus: m.host_status ?? m.hostStatus ?? null,
-              image: m.config?.image ?? m.image ?? m.IMAGE ?? null,
-              cpuKind: m.config?.guest?.cpu_kind ?? m.config?.guest?.cpuKind ?? null,
-              cpus: m.config?.guest?.cpus ?? null,
-              memoryMb: m.config?.guest?.memory_mb ?? m.config?.guest?.memoryMb ?? null,
-              mounts: (m.config?.mounts ?? m.mounts ?? []).map(x => ({
-                volume: x.volume ?? x.volume_id ?? null,
-                destination: x.path ?? x.destination ?? null
-              }))
-            }));
-            console.log(JSON.stringify(safe, null, 2));
+            if (rows.length) {
+              console.error("Refusing storage recovery while app machines exist; inspect their mounts first.");
+              process.exit(1);
+            }
           ' "$machines"
-          echo "VOLUME_SUMMARY:"
+
+          volumes="$(flyctl volumes list --app "$APP" --json)"
           node -e '
             const raw = JSON.parse(process.argv[1]);
             const rows = Array.isArray(raw) ? raw : (raw.volumes || raw.data || []);
-            const safe = rows.map(v => ({
-              id: v.id ?? v.ID ?? null,
-              name: v.name ?? v.NAME ?? null,
-              state: v.state ?? v.STATE ?? null,
-              region: v.region ?? v.REGION ?? null,
-              zone: v.zone ?? v.ZONE ?? null,
-              sizeGb: v.size_gb ?? v.sizeGb ?? v.size ?? v.SIZE ?? null,
-              encrypted: v.encrypted ?? v.ENCRYPTED ?? null,
-              attachedMachine: v.attached_machine_id ?? v.attachedMachineId ?? v.attached_vm ?? v.ATTACHED_VM ?? null
-            }));
-            console.log(JSON.stringify(safe, null, 2));
-          ' "$volumes"
+            const source = rows.find(v => (v.id ?? v.ID) === process.argv[2]);
+            if (!source || (source.name ?? source.NAME) !== "shorts_data" ||
+                (source.region ?? source.REGION) !== "fra") {
+              console.error("Original shorts_data volume not found in fra; refusing to continue.");
+              process.exit(1);
+            }
+            const attached = source.attached_machine_id ?? source.attachedMachineId ?? source.attached_vm ?? source.ATTACHED_VM;
+            if (attached) {
+              console.error("Original volume is attached to a machine; refusing to fork a live volume.");
+              process.exit(1);
+            }
+          ' "$volumes" "$SOURCE_ID"
+
+          existing_id="$(node -e '
+            const raw = JSON.parse(process.argv[1]);
+            const rows = Array.isArray(raw) ? raw : (raw.volumes || raw.data || []);
+            const v = rows.find(v => (v.name ?? v.NAME) === process.argv[2] && (v.region ?? v.REGION) === process.argv[3]);
+            if (v) process.stdout.write(String(v.id ?? v.ID ?? ""));
+          ' "$volumes" "$TARGET_NAME" "$REGION")"
+
+          if [[ -z "$existing_id" ]]; then
+            echo "Forking the detached encrypted 10GB source volume to a new host/zone."
+            flyctl volumes fork "$SOURCE_ID" \
+              --app "$APP" \
+              --region "$REGION" \
+              --name "$TARGET_NAME" \
+              --vm-size shared-cpu-8x \
+              --require-unique-zone \
+              --json
+            volumes="$(flyctl volumes list --app "$APP" --json)"
+            existing_id="$(node -e '
+              const raw = JSON.parse(process.argv[1]);
+              const rows = Array.isArray(raw) ? raw : (raw.volumes || raw.data || []);
+              const v = rows.find(v => (v.name ?? v.NAME) === process.argv[2] && (v.region ?? v.REGION) === process.argv[3]);
+              if (v) process.stdout.write(String(v.id ?? v.ID ?? ""));
+            ' "$volumes" "$TARGET_NAME" "$REGION")"
+          else
+            echo "Using previously created recovery volume; no second fork will be made."
+          fi
+
+          test -n "$existing_id" || { echo "::error::Recovery volume was not created or found."; exit 1; }
+          node -e '
+            const raw = JSON.parse(process.argv[1]);
+            const rows = Array.isArray(raw) ? raw : (raw.volumes || raw.data || []);
+            const source = rows.find(v => (v.id ?? v.ID) === process.argv[2]);
+            const target = rows.find(v => (v.id ?? v.ID) === process.argv[3]);
+            if (!source || !target || target.id === source.id ||
+                (target.name ?? target.NAME) !== "shorts_data_recovered" ||
+                (target.region ?? target.REGION) !== "fra" ||
+                Number(target.size_gb ?? target.sizeGb ?? target.size ?? target.SIZE) !== 10 ||
+                target.encrypted !== true ||
+                (target.zone ?? target.ZONE) === (source.zone ?? source.ZONE)) {
+              console.error("Recovery volume failed safety checks (identity, region, size, encryption or zone).");
+              process.exit(1);
+            }
+            const attached = target.attached_machine_id ?? target.attachedMachineId ?? target.attached_vm ?? target.ATTACHED_VM;
+            if (attached) {
+              console.error("Recovery volume is unexpectedly already attached.");
+              process.exit(1);
+            }
+            console.log(JSON.stringify({
+              source: { id: source.id, region: source.region, zone: source.zone, sizeGb: source.size_gb },
+              recovery: { id: target.id, region: target.region, zone: target.zone, sizeGb: target.size_gb, encrypted: target.encrypted },
+              originalPreserved: true
+            }, null, 2));
+          ' "$volumes" "$SOURCE_ID" "$existing_id"
+          echo "volume_id=$existing_id" >> "$GITHUB_OUTPUT"
+
+      - name: Confirm target volume in fly.toml
+        if: steps.guard.outputs.is_current == 'true'
+        run: |
+          set -euo pipefail
+          grep -q 'source = "shorts_data_recovered"' fly.toml
+          grep -q 'size = "shared-cpu-8x"' fly.toml
+
+      - name: Deploy to Fly.io with recovered volume
+        if: steps.guard.outputs.is_current == 'true'
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$FLY_API_TOKEN"
+          flyctl deploy \
+            --app tworca-shortsow-na-podstawie-newsa-z-bankiepll \
+            --remote-only \
+            --yes \
+            --strategy immediate \
+            --vm-size shared-cpu-8x \
+            --build-arg APP_GIT_SHA="$GITHUB_SHA"
+
+      - name: Verify the deployed application and commit
+        if: steps.guard.outputs.is_current == 'true'
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+          BASE_URL: https://tworca-shortsow-na-podstawie-newsa-z-bankiepll.fly.dev
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 60); do
+            response="$(curl -fsS --connect-timeout 5 --max-time 15 "$BASE_URL/api/healthz" 2>/dev/null || true)"
+            if [[ -n "$response" ]] && node -e '
+              const d = JSON.parse(process.argv[1]);
+              const expected = process.argv[2];
+              if (
+                d.status === "ok" &&
+                d.deployment?.appName === "tworca-shortsow-na-podstawie-newsa-z-bankiepll" &&
+                d.deployment?.gitSha === expected &&
+                typeof d.deployment?.imageRef === "string" &&
+                d.deployment.imageRef.length > 0
+              ) process.exit(0);
+              process.exit(1);
+            ' "$response" "$EXPECTED_SHA"; then
+              echo "Fly.io is online on commit $EXPECTED_SHA."
+              exit 0
+            fi
+            echo "Waiting for Fly.io health check ($attempt/60)..."
+            sleep 5
+          done
+          echo "::error::Health check did not confirm the expected commit $EXPECTED_SHA."
+          exit 1
