@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { buildPixabayFallbackQueries } from '../src/server/pixabaySearchExpansion';
 import {
   isTrustedPixabayMediaUrl,
   mapPixabayVideoCandidates,
@@ -13,6 +14,18 @@ assert.equal(isTrustedPixabayMediaUrl('https://example.com/pixabay.com/video.mp4
 assert.equal(pixabayIdToInternalStockId(123), 1_000_000_000_123);
 assert.equal(pixabayIdToInternalStockId(-1), null);
 assert.equal(pixabayIdToInternalStockId('not-an-id'), null);
+
+const nvidiaFallbackQueries = buildPixabayFallbackQueries(
+  'Jensen Huang Nvidia keynote',
+  'Wiadomość o nowych układach AI i wynikach producenta procesorów.',
+  ['stock market chart'],
+  4
+);
+assert.equal(nvidiaFallbackQueries[0], 'Jensen Huang Nvidia keynote', 'zachowaj oryginalne zapytanie jako pierwszą próbę');
+assert.ok(nvidiaFallbackQueries.some((query) => /artificial intelligence/i.test(query)), 'rozszerz nazwę osoby i firmy do tematu AI');
+assert.ok(nvidiaFallbackQueries.some((query) => /GPU|semiconductor/i.test(query)), 'dodaj warianty GPU i półprzewodników');
+assert.ok(nvidiaFallbackQueries.length <= 4, 'ogranicz liczbę zapytań Pixabay na scenę');
+assert.equal(new Set(nvidiaFallbackQueries.map((query) => query.toLowerCase())).size, nvidiaFallbackQueries.length, 'usuń duplikaty zapytań');
 
 const payload = {
   hits: [
@@ -73,4 +86,32 @@ assert.equal(mapPixabayVideoCandidates(payload, {
   requireTopicMatch: true
 }).length, 1, 'wyklucz użyty klip i zachowaj kolejny niezależny kandydat');
 assert.equal(mapPixabayVideoCandidates({ hits: [{ id: 0 }] }, { query: 'office' }).length, 0);
+
+const technologyFallbackPayload = {
+  hits: [{
+    id: 126,
+    pageURL: 'https://pixabay.com/videos/id-126/',
+    tags: 'artificial intelligence, technology, conference, GPU, servers',
+    duration: 18,
+    videos: {
+      medium: { url: 'https://cdn.pixabay.com/video/technology.mp4', width: 1080, height: 1920, thumbnail: 'https://cdn.pixabay.com/video/technology.jpg' }
+    }
+  }, {
+    id: 127,
+    pageURL: 'https://pixabay.com/videos/id-127/',
+    tags: 'artificial intelligence, technology conference, bitcoin, crypto',
+    duration: 18,
+    videos: {
+      medium: { url: 'https://cdn.pixabay.com/video/crypto-tech.mp4', width: 1080, height: 1920, thumbnail: 'https://cdn.pixabay.com/video/crypto-tech.jpg' }
+    }
+  }]
+};
+const technologyFallbackOptions = {
+  query: 'artificial intelligence technology conference',
+  context: 'Jensen Huang Nvidia stock market news and AI presentation',
+  requireTopicMatch: true,
+  allowBroadSceneMatch: true
+};
+assert.equal(mapPixabayVideoCandidates(technologyFallbackPayload, technologyFallbackOptions).length, 1, 'przyjmij tematyczny alias do późniejszej kontroli obrazu, nawet bez tagu kategorii rynkowej');
+assert.equal(mapPixabayVideoCandidates(technologyFallbackPayload, { ...technologyFallbackOptions, allowBroadSceneMatch: false }).length, 0, 'bez flagi broad match zachowaj dotychczasowy rygor tagów kategorii');
 console.log('Pixabay video provider tests passed');

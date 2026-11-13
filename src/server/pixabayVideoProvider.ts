@@ -8,6 +8,8 @@ export interface PixabayVideoSearchOptions {
   sceneIndex?: number;
   avoidVideoIds?: number[];
   requireTopicMatch?: boolean;
+  /** Permit a scene-term match when category tags are absent; image QA remains mandatory. */
+  allowBroadSceneMatch?: boolean;
   targetDurationSeconds?: number;
 }
 
@@ -75,7 +77,9 @@ export function mapPixabayVideoCandidates(
     const tags = String(hit.tags || '');
     const slug = `${tags} ${pageUrl}`.toLowerCase();
     const relevance = scorePexelsCandidate(context || query, query, slug);
-    if ((options.requireTopicMatch || context) && !relevance.relevant) continue;
+    const broadSceneMatches = query.toLowerCase().split(/\s+/).filter((token) => token.length >= 3 && slug.toLowerCase().includes(token));
+    const broadSceneMatch = options.allowBroadSceneMatch === true && broadSceneMatches.length > 0 && relevance.forbiddenMatches.length === 0;
+    if ((options.requireTopicMatch || context) && !relevance.relevant && !broadSceneMatch) continue;
 
     const hasNegative = /\b(?:eraser|writing notes|taking notes|gymnast|workout|unrelated crypto)\b/i.test(slug);
     if (hasNegative) continue;
@@ -104,7 +108,7 @@ export function mapPixabayVideoCandidates(
     )].slice(0, 2);
     if (thumbnailUrls.length === 0) continue;
 
-    let selectionScore = 50 + (relevance.relevant ? relevance.score : 0);
+    let selectionScore = 50 + (relevance.relevant ? relevance.score : Math.min(3, broadSceneMatches.length) * 30);
     // Prefer native portrait clips. Landscape clips remain a last-resort fallback
     // and must pass visual QA for the renderer's center-cropped 9:16 frame.
     if (Number(file.height) > Number(file.width)) selectionScore += 35;

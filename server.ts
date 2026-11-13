@@ -66,6 +66,7 @@ import { requestOpenAiVisualQa, retryVisualQa, runVisualQaWithFallback } from '.
 import { splitNarrationAlignmentByScenes } from './src/server/singleNarration';
 import { isTrustedStockPreviewUrl, selectVisuallyVerifiedPexelsCandidate } from './src/server/pexelsCandidateVisualQa';
 import { mapPixabayVideoCandidates } from './src/server/pixabayVideoProvider';
+import { buildPixabayFallbackQueries } from './src/server/pixabaySearchExpansion';
 import { GEMINI_FALLBACK_MODEL, isRetryableModelProviderError, OPENAI_PRIMARY_MODEL, requestOpenAiScript } from './src/server/modelRouting';
 
 const execPromise = promisify(exec);
@@ -434,7 +435,7 @@ async function fetchPixabayVideoSearchData(query: string): Promise<any> {
 }
 
 async function searchPixabayVideoCandidates(query: string, options: {
-  context?: string; sceneIndex: number; avoidVideoIds: number[]; requireTopicMatch: boolean; targetDurationSeconds: number;
+  context?: string; sceneIndex: number; avoidVideoIds: number[]; requireTopicMatch: boolean; allowBroadSceneMatch?: boolean; targetDurationSeconds: number;
 }): Promise<ResolvedStockVideo[]> {
   if (!process.env.PIXABAY_API_KEY?.trim()) return [];
   try {
@@ -442,6 +443,7 @@ async function searchPixabayVideoCandidates(query: string, options: {
     const candidates = mapPixabayVideoCandidates(data, {
       query, context: options.context, sceneIndex: options.sceneIndex,
       avoidVideoIds: options.avoidVideoIds, requireTopicMatch: options.requireTopicMatch,
+      allowBroadSceneMatch: options.allowBroadSceneMatch,
       targetDurationSeconds: options.targetDurationSeconds
     });
     console.log('[Pixabay Search] Scena ' + (options.sceneIndex + 1) + ': query="' + query + '", kandydaci=' + candidates.length + '.');
@@ -1114,10 +1116,17 @@ async function resolveStockOrPexelsVideoDetailed(
   } else console.warn('[Stock fallback] Brak PEXELS_API_KEY; scena ' + (index + 1) + ' będzie wyszukiwana w Pixabay.');
 
   if (pixabayKey) {
-    const pixabayQueries = [...new Set(searchQueries.slice(0, 2).map((value) => value.slice(0, 100).trim()).filter(Boolean))];
+    const pixabayQueries = buildPixabayFallbackQueries(
+      query,
+      options?.context || '',
+      searchQueries.filter((value) => value.trim().toLowerCase() !== query.trim().toLowerCase()),
+      4
+    );
+    console.info('[Pixabay Fallback] Scena ' + (index + 1) + ': rozszerzone zapytania=' + pixabayQueries.map((value) => '"' + value + '"').join(' | '));
+    const requireTopicMatch = options?.requirePexels === true || Boolean(options?.context?.trim());
     const pixabayCandidates = (await Promise.all(pixabayQueries.map((candidateQuery) => searchPixabayVideoCandidates(candidateQuery, {
       context: options?.context, sceneIndex: index, avoidVideoIds: avoidIds,
-      requireTopicMatch: options?.requirePexels === true || Boolean(options?.context?.trim()), targetDurationSeconds
+      requireTopicMatch, allowBroadSceneMatch: requireTopicMatch, targetDurationSeconds
     })))).flat();
     const uniquePixabay = [...new Map(pixabayCandidates
       .filter((item) => item.source === 'pixabay' && Number.isSafeInteger(item.pexelsId))
