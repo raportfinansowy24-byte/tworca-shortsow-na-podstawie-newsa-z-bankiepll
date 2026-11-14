@@ -67,6 +67,8 @@ import { requestOpenAiVisualQa, retryVisualQa, runVisualQaWithFallback } from '.
 import { splitNarrationAlignmentByScenes } from './src/server/singleNarration';
 import { isTrustedStockPreviewUrl, selectVisuallyVerifiedPexelsCandidate } from './src/server/pexelsCandidateVisualQa';
 import { mapPixabayVideoCandidates } from './src/server/pixabayVideoProvider';
+import { cleanStockSearchQuery, scoreStockCandidateSoftAvoidance } from './src/server/stockCandidatePolicy';
+import { buildSourceEvidenceVisual, resolveStockWithEvidenceFallback } from './src/server/sourceEvidenceVisual';
 import { buildPixabayFallbackQueries } from './src/server/pixabaySearchExpansion';
 import { buildFinancialNewsSearchAliases } from './src/server/stockSearchExpansion';
 import { findLegacyFailedAutopilotArticleUrl, getNextPendingAutopilotRetry, MAX_AUTOPILOT_RETRY_ATTEMPTS, MAX_STORYBOARD_QA_REPAIR_ATTEMPTS, recordAutopilotFailure, repairUntilPass, resolveAutopilotRetry, isCompatibleNarrationRetryCache, type AutopilotRetryEntry, type RetryableAutopilotArticle, type NarrationRetryCacheMetadata } from './src/server/autopilotRetry';
@@ -457,23 +459,6 @@ async function searchPixabayVideoCandidates(query: string, options: {
   }
 }
 
-// Negative keywords that signal static, slow, or irrelevant footage
-const NEGATIVE_VIDEO_SLUG_TERMS = [
-  'gymnast',
-  'doctor',
-  'medical',
-  'cooking',
-  'fitness',
-  'sport',
-  'wedding',
-  'beach-vacation',
-  'cartoon',
-  'workout',
-  'basketball',
-  'football',
-  'beach'
-];
-
 // Intelligent keyword translator & enhancer: converts Polish domain terms into proven, dynamic vertical (9:16) Pexels queries
 function translateAndEnrichViralKeyword(
   rawQuery: string,
@@ -639,11 +624,7 @@ function translateAndEnrichViralKeyword(
   }
 
   // If query is in English, clean it and enrich with dynamic viral qualifiers
-  let clean = (rawQuery || 'finance stock market')
-    .replace(/[^\w\s-]/gi, ' ')
-    .replace(/\b(warning|mistake|illustration|draw|drawing|concept|documentation|compliance|bars|paper|notes|eraser|slide|tutorial)\b/gi, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+  let clean = cleanStockSearchQuery(rawQuery || 'finance stock market');
 
   if (!clean || clean.length < 3) {
     clean = sceneIndex === 0 ? 'stock exchange screen numbers flashing' : 'dynamic financial stock market display animation';
@@ -697,8 +678,7 @@ async function searchPexelsVideoDetailed(
         if (avoidIds.includes(video.id)) continue;
 
         const slug = (video.url || '').toLowerCase();
-        const hasNegative = NEGATIVE_VIDEO_SLUG_TERMS.some((neg) => slug.includes(neg));
-        if (hasNegative) continue;
+        const softAvoidance = scoreStockCandidateSoftAvoidance(slug, `${options?.context || ''} ${enrichedQuery}`);
         const relevance = scorePexelsCandidate(options?.context || enrichedQuery, enrichedQuery, slug);
         if ((options?.requireTopicMatch || options?.context) && !relevance.relevant) continue;
 
@@ -714,6 +694,10 @@ async function searchPexelsVideoDetailed(
             if (avoidUrls.includes(verticalMp4.link)) continue;
 
             let score = 50 + (relevance.relevant ? relevance.score : 0);
+            score -= softAvoidance.penalty;
+            if (softAvoidance.matchedTerms.length > 0) {
+              console.info(`[Pexels soft preference] Candidate ${video.id} retained; ranking penalty=${softAvoidance.penalty}, hints=${softAvoidance.matchedTerms.join(',')}.`);
+            }
             // Prefer videos of optimal viral duration (8s to 30s)
             if (video.duration >= 8 && video.duration <= 30) score += 20;
             // Prefer 1080p / 2160p Full HD
@@ -975,8 +959,7 @@ async function searchPexelsMultiple(
       if (avoidVideoIds && avoidVideoIds.includes(video.id)) continue;
 
       const slug = (video.url || '').toLowerCase();
-      const hasNegative = NEGATIVE_VIDEO_SLUG_TERMS.some((neg) => slug.includes(neg));
-      if (hasNegative) continue;
+      const softAvoidance = scoreStockCandidateSoftAvoidance(slug, `${context || ''} ${enrichedQuery}`);
       const relevance = scorePexelsCandidate(context || enrichedQuery, enrichedQuery, slug);
       if (context && !relevance.relevant) continue;
 
@@ -989,6 +972,7 @@ async function searchPexelsMultiple(
 
         if (verticalMp4 && verticalMp4.link) {
           let score = 50 + (relevance.relevant ? relevance.score : 0);
+          score -= softAvoidance.penalty;
           if (video.duration >= 8 && video.duration <= 45) score += 15;
           if (verticalMp4.height >= 1920) score += 15;
 
@@ -5519,10 +5503,37 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
             continue;
           }
 
-          const resolved = await resolveStockOrPexelsVideoDetailed(targetKeyword, idx, usedPexelsIds, {
-            context: visualContext,
-            requirePexels: requireNewsPexels
-          });
+          const stockOrEvidence = await resolveStockWithEvidenceFallback(
+            () => resolveStockOrPexelsVideoDetailed(targetKeyword, idx, usedPexelsIds, {
+              context: visualContext,
+              requirePexels: requireNewsPexels
+            }),
+            () => buildSourceEvidenceVisual(
+              [financeCardSource.title, financeCardSource.description, financeCardSource.summary].join('\n'),
+              String(sc.sourceEvidence || '')
+            )
+          );
+          if (stockOrEvidence.kind === 'data_visual') {
+            const stockFailure = String((stockOrEvidence.stockError as Error)?.message || stockOrEvidence.stockError).slice(0, 180);
+            console.warn(`[Stock fallback] Scena ${idx + 1}: stock nie przeszedł dopasowania/QA; używam cytatu zweryfikowanego w artykule. Powód: ${stockFailure}`);
+            scenesWithVideo.push({
+              ...sc,
+              subtitles: textContent,
+              voiceover_text: textContent,
+              duration: sceneDurations[idx],
+              ...stockOrEvidence.value,
+              videoUrl: '',
+              thumbnailUrl: '',
+              source: 'data_visual',
+              pexelsId: undefined,
+              pixabayId: undefined,
+              stockId: undefined,
+              searchKeyword: targetKeyword,
+              captionStyle: { ...(sc.captionStyle || {}), position: 'bottom', animation: 'classic', fontColor: 'white', fontSize: 34, outlineWidth: 5, boxColor: 'black@0.6' }
+            });
+            continue;
+          }
+          const resolved = stockOrEvidence.value;
           if (requireNewsPexels && (!['pexels', 'pixabay'].includes(resolved.source) || !resolved.pexelsId)) {
             console.warn(`[Stock Warning] Scena ${idx + 1} nie otrzymała poprawnego klipu stockowego.`);
           }
@@ -6183,11 +6194,35 @@ router.post('/auto-pilot-shorts', async (req, res) => {
           continue;
         }
         const sceneNarration = String(scene.voiceover_text || scene.subtitles || '');
-        const resolved = await resolveStockOrPexelsVideoDetailed(scene.visualQuery, index, usedPexelsIds, {
-          context: `${visualContext}\nNarracja tej sceny: ${sceneNarration}\nOczekiwana czynność: ${scene.visualQuery}`,
-          requirePexels: true,
-          targetDurationSeconds: scene.duration
-        });
+        const stockOrEvidence = await resolveStockWithEvidenceFallback(
+          () => resolveStockOrPexelsVideoDetailed(scene.visualQuery, index, usedPexelsIds, {
+            context: `${visualContext}\nNarracja tej sceny: ${sceneNarration}\nOczekiwana czynność: ${scene.visualQuery}`,
+            requirePexels: true,
+            targetDurationSeconds: scene.duration
+          }),
+          () => buildSourceEvidenceVisual(
+            [financeArticle.title, financeArticle.description, financeArticle.summary].join('\n'),
+            String(scene.sourceEvidence || '')
+          )
+        );
+        if (stockOrEvidence.kind === 'data_visual') {
+          const stockFailure = String((stockOrEvidence.stockError as Error)?.message || stockOrEvidence.stockError).slice(0, 180);
+          console.warn(`[Creative Director fallback] Scena ${index + 1}: stock nie przeszedł dopasowania/QA; używam cytatu zweryfikowanego w artykule. Powód: ${stockFailure}`);
+          resolvedScenes.push({
+            ...scene,
+            ...stockOrEvidence.value,
+            duration: scene.duration,
+            videoUrl: '',
+            thumbnailUrl: '',
+            source: 'data_visual',
+            pexelsId: undefined,
+            pixabayId: undefined,
+            stockId: undefined,
+            captionStyle: { animation: 'classic', highlightColor: 'lime', position: 'bottom', fontSize: 34, outlineWidth: 5 }
+          });
+          continue;
+        }
+        const resolved = stockOrEvidence.value;
         if (!resolved.pexelsId || usedPexelsIds.includes(resolved.pexelsId)) {
           throw new Error(`Nie udało się dopasować unikalnego klipu stockowego do sceny ${index + 1}. Render przerwany.`);
         }

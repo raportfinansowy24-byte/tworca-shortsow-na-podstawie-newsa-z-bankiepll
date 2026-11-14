@@ -59,6 +59,12 @@ jobs:
         run: npm run test:creative-director
       - name: Visual QA provider fallback tests
         run: npm run test:visual-qa-providers
+      - name: Stock candidate soft-avoid policy tests
+        run: npm run test:stock-candidate-policy
+      - name: Source-evidence visual fallback tests
+        run: npm run test:source-evidence-visual
+      - name: Financial scene matching tests
+        run: npm run test:scene-matching
       - name: Pexels candidate pre-render visual QA tests
         run: npm run test:pexels-candidate-visual-qa
       - name: Pixabay stock video provider and semantic fallback tests

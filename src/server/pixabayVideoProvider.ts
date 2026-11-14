@@ -1,4 +1,5 @@
 import { matchesStockSearchToken, normalizeFinanceText, scorePexelsCandidate } from '../utils/financeSceneMatching';
+import { scoreStockCandidateSoftAvoidance } from './stockCandidatePolicy';
 
 export const PIXABAY_INTERNAL_ID_OFFSET = 1_000_000_000_000;
 const GENERIC_SCENE_TERMS = new Set([
@@ -80,6 +81,7 @@ export function mapPixabayVideoCandidates(
 
     const tags = String(hit.tags || '');
     const slug = `${tags} ${pageUrl}`.toLowerCase();
+    const softAvoidance = scoreStockCandidateSoftAvoidance(slug, `${context || ''} ${query}`);
     const relevance = scorePexelsCandidate(context || query, query, slug);
     const slugTokens = new Set(normalizeFinanceText(slug).split(/\s+/).filter(Boolean));
     const specificQueryTokens = [...new Set(normalizeFinanceText(query).split(/\s+/)
@@ -93,9 +95,6 @@ export function mapPixabayVideoCandidates(
     const topicMatch = relevance.relevant && hasSpecificSceneMatch;
     const broadSceneMatch = options.allowBroadSceneMatch === true && hasSpecificSceneMatch && relevance.forbiddenMatches.length === 0;
     if ((options.requireTopicMatch || context) && !topicMatch && !broadSceneMatch) continue;
-
-    const hasNegative = /\b(?:eraser|writing notes|taking notes|gymnast|workout|unrelated crypto)\b/i.test(slug);
-    if (hasNegative) continue;
 
     const renditions = hit.videos && typeof hit.videos === 'object'
       ? Object.values(hit.videos as Record<string, any>)
@@ -122,6 +121,7 @@ export function mapPixabayVideoCandidates(
     if (thumbnailUrls.length === 0) continue;
 
     let selectionScore = 50 + (relevance.relevant ? relevance.score : Math.min(3, broadSceneMatches.length) * 30);
+    selectionScore -= softAvoidance.penalty;
     // Prefer native portrait clips. Landscape clips remain a last-resort fallback
     // and must pass visual QA for the renderer's center-cropped 9:16 frame.
     if (Number(file.height) > Number(file.width)) selectionScore += 35;

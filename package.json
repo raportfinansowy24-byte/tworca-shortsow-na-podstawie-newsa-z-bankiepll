@@ -41,6 +41,8 @@
     "test:model-routing": "tsx tests/modelRouting.test.ts",
     "test:pexels-candidate-visual-qa": "tsx tests/pexelsCandidateVisualQa.test.ts",
     "test:pixabay-video-provider": "tsx tests/pixabayVideoProvider.test.ts",
+    "test:stock-candidate-policy": "tsx tests/stockCandidatePolicy.test.ts",
+    "test:source-evidence-visual": "tsx tests/sourceEvidenceVisual.test.ts",
     "test:autopilot-retry": "tsx tests/autopilotRetry.test.ts"
   },
   "dependencies": {

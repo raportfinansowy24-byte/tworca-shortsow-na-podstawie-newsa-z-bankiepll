@@ -27,6 +27,22 @@ const matchingCreditClip = scorePexelsCandidate(
 );
 assert.equal(matchingCreditClip.relevant, true, 'Klip o racie kredytu powinien przejść dopasowanie.');
 
+const healthSectorNews = 'Akcje spółki medycznej rosną po publikacji wyników kwartalnych.';
+const medicalEquityClip = scorePexelsCandidate(
+  healthSectorNews,
+  'medical company stock market chart analyst',
+  'https://www.pexels.com/video/medical-company-stock-market-chart-financial-analyst-123456/'
+);
+assert.equal(medicalEquityClip.relevant, true, 'medical nie może globalnie blokować pasującego materiału o akcjach firmy medycznej.');
+
+const bitcoinEtfNews = 'Giełda uruchamia nowy ETF oparty na Bitcoinie.';
+const bitcoinEtfClip = scorePexelsCandidate(
+  bitcoinEtfNews,
+  'bitcoin ETF stock market portfolio chart',
+  'https://www.pexels.com/video/bitcoin-etf-stock-market-portfolio-chart-123457/'
+);
+assert.equal(bitcoinEtfClip.relevant, true, 'Bitcoin i crypto są dopuszczalne, gdy stanowią potwierdzony temat inwestycyjny.');
+
 const unrelatedCashClip = scorePexelsCandidate(
   rppNews,
   'loan payment calculator monthly installment',

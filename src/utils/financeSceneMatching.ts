@@ -25,8 +25,6 @@ interface CategoryDefinition {
   scenes: FinanceSceneVisual[];
 }
 
-const COMMON_FORBIDDEN = ['crypto', 'bitcoin', 'ethereum', 'bullion', 'gold vault'];
-
 const CATEGORY_DEFINITIONS: CategoryDefinition[] = [
   {
     id: 'rates-credit',
@@ -40,7 +38,7 @@ const CATEGORY_DEFINITIONS: CategoryDefinition[] = [
       'loan', 'credit', 'mortgage', 'interest', 'rate', 'bank', 'financial', 'finance',
       'payment', 'installment', 'calculator', 'budget', 'advisor', 'document', 'paperwork', 'home'
     ],
-    forbiddenTerms: [...COMMON_FORBIDDEN, 'cash', 'banknote', 'banknotes', 'counting money', 'counting cash'],
+    forbiddenTerms: ['cash', 'banknote', 'banknotes', 'counting money', 'counting cash'],
     scenes: [
       {
         primaryKeyword: 'loan payment calculator monthly installment',
@@ -72,7 +70,7 @@ const CATEGORY_DEFINITIONS: CategoryDefinition[] = [
     id: 'bank-accounts',
     triggers: ['konto osobiste', 'rachunek bankowy', 'konto bankowe', 'oplaty za konto', 'karta debetowa', 'bank account', 'checking account'],
     visualTerms: ['bank', 'account', 'banking', 'card', 'payment', 'fee', 'financial', 'finance', 'app', 'statement'],
-    forbiddenTerms: [...COMMON_FORBIDDEN, 'casino', 'luxury car'],
+    forbiddenTerms: ['casino', 'luxury car'],
     scenes: [
       { primaryKeyword: 'mobile banking app checking account balance', alternativeKeywords: ['person opening bank account on smartphone', 'online banking account dashboard'], visualMood: 'Smartfon i aplikacja bankowa.', reasoning: 'Wprowadza dokładnie temat konta bankowego.' },
       { primaryKeyword: 'bank account fees card payment banking app', alternativeKeywords: ['bank statement account fees close up', 'debit card payment banking app'], visualMood: 'Karta i ekran rachunku.', reasoning: 'Pokazuje mechanizm opłat lub korzystania z konta.' },
@@ -84,7 +82,7 @@ const CATEGORY_DEFINITIONS: CategoryDefinition[] = [
     id: 'savings-deposits',
     triggers: ['konto oszczednosciowe', 'lokata', 'depozyt', 'oszczednosci', 'oprocentowanie oszczednosci', 'savings account', 'term deposit'],
     visualTerms: ['saving', 'savings', 'deposit', 'interest', 'bank', 'account', 'financial', 'finance', 'calculator', 'balance'],
-    forbiddenTerms: [...COMMON_FORBIDDEN, 'counting cash', 'banknotes', 'casino'],
+    forbiddenTerms: ['counting cash', 'banknotes', 'casino'],
     scenes: [
       { primaryKeyword: 'savings account interest rate mobile banking app', alternativeKeywords: ['person checking savings account balance', 'online savings account interest'], visualMood: 'Ekran konta oszczędnościowego.', reasoning: 'Hook pokazuje produkt i temat oprocentowania.' },
       { primaryKeyword: 'savings deposit interest calculator financial planning', alternativeKeywords: ['deposit interest calculation calculator', 'savings growth calculator on laptop'], visualMood: 'Kalkulator i wyliczenie odsetek.', reasoning: 'Wizualizuje mechanizm oprocentowania.' },
@@ -96,7 +94,7 @@ const CATEGORY_DEFINITIONS: CategoryDefinition[] = [
     id: 'credit-cards-cashback',
     triggers: ['karta kredytowa', 'cashback', 'moneyback', 'zwrot za platnosci', 'credit card', 'cash back'],
     visualTerms: ['credit', 'card', 'cashback', 'payment', 'checkout', 'shopping', 'bank', 'finance', 'purchase'],
-    forbiddenTerms: [...COMMON_FORBIDDEN, 'mortgage', 'loan advisor'],
+    forbiddenTerms: ['mortgage', 'loan advisor'],
     scenes: [
       { primaryKeyword: 'contactless credit card payment close up', alternativeKeywords: ['person paying by credit card at checkout', 'credit card terminal payment'], visualMood: 'Dynamiczna płatność kartą.', reasoning: 'Hook natychmiast pokazuje kategorię karty.' },
       { primaryKeyword: 'credit card cashback rewards app screen', alternativeKeywords: ['cashback credit card payment smartphone', 'credit card reward balance mobile app'], visualMood: 'Aplikacja i informacja o zwrocie.', reasoning: 'Ujęcie odnosi się do mechanizmu cashbacku.' },
@@ -108,7 +106,7 @@ const CATEGORY_DEFINITIONS: CategoryDefinition[] = [
     id: 'investments-markets',
     triggers: ['gielda', 'wig20', 'wig', 'akcje', 'etf', 'fundusz inwestycyjny', 'portfel inwestycyjny', 'trading', 'stock market', 'investing'],
     visualTerms: ['stock', 'market', 'trading', 'investment', 'portfolio', 'fund', 'etf', 'finance', 'financial', 'chart', 'exchange'],
-    forbiddenTerms: ['mortgage', 'loan advisor', 'cash counting', 'banknotes', 'gold vault', 'crypto', 'bitcoin'],
+    forbiddenTerms: ['mortgage', 'loan advisor', 'cash counting', 'banknotes'],
     scenes: [
       { primaryKeyword: 'stock market chart investor screen', alternativeKeywords: ['stock exchange trading floor', 'financial market chart close up'], visualMood: 'Wykres rynku i ruch danych.', reasoning: 'Hook jest bezpośrednio związany z rynkiem kapitałowym.' },
       { primaryKeyword: 'ETF investment portfolio analytics laptop', alternativeKeywords: ['investor reviewing portfolio performance', 'fund performance chart laptop'], visualMood: 'Analiza portfela inwestycyjnego.', reasoning: 'Pokazuje konkretny mechanizm inwestowania.' },
@@ -120,7 +118,7 @@ const CATEGORY_DEFINITIONS: CategoryDefinition[] = [
     id: 'currency-forex',
     triggers: ['waluty', 'kurs walut', 'kurs zlotego', 'dolar', 'euro', 'forex', 'exchange rate', 'currency'],
     visualTerms: ['currency', 'forex', 'exchange', 'rate', 'euro', 'dollar', 'zloty', 'financial', 'finance', 'conversion'],
-    forbiddenTerms: [...COMMON_FORBIDDEN, 'mortgage', 'loan advisor'],
+    forbiddenTerms: ['mortgage', 'loan advisor'],
     scenes: [
       { primaryKeyword: 'currency exchange rate board euro dollar', alternativeKeywords: ['forex exchange rates screen', 'currency rates numbers display'], visualMood: 'Kursy walut na tablicy lub ekranie.', reasoning: 'Wprowadza temat notowań walut.' },
       { primaryKeyword: 'euro dollar exchange rate chart financial screen', alternativeKeywords: ['forex chart currency pair analysis', 'currency exchange graph on monitor'], visualMood: 'Wykres pary walutowej.', reasoning: 'Pokazuje zmianę kursu i dane rynkowe.' },
@@ -132,7 +130,7 @@ const CATEGORY_DEFINITIONS: CategoryDefinition[] = [
     id: 'taxes-fees',
     triggers: ['podatek', 'podatki', 'belka', 'prowizja', 'prowizje', 'oplaty bankowe', 'fee', 'tax'],
     visualTerms: ['tax', 'fee', 'bank', 'financial', 'finance', 'calculator', 'statement', 'bill', 'accountant', 'document'],
-    forbiddenTerms: [...COMMON_FORBIDDEN, 'cash counting', 'banknotes', 'crypto', 'stock trading'],
+    forbiddenTerms: ['cash counting', 'banknotes', 'stock trading'],
     scenes: [
       { primaryKeyword: 'tax calculator financial paperwork desk', alternativeKeywords: ['person using tax calculator', 'tax form and calculator close up'], visualMood: 'Kalkulator i dokumenty podatkowe.', reasoning: 'Wprowadza temat podatków lub opłat.' },
       { primaryKeyword: 'accountant reviewing tax documents calculator', alternativeKeywords: ['financial fee schedule document close up', 'person checking bank fees statement'], visualMood: 'Analiza dokumentów i kosztów.', reasoning: 'Ilustruje wyjaśnienie mechanizmu opłaty.' },
@@ -155,7 +153,7 @@ const CATEGORY_DEFINITIONS: CategoryDefinition[] = [
       'construction', 'building', 'couple', 'family', 'municipal', 'contract', 'real estate'
     ],
     forbiddenTerms: [
-      ...COMMON_FORBIDDEN, 'tram', 'tramway', 'streetcar', 'roof', 'rooftop', 'parking',
+      'tram', 'tramway', 'streetcar', 'roof', 'rooftop', 'parking',
       'parking lot', 'home insurance', 'insurance policy', 'insurance form', 'skyscraper',
       'office tower', 'high rise', 'airport', 'railway'
     ],
@@ -174,7 +172,7 @@ const CATEGORY_DEFINITIONS: CategoryDefinition[] = [
     id: 'inflation-prices',
     triggers: ['inflacja', 'cpi', 'drozyzna', 'wzrost cen', 'ceny zywnosci', 'price inflation', 'rising prices'],
     visualTerms: ['inflation', 'price', 'prices', 'grocery', 'shopping', 'supermarket', 'budget', 'receipt', 'financial', 'chart'],
-    forbiddenTerms: [...COMMON_FORBIDDEN, 'cash counting', 'banknotes', 'mortgage advisor'],
+    forbiddenTerms: ['cash counting', 'banknotes', 'mortgage advisor'],
     scenes: [
       { primaryKeyword: 'grocery price tags supermarket shopping', alternativeKeywords: ['person comparing grocery prices store', 'shopping cart supermarket price labels'], visualMood: 'Półka sklepowa i ceny.', reasoning: 'Hook pokazuje codzienny wymiar wzrostu cen.' },
       { primaryKeyword: 'inflation chart consumer prices data screen', alternativeKeywords: ['consumer price index graph laptop', 'economist reviewing inflation chart'], visualMood: 'Wykres cen i dane.', reasoning: 'Ilustruje fakty o inflacji, a nie abstrakcyjną gotówkę.' },
@@ -192,6 +190,8 @@ const GENERIC_VISUAL_QUERY_TERMS = new Set([
   'business', 'chart', 'charts', 'data', 'display', 'exchange', 'market', 'money', 'screen', 'stock', 'trading',
   'visual', 'footage', 'numbers', 'investing', 'investment', 'financial', 'finance', 'dynamic', 'animation'
 ]);
+
+const CONTEXTUAL_FINANCIAL_ASSET_TERMS = ['crypto', 'bitcoin', 'ethereum', 'gold', 'bullion'];
 
 export function normalizeFinanceText(value: string): string {
   return String(value || '')
@@ -266,6 +266,7 @@ export function scorePexelsCandidate(newsContext: string, query: string, videoUr
   const definition = CATEGORY_DEFINITIONS.find((item) => item.id === category);
   const slug = normalizeFinanceText(videoUrlOrSlug);
   const candidateTokens = new Set(slug.split(/\s+/).filter(Boolean));
+  const requestedTokens = new Set(normalizeFinanceText(`${newsContext} ${query}`).split(/\s+/).filter(Boolean));
   const hasToken = (term: string) => {
     const normalized = normalizeFinanceText(term);
     if (!normalized) return false;
@@ -273,7 +274,11 @@ export function scorePexelsCandidate(newsContext: string, query: string, videoUr
     return candidateTokens.has(normalized) || [...candidateTokens].some((token) => matchesStockSearchToken(normalized, token));
   };
 
-  const forbiddenMatches = (definition?.forbiddenTerms || []).filter(hasToken);
+  const categoryForbiddenMatches = (definition?.forbiddenTerms || []).filter(hasToken);
+  const contextualAssetMismatches = CONTEXTUAL_FINANCIAL_ASSET_TERMS.filter(
+    (term) => hasToken(term) && !requestedTokens.has(term)
+  );
+  const forbiddenMatches = [...categoryForbiddenMatches, ...contextualAssetMismatches];
   const categoryMatches = (definition?.visualTerms || []).filter(hasToken);
   const tokens = queryTokens(query);
   const sceneMatches = tokens.filter(hasToken);

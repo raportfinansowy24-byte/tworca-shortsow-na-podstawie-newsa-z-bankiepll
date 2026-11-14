@@ -162,6 +162,13 @@ const prefixTrapPayload = { hits: [
     videos: { medium: { url: 'https://cdn.pixabay.com/video/student.mp4', width: 1920, height: 1080, thumbnail: 'https://cdn.pixabay.com/video/student.jpg' } }
   },
   {
+    id: 129,
+    pageURL: 'https://pixabay.com/videos/id-129/',
+    tags: 'person, reading, financial news, laptop, writing notes, business office',
+    duration: 12,
+    videos: { medium: { url: 'https://cdn.pixabay.com/video/business-news-notes.mp4', width: 1920, height: 1080, thumbnail: 'https://cdn.pixabay.com/video/business-news-notes.jpg' } }
+  },
+  {
     id: 35792,
     pageURL: 'https://pixabay.com/videos/id-35792/',
     tags: 'boat, sea, boat review, yacht, ship in storm, new, tips',
@@ -175,7 +182,7 @@ const newsSceneCandidates = mapPixabayVideoCandidates(prefixTrapPayload, {
   requireTopicMatch: true,
   allowBroadSceneMatch: true
 });
-assert.deepEqual(newsSceneCandidates.map((candidate) => candidate.pixabayId), [1028], 'news/new must not let the library clip through, while a broader laptop clip remains available for visual QA');
+assert.deepEqual(newsSceneCandidates.map((candidate) => candidate.pixabayId).sort(), [1028, 129], 'news/new must not let the library clip through; relevant clips tagged writing notes remain available for visual QA');
 assert.equal(mapPixabayVideoCandidates(prefixTrapPayload, {
   query: 'economist reviewing inflation chart',
   context: 'inflation and financial news',
