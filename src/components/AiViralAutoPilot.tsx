@@ -12,6 +12,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onJobStarted
   const [schedulerState, setSchedulerState] = useState<AutopilotSchedulerState | null>(null);
   const [loading, setLoading] = useState(false);
   const [runOnceLoading, setRunOnceLoading] = useState(false);
+  const [retryLoading, setRetryLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const lastNotifiedJobId = useRef<string | null>(null);
   const hasLoadedInitialState = useRef(false);
@@ -72,6 +73,34 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onJobStarted
     }
   };
 
+  const handleRetryFailed = async () => {
+    if (!schedulerState || retryLoading || runOnceLoading || schedulerState.lastRunStatus === 'running') return;
+    setRetryLoading(true);
+    try {
+      const response = await fetch('/api/autopilot/scheduler/retry-failed', { method: 'POST' });
+      const data = await response.json();
+      if (!response.ok || data.success !== true) {
+        throw new Error(data.error || data.message || 'Nie udało się wznowić nieudanego shorta.');
+      }
+      if (typeof data.jobId === 'string') {
+        onJobStarted(data.jobId);
+        setSchedulerState((current) => current ? {
+          ...current,
+          lastRunStatus: 'running',
+          lastRunJobId: data.jobId,
+          lastRunTime: new Date().toISOString()
+        } : current);
+      }
+      onToast?.('success', 'Wznowiono nieudanego shorta', 'Ponawiam ten sam artykuł. Gotowy materiał nie zostanie opublikowany bez zatwierdzenia.');
+      await refreshSchedulerState();
+    } catch (error) {
+      onToast?.('error', 'Nie udało się ponowić shorta', (error as Error).message);
+      await refreshSchedulerState();
+    } finally {
+      setRetryLoading(false);
+    }
+  };
+
   const handleRunOnce = async () => {
     if (!schedulerState || runOnceLoading || schedulerState.lastRunStatus === 'running') return;
     setRunOnceLoading(true);
@@ -94,6 +123,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onJobStarted
       await refreshSchedulerState();
     } catch (error) {
       onToast?.('error', 'Nie udało się uruchomić testowego renderu', (error as Error).message);
+      await refreshSchedulerState();
     } finally {
       setRunOnceLoading(false);
     }
@@ -107,6 +137,8 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onJobStarted
       error={loadError}
       onToggle={() => void handleToggle()}
       onRunOnce={() => void handleRunOnce()}
+      onRetryFailed={() => void handleRetryFailed()}
+      retryLoading={retryLoading}
     />
   );
 };

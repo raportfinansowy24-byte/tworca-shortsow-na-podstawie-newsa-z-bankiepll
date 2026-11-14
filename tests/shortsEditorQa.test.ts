@@ -34,6 +34,22 @@ assert.equal(validStoryboard.status, 'pass');
 
 assert.equal(validStoryboard.score, 100);
 
+const repeatedVisualQueries = scenes.map((scene, index) => index === 1 || index === 6
+  ? { ...scene, searchKeyword: scenes[0].searchKeyword }
+  : scene);
+const repeatedVisualReport = evaluateShortStoryboard(repeatedVisualQueries, {
+  expectedSceneCount: 8,
+  requireVisualQueries: true
+});
+assert.equal(repeatedVisualReport.status, 'review', 'powtórzone zapytanie wizualne blokuje automatyczny storyboard wymagający PASS');
+assert.deepEqual(repeatedVisualReport.findings.filter((finding) => finding.code === 'repeated_visual_query').map((finding) => finding.scene), [2, 7]);
+const repeatedVisualRepair = buildShortsEditorQaRevisionInstruction(repeatedVisualReport, 2, 3, 'timeout dostawcy modelu');
+assert.match(repeatedVisualRepair, /POPRAWKA PLANU 2\/3/);
+assert.match(repeatedVisualRepair, /scenach 2, 7/);
+assert.match(repeatedVisualRepair, /nie mogą być identyczne/);
+assert.match(repeatedVisualRepair, /timeout dostawcy modelu/);
+assert.match(repeatedVisualRepair, /Nie uruchamiaj dodatkowych renderów/);
+
 const brandedCtaScenes = scenes.map((scene, index) => index === 7
   ? { ...scene, visualMode: 'data_visual', visualSvg: buildBrandedCtaSvg('SPRAWDŹ SZCZEGÓŁY') }
   : scene);
