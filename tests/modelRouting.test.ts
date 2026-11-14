@@ -25,6 +25,7 @@ assert.equal(getGeminiApiKeys({}).length, 0);
 assert.equal(shouldRotateGeminiKey(new Error('HTTP 429 RESOURCE_EXHAUSTED')), true);
 assert.equal(shouldRotateGeminiKey(new Error('HTTP 503 UNAVAILABLE')), true);
 assert.equal(shouldRotateGeminiKey(new Error('HTTP 401 API key invalid')), true);
+assert.equal(shouldRotateGeminiKey(new Error('HTTP 400 API_KEY_INVALID')), true);
 assert.equal(shouldRotateGeminiKey(new Error('HTTP 400 invalid response schema')), false);
 
 const calls: string[] = [];
