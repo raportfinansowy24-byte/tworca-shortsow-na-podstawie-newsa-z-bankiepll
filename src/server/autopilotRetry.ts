@@ -55,6 +55,33 @@ export function recordAutopilotFailure(
   )].slice(0, MAX_AUTOPILOT_RETRY_QUEUE_SIZE);
 }
 
+export interface LegacyAutopilotFailureState {
+  lastRunStatus?: string;
+  lastRunArticle?: { link?: string | null } | null;
+  processedUrls?: string[];
+  history?: Array<{ articleLink?: string; status?: string }>;
+  retryQueue?: AutopilotRetryEntry[];
+}
+
+/**
+ * Before the retry queue existed, the scheduler marked a selected article as
+ * processed before QA. Recover only the most recent failed item, and only when
+ * no successful history record proves that it already rendered.
+ */
+export function findLegacyFailedAutopilotArticleUrl(
+  state: LegacyAutopilotFailureState
+): string | null {
+  if (state.lastRunStatus !== 'failed' || (state.retryQueue || []).length > 0) return null;
+  const candidateLink = String(
+    state.lastRunArticle?.link || state.processedUrls?.[0] || ''
+  ).trim();
+  if (!candidateLink) return null;
+  const alreadyCompleted = (state.history || []).some((entry) =>
+    entry.articleLink === candidateLink && entry.status === 'completed'
+  );
+  return alreadyCompleted ? null : candidateLink;
+}
+
 export function getNextPendingAutopilotRetry(
   entries: AutopilotRetryEntry[]
 ): AutopilotRetryEntry | null {

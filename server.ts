@@ -67,7 +67,7 @@ import { splitNarrationAlignmentByScenes } from './src/server/singleNarration';
 import { isTrustedStockPreviewUrl, selectVisuallyVerifiedPexelsCandidate } from './src/server/pexelsCandidateVisualQa';
 import { mapPixabayVideoCandidates } from './src/server/pixabayVideoProvider';
 import { buildPixabayFallbackQueries } from './src/server/pixabaySearchExpansion';
-import { getNextPendingAutopilotRetry, MAX_AUTOPILOT_RETRY_ATTEMPTS, MAX_STORYBOARD_QA_REPAIR_ATTEMPTS, recordAutopilotFailure, repairUntilPass, resolveAutopilotRetry, isCompatibleNarrationRetryCache, type AutopilotRetryEntry, type RetryableAutopilotArticle, type NarrationRetryCacheMetadata } from './src/server/autopilotRetry';
+import { findLegacyFailedAutopilotArticleUrl, getNextPendingAutopilotRetry, MAX_AUTOPILOT_RETRY_ATTEMPTS, MAX_STORYBOARD_QA_REPAIR_ATTEMPTS, recordAutopilotFailure, repairUntilPass, resolveAutopilotRetry, isCompatibleNarrationRetryCache, type AutopilotRetryEntry, type RetryableAutopilotArticle, type NarrationRetryCacheMetadata } from './src/server/autopilotRetry';
 import { GEMINI_FALLBACK_MODEL, isRetryableModelProviderError, OPENAI_PRIMARY_MODEL, requestOpenAiScript } from './src/server/modelRouting';
 
 const execPromise = promisify(exec);
@@ -8431,6 +8431,52 @@ function markAutopilotArticleCompleted(articleLink: string): void {
   saveSchedulerStateToDisk();
 }
 
+let legacyRetryRecoveryAttempted = false;
+let legacyRetryRecoveryPromise: Promise<void> | null = null;
+
+async function recoverLegacyFailedAutopilotArticle(): Promise<void> {
+  const legacyArticleUrl = findLegacyFailedAutopilotArticleUrl(schedulerState);
+  if (!legacyArticleUrl || legacyRetryRecoveryAttempted) return;
+  if (legacyRetryRecoveryPromise) return legacyRetryRecoveryPromise;
+
+  legacyRetryRecoveryAttempted = true;
+  legacyRetryRecoveryPromise = (async () => {
+    try {
+      const articles = await fetchBankierArticlesInternal(schedulerState.category || 'wiadomosci', false);
+      const rssArticle = articles.find((article) => String(article.link || '').trim() === legacyArticleUrl);
+      const failedHistory = schedulerState.history.find((entry) =>
+        entry.articleLink === legacyArticleUrl && entry.status === 'failed'
+      );
+      const recoveredArticle = rssArticle || (failedHistory ? {
+        title: failedHistory.articleTitle,
+        link: failedHistory.articleLink,
+        category: failedHistory.articleCategory || 'Wiadomości'
+      } : null);
+
+      if (!recoveredArticle) {
+        console.warn('[Autopilot Retry] Poprzednia wersja oznaczyła ostatni artykuł jako processed, ale nie ma go już w RSS ani historii. Nie tworzę niepełnego wpisu retry: ' + legacyArticleUrl);
+        return;
+      }
+
+      schedulerState.processedUrls = schedulerState.processedUrls.filter((url) => url !== legacyArticleUrl);
+      queueFailedAutopilotArticle(
+        recoveredArticle,
+        'Odzyskano nieudaną próbę z poprzedniej wersji Autopilota. Artykuł został oznaczony jako processed przed zakończeniem QA/renderu; przekazano go do kolejki ponowień.',
+        schedulerState.lastRunJobId || undefined
+      );
+      console.info('[Autopilot Retry] Odzyskano poprzednią nieudaną próbę z trwałego stanu i RSS: ' + recoveredArticle.title);
+      saveSchedulerStateToDisk();
+    } catch (error) {
+      legacyRetryRecoveryAttempted = false;
+      console.warn('[Autopilot Retry] Nie udało się odzyskać starszego nieudanego artykułu: ' + (error as Error).message);
+    }
+  })().finally(() => {
+    legacyRetryRecoveryPromise = null;
+  });
+
+  return legacyRetryRecoveryPromise;
+}
+
 function getNextScheduledRun(dailySlots: string[]) {
   const now = new Date();
   const sortedSlots = [...(dailySlots && dailySlots.length > 0 ? dailySlots : ['06:00', '11:00', '16:00', '21:00'])].sort();
@@ -8851,6 +8897,7 @@ setInterval(() => {
 
 // API Endpoints for Autopilot Scheduler
 router.get(['/autopilot/scheduler', '/autopilot/scheduler/status'], async (req, res) => {
+  await recoverLegacyFailedAutopilotArticle();
   const nextRun = getNextScheduledRun(schedulerState.dailySlots);
   let candidateArticle: any = null;
   let candidateViralityScore: ViralityScore | null = null;
@@ -8965,6 +9012,7 @@ router.post('/autopilot/scheduler/run-now', async (req, res) => {
 });
 
 router.post('/autopilot/scheduler/retry-failed', async (req, res) => {
+  await recoverLegacyFailedAutopilotArticle();
   const pendingRetry = getNextPendingAutopilotRetry(schedulerState.retryQueue || []);
   if (!pendingRetry) {
     return res.status(409).json({ success: false, error: 'Brak nieudanych shortów oczekujących na ponowienie.' });
