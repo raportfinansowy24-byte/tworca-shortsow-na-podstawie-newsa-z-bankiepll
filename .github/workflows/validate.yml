@@ -1,4 +1,5 @@
 name: Validate Shorts Generator
+run-name: "R24 | ${{ github.ref_name }} | ${{ github.sha }}"
 
 on:
   pull_request:
@@ -278,13 +279,17 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$FLY_API_TOKEN"
+          IMAGE_LABEL="r24-tworca-$(date -u +'%Y%m%d-%H%M%S')-${GITHUB_SHA:0:7}"
+          echo "Deploying RaportFinansowy24 image: $IMAGE_LABEL"
           flyctl deploy \
             --app tworca-shortsow-na-podstawie-newsa-z-bankiepll \
             --remote-only \
             --yes \
             --strategy immediate \
             --vm-size shared-cpu-8x \
-            --build-arg APP_GIT_SHA="$GITHUB_SHA"
+            --image-label "$IMAGE_LABEL" \
+            --build-arg APP_GIT_SHA="$GITHUB_SHA" \
+            --build-arg APP_IMAGE_LABEL="$IMAGE_LABEL"
 
       - name: Verify the deployed application and commit
         if: steps.guard.outputs.is_current == 'true'
