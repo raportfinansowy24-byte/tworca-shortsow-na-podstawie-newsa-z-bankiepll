@@ -1,73 +1,59 @@
 import assert from 'node:assert/strict';
 import {
-  GEMINI_FALLBACK_MODEL,
-  isRetryableModelProviderError,
-  OPENAI_PRIMARY_MODEL,
-  OPENAI_REASONING_EFFORT,
-  requestOpenAiScript
+  GEMINI_PRIMARY_MODEL,
+  getGeminiApiKeys,
+  shouldRotateGeminiKey,
+  withGeminiKeyRotation
 } from '../src/server/modelRouting';
 
-assert.equal(OPENAI_PRIMARY_MODEL, 'gpt-6.1-sol');
-assert.equal(GEMINI_FALLBACK_MODEL, 'gemini-3.8-flash');
-assert.equal(OPENAI_REASONING_EFFORT, 'low');
-assert.equal(isRetryableModelProviderError(new Error('OpenAI Responses API HTTP 500: server_error')), true);
-assert.equal(isRetryableModelProviderError(new Error('OpenAI Responses API HTTP 429: rate limit')), true);
-assert.equal(isRetryableModelProviderError(new Error('OpenAI Responses API HTTP 401: unauthorized')), false);
+assert.equal(GEMINI_PRIMARY_MODEL, 'gemini-4-hydrogen');
 
-let capturedUrl = '';
-let capturedInit: RequestInit | undefined;
-const fakeFetch = (async (input: string | URL | Request, init?: RequestInit) => {
-  capturedUrl = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-  capturedInit = init;
-  return new Response(JSON.stringify({
-    id: 'resp_test',
-    output: [{
-      type: 'message',
-      role: 'assistant',
-      content: [{ type: 'output_text', text: '{"title":"Test","scenes":[]}' }]
-    }]
-  }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-}) as typeof fetch;
-
-const output = await requestOpenAiScript({
-  apiKey: 'test-only-key',
-  contents: 'Zwróć poprawny JSON.',
-  fetchImpl: fakeFetch
+const keys = getGeminiApiKeys({
+  GEMINI_API_KEY: '  key-one  ',
+  GEMINI_API_KEY_2: 'key-two',
+  GEMINI_API_KEY_3: 'key-three'
 });
-assert.equal(output, '{"title":"Test","scenes":[]}');
-assert.equal(capturedUrl, 'https://api.openai.com/v1/responses');
-assert.equal((capturedInit?.headers as Record<string, string>).Authorization, 'Bearer test-only-key');
-assert.ok(capturedInit?.signal instanceof AbortSignal);
-const body = JSON.parse(String(capturedInit?.body));
-assert.equal(body.model, OPENAI_PRIMARY_MODEL);
-assert.deepEqual(body.reasoning, { effort: 'low' });
-assert.deepEqual(body.text, { format: { type: 'json_object' } });
-assert.equal(body.store, false);
-assert.equal('temperature' in body, false, 'GPT-6.1 Sol must not receive temperature when reasoning is enabled');
-assert.equal(body.input, 'Zwróć poprawny JSON.');
+assert.deepEqual(keys.map((key) => key.name), [
+  'GEMINI_API_KEY',
+  'GEMINI_API_KEY_2',
+  'GEMINI_API_KEY_3'
+]);
+assert.deepEqual(keys.map((key) => key.apiKey), ['key-one', 'key-two', 'key-three']);
+assert.equal(getGeminiApiKeys({ GEMINI_API_KEY: 'same', GEMINI_API_KEY_2: 'same' }).length, 1);
+assert.equal(getGeminiApiKeys({}).length, 0);
 
-const convenienceFetch = (async () => new Response(JSON.stringify({
-  output_text: '{"ok":true}'
-}), { status: 200 })) as typeof fetch;
-assert.equal(await requestOpenAiScript({
-  apiKey: 'test-only-key',
-  contents: 'JSON',
-  fetchImpl: convenienceFetch
-}), '{"ok":true}');
+assert.equal(shouldRotateGeminiKey(new Error('HTTP 429 RESOURCE_EXHAUSTED')), true);
+assert.equal(shouldRotateGeminiKey(new Error('HTTP 503 UNAVAILABLE')), true);
+assert.equal(shouldRotateGeminiKey(new Error('HTTP 401 API key invalid')), true);
+assert.equal(shouldRotateGeminiKey(new Error('HTTP 400 API_KEY_INVALID')), true);
+assert.equal(shouldRotateGeminiKey(new Error('HTTP 400 invalid response schema')), false);
 
-const serverErrorFetch = (async () => new Response(JSON.stringify({
-  error: { message: 'temporary backend error', type: 'server_error' }
-}), { status: 500 })) as typeof fetch;
-await assert.rejects(() => requestOpenAiScript({
-  apiKey: 'test-only-key',
-  contents: 'JSON',
-  fetchImpl: serverErrorFetch
-}), /OpenAI Responses API HTTP 500/);
+const calls: string[] = [];
+const failover = await withGeminiKeyRotation({
+  keys,
+  operation: async (apiKey, keyName) => {
+    calls.push(keyName);
+    if (apiKey !== 'key-three') throw new Error('HTTP 429 RESOURCE_EXHAUSTED');
+    return 'Hydrogen response';
+  }
+});
+assert.deepEqual(calls, ['GEMINI_API_KEY', 'GEMINI_API_KEY_2', 'GEMINI_API_KEY_3']);
+assert.equal(failover.result, 'Hydrogen response');
+assert.equal(failover.keyName, 'GEMINI_API_KEY_3');
 
-await assert.rejects(() => requestOpenAiScript({
-  apiKey: '  ',
-  contents: 'JSON',
-  fetchImpl: fakeFetch
-}), /Brak OPENAI_API_KEY/);
+const nonRetryableCalls: string[] = [];
+await assert.rejects(() => withGeminiKeyRotation({
+  keys,
+  operation: async (_apiKey, keyName) => {
+    nonRetryableCalls.push(keyName);
+    throw new Error('HTTP 400 invalid response schema');
+  }
+}), /HTTP 400/);
+assert.deepEqual(nonRetryableCalls, ['GEMINI_API_KEY'], '400 validation errors should not be retried with other keys');
 
-console.log('Model routing tests passed');
+await assert.rejects(() => withGeminiKeyRotation({
+  keys: [],
+  operation: async () => 'unused'
+}), /Brak kluczy Gemini/);
+
+console.log('Gemini Hydrogen model routing tests passed');

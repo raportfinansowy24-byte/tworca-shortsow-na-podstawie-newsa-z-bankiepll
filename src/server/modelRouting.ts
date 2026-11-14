@@ -1,61 +1,66 @@
-export const OPENAI_PRIMARY_MODEL = 'gpt-6.1-sol';
-export const GEMINI_FALLBACK_MODEL = 'gemini-3.8-flash';
-export const OPENAI_REASONING_EFFORT = 'low' as const;
+export const GEMINI_PRIMARY_MODEL = 'gemini-4-hydrogen';
 
-export interface OpenAiScriptRequest {
+export interface GeminiApiKey {
+  name: 'GEMINI_API_KEY' | 'GEMINI_API_KEY_2' | 'GEMINI_API_KEY_3';
   apiKey: string;
-  contents: string;
-  fetchImpl?: typeof fetch;
 }
 
-function extractResponseText(payload: any): string {
-  if (typeof payload?.output_text === 'string' && payload.output_text.trim()) {
-    return payload.output_text.trim();
-  }
+type GeminiEnvironment = Record<string, string | undefined>;
 
-  if (!Array.isArray(payload?.output)) return '';
-  return payload.output
-    .flatMap((item: any) => Array.isArray(item?.content) ? item.content : [])
-    .filter((part: any) => part?.type === 'output_text' && typeof part.text === 'string')
-    .map((part: any) => part.text)
-    .join('\n')
-    .trim();
-}
-
-export async function requestOpenAiScript(params: OpenAiScriptRequest): Promise<string> {
-  const apiKey = params.apiKey.trim();
-  if (!apiKey) throw new Error('Brak OPENAI_API_KEY dla głównego modelu redakcyjnego.');
-
-  const fetchImpl = params.fetchImpl || fetch;
-  const response = await fetchImpl('https://api.openai.com/v1/responses', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      model: OPENAI_PRIMARY_MODEL,
-      instructions: 'You are a precise Polish-language financial news Shorts editor. Follow source facts and output requirements exactly. Never invent facts. Return valid JSON only.',
-      input: params.contents,
-      reasoning: { effort: OPENAI_REASONING_EFFORT },
-      text: { format: { type: 'json_object' } },
-      store: false
-    }),
-    signal: AbortSignal.timeout(90_000)
+export function getGeminiApiKeys(env: GeminiEnvironment = process.env): GeminiApiKey[] {
+  const names: GeminiApiKey['name'][] = [
+    'GEMINI_API_KEY',
+    'GEMINI_API_KEY_2',
+    'GEMINI_API_KEY_3'
+  ];
+  const seen = new Set<string>();
+  return names.flatMap((name) => {
+    const apiKey = env[name]?.trim();
+    if (!apiKey || seen.has(apiKey)) return [];
+    seen.add(apiKey);
+    return [{ name, apiKey }];
   });
-
-  if (!response.ok) {
-    const detail = (await response.text().catch(() => '')).slice(0, 700);
-    throw new Error(`OpenAI Responses API HTTP ${response.status}${detail ? `: ${detail}` : ''}`);
-  }
-
-  const payload: any = await response.json();
-  const text = extractResponseText(payload);
-  if (!text) throw new Error('OpenAI Responses API zwróciło pustą odpowiedź tekstową.');
-  return text;
 }
 
-export function isRetryableModelProviderError(error: Error): boolean {
-  return /\bHTTP\s+(?:408|409|425|429|500|502|503|504)\b/i.test(error.message) ||
-    /\b(?:ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|fetch failed|network error|timed? ?out|overloaded)\b/i.test(error.message);
+export function shouldRotateGeminiKey(error: unknown): boolean {
+  const value = error && typeof error === 'object' ? error as {
+    status?: unknown;
+    response?: { status?: unknown };
+  } : {};
+  const status = [value.status, value.response?.status]
+    .map((item) => Number(item))
+    .find((item) => Number.isInteger(item) && item > 0);
+  if (status && [401, 403, 408, 429, 500, 502, 503, 504].includes(status)) return true;
+
+  const message = error instanceof Error ? error.message : String(error);
+  return /\b(?:401|403|408|429|500|502|503|504)\b/i.test(message) ||
+    /\b(?:RESOURCE_EXHAUSTED|PERMISSION_DENIED|UNAUTHENTICATED|UNAVAILABLE|INTERNAL|API_KEY_INVALID|API_KEY_SERVICE_BLOCKED|API key (?:is )?not valid|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|fetch failed|network error|timed? ?out)\b/i.test(message);
+}
+
+export async function withGeminiKeyRotation<T>(params: {
+  keys: GeminiApiKey[];
+  operation: (apiKey: string, keyName: GeminiApiKey['name']) => Promise<T>;
+  onKeyFailure?: (keyName: GeminiApiKey['name'], error: Error) => void;
+}): Promise<{ result: T; keyName: GeminiApiKey['name'] }> {
+  if (params.keys.length === 0) {
+    throw new Error('Brak kluczy Gemini. Ustaw GEMINI_API_KEY, GEMINI_API_KEY_2 lub GEMINI_API_KEY_3.');
+  }
+
+  const failures: string[] = [];
+  let lastError: Error | null = null;
+  for (const key of params.keys) {
+    try {
+      const result = await params.operation(key.apiKey, key.name);
+      return { result, keyName: key.name };
+    } catch (cause) {
+      lastError = cause instanceof Error ? cause : new Error(String(cause));
+      params.onKeyFailure?.(key.name, lastError);
+      failures.push(key.name + ': ' + lastError.message.slice(0, 240));
+      if (!shouldRotateGeminiKey(lastError)) break;
+    }
+  }
+
+  const failure = new Error('Gemini 4 Hydrogen nie zadziałał na dostępnych kluczach: ' + failures.join(' | '));
+  (failure as Error & { cause?: unknown }).cause = lastError;
+  throw failure;
 }
