@@ -85,6 +85,30 @@ assert.equal(revised.revisionAttempts, 2);
 assert.ok(revised.totalEstimatedDurationSeconds <= 25);
 assert.equal(revised.sceneTexts[revised.sceneTexts.length - 1], longTexts[longTexts.length - 1], 'CTA ostatniej sceny pozostaje bez zmian');
 
+const longSceneSevenTexts = [...shortTexts];
+longSceneSevenTexts[6] = Array.from({ length: 30 }, () => 'konkret').join(' ') + '.';
+let sceneSevenRevisionCalls = 0;
+const sceneSevenFit = await fitNarrationBeforeTts({
+  sceneTexts: longSceneSevenTexts,
+  baseSceneDurations: base,
+  secondsPerSpeechUnit: 0.4,
+  speed: 1,
+  targetDurationSeconds: 18,
+  maxTotalDurationSeconds: 25,
+  maxRevisionAttempts: 2,
+  revise: async ({ sceneTexts, attemptNumber }) => {
+    sceneSevenRevisionCalls++;
+    const candidate = [...sceneTexts];
+    candidate[6] = Array.from({ length: attemptNumber === 1 ? 32 : 10 }, () => 'konkret').join(' ') + '.';
+    return candidate;
+  }
+});
+assert.equal(sceneSevenRevisionCalls, 2, 'a longer rewrite of scene 7 rejects only that attempt and allows the next repair');
+assert.equal(sceneSevenFit.revisionAttempts, 2);
+assert.equal(sceneSevenFit.rejectedLongerRevisionAttempts, 1);
+assert.equal(countNarrationSpeechUnits(sceneSevenFit.sceneTexts[6]) < countNarrationSpeechUnits(longSceneSevenTexts[6]), true);
+assert.ok(sceneSevenFit.totalEstimatedDurationSeconds <= 25, 'the safe hard limit still applies after a later valid rewrite');
+
 await assert.rejects(() => fitNarrationBeforeTts({
   sceneTexts: [
     Array.from({ length: 30 }, () => 'konkret').join(' ') + ' Wartość wyniosła 5,2%.',

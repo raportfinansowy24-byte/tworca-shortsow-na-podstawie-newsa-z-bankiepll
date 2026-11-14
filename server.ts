@@ -68,7 +68,7 @@ import { splitNarrationAlignmentByScenes } from './src/server/singleNarration';
 import { isTrustedStockPreviewUrl, selectVisuallyVerifiedPexelsCandidate } from './src/server/pexelsCandidateVisualQa';
 import { mapPixabayVideoCandidates } from './src/server/pixabayVideoProvider';
 import { cleanStockSearchQuery, scoreStockCandidateSoftAvoidance } from './src/server/stockCandidatePolicy';
-import { buildSourceEvidenceVisual, resolveStockWithEvidenceFallback } from './src/server/sourceEvidenceVisual';
+import { buildSourceEvidenceVisual, resolveStockWithEvidenceFallback, resolveStockWithVerifiedEvidenceFallback } from './src/server/sourceEvidenceVisual';
 import { buildPixabayFallbackQueries } from './src/server/pixabaySearchExpansion';
 import { buildFinancialNewsSearchAliases } from './src/server/stockSearchExpansion';
 import { findLegacyFailedAutopilotArticleUrl, getNextPendingAutopilotRetry, MAX_AUTOPILOT_RETRY_ATTEMPTS, MAX_STORYBOARD_QA_REPAIR_ATTEMPTS, recordAutopilotFailure, repairUntilPass, resolveAutopilotRetry, isCompatibleNarrationRetryCache, type AutopilotRetryEntry, type RetryableAutopilotArticle, type NarrationRetryCacheMetadata } from './src/server/autopilotRetry';
@@ -2806,13 +2806,13 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"króts
           scenes[index].subtitles = sceneSpeechTexts[index];
         }
       }
-      console.info(`[Narration preflight] estimate=${fit.totalEstimatedDurationSeconds.toFixed(2)}s; target=${TARGET_SHORT_DURATION_SECONDS}s; hardCap=${MAX_SHORT_DURATION_SECONDS}s; revisions=${fit.revisionAttempts}/2; calibration=${calibratedSecondsPerUnit.toFixed(3)}s/unit; profileSamples=${calibrationStore.profiles[calibrationProfileKey]?.length || 0}.`);
+      console.info(`[Narration preflight] estimate=${fit.totalEstimatedDurationSeconds.toFixed(2)}s; target=${TARGET_SHORT_DURATION_SECONDS}s; hardCap=${MAX_SHORT_DURATION_SECONDS}s; revisions=${fit.revisionAttempts}/2; rejectedLongerEdits=${fit.rejectedLongerRevisionAttempts}; calibration=${calibratedSecondsPerUnit.toFixed(3)}s/unit; profileSamples=${calibrationStore.profiles[calibrationProfileKey]?.length || 0}.`);
       updateJobProgress(
         jobId,
         { step: 'Estymacja narracji przed TTS', progress: 11 },
         fit.reachedTargetDuration
-          ? `Szacowana narracja: ${fit.totalEstimatedDurationSeconds.toFixed(2)} s. CTA zachowane; korekty tekstu: ${fit.revisionAttempts}/2. Dopiero teraz rozpocznie się TTS.`
-          : `Szacowana narracja: ${fit.totalEstimatedDurationSeconds.toFixed(2)} s. Używam awaryjnego zapasu do ${MAX_SHORT_DURATION_SECONDS} s po ${fit.revisionAttempts}/2 korektach. Dopiero teraz rozpocznie się TTS.`
+          ? `Szacowana narracja: ${fit.totalEstimatedDurationSeconds.toFixed(2)} s. CTA zachowane; korekty tekstu: ${fit.revisionAttempts}/2, odrzucone dłuższe: ${fit.rejectedLongerRevisionAttempts}. Dopiero teraz rozpocznie się TTS.`
+          : `Szacowana narracja: ${fit.totalEstimatedDurationSeconds.toFixed(2)} s. Używam awaryjnego zapasu do ${MAX_SHORT_DURATION_SECONDS} s po ${fit.revisionAttempts}/2 korektach; odrzucone dłuższe: ${fit.rejectedLongerRevisionAttempts}. Dopiero teraz rozpocznie się TTS.`
       );
     }
 
@@ -5503,16 +5503,16 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
             continue;
           }
 
-          const stockOrEvidence = await resolveStockWithEvidenceFallback(
-            () => resolveStockOrPexelsVideoDetailed(targetKeyword, idx, usedPexelsIds, {
+          const stockOrEvidence = await resolveStockWithVerifiedEvidenceFallback({
+            resolveStock: () => resolveStockOrPexelsVideoDetailed(targetKeyword, idx, usedPexelsIds, {
               context: visualContext,
               requirePexels: requireNewsPexels
             }),
-            () => buildSourceEvidenceVisual(
-              [financeCardSource.title, financeCardSource.description, financeCardSource.summary].join('\n'),
-              String(sc.sourceEvidence || '')
-            )
-          );
+            sourceText: [financeCardSource.title, financeCardSource.description, financeCardSource.summary].join('\n'),
+            sourceEvidence: String(sc.sourceEvidence || ''),
+            hints: [String(textContent), targetKeyword],
+            topicHint: cleanTopic
+          });
           if (stockOrEvidence.kind === 'data_visual') {
             const stockFailure = String((stockOrEvidence.stockError as Error)?.message || stockOrEvidence.stockError).slice(0, 180);
             console.warn(`[Stock fallback] Scena ${idx + 1}: stock nie przeszedł dopasowania/QA; używam cytatu zweryfikowanego w artykule. Powód: ${stockFailure}`);
@@ -5670,10 +5670,38 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
       });
       continue;
     }
-    const resolved = await resolveStockOrPexelsVideoDetailed(targetKw, idx, usedPexelsIds, {
-      context: visualContext,
-      requirePexels: requireNewsPexels
+    const stockOrEvidence = await resolveStockWithVerifiedEvidenceFallback({
+      resolveStock: () => resolveStockOrPexelsVideoDetailed(targetKw, idx, usedPexelsIds, {
+        context: visualContext,
+        requirePexels: requireNewsPexels
+      }),
+      sourceText: [financeCardSource.title, financeCardSource.description, financeCardSource.summary].join('\n'),
+      sourceEvidence: String((sc as any).sourceEvidence || ''),
+      hints: [String(sc.voiceover_text || sc.subtitles || ''), targetKw],
+      topicHint: cleanTopic
     });
+    if (stockOrEvidence.kind === 'data_visual') {
+      const stockFailure = String((stockOrEvidence.stockError as Error)?.message || stockOrEvidence.stockError).slice(0, 180);
+      console.warn(`[Stock fallback] Scena ${idx + 1}: stock nie przeszedł dopasowania/QA; używam cytatu zweryfikowanego w artykule. Powód: ${stockFailure}`);
+      fallbackScenesWithVideo.push({
+        ...sc,
+        subtitles: String(sc.voiceover_text || sc.subtitles || ''),
+        voiceover_text: String(sc.voiceover_text || sc.subtitles || ''),
+        duration: sceneDurations[idx],
+        ...stockOrEvidence.value,
+        videoUrl: '',
+        thumbnailUrl: '',
+        visualMode: 'data_visual',
+        source: 'data_visual',
+        pexelsId: undefined,
+        pixabayId: undefined,
+        stockId: undefined,
+        sourcePageUrl: undefined,
+        searchKeyword: targetKw
+      });
+      continue;
+    }
+    const resolved = stockOrEvidence.value;
     if (requireNewsPexels && (!['pexels', 'pixabay'].includes(resolved.source) || !resolved.pexelsId)) {
       console.warn(`[Stock Warning] Scena ${idx + 1} nie otrzymała poprawnego klipu stockowego.`);
     }

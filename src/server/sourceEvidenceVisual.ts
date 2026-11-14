@@ -5,6 +5,7 @@ export interface SourceEvidenceVisual {
   visualMode: 'data_visual';
   visualTitle: string;
   visualSubtitle: string;
+  sourceEvidence: string;
   visualSvg: string;
   facts: [];
 }
@@ -72,9 +73,61 @@ export function buildSourceEvidenceVisual(sourceText: string, sourceEvidence: st
     visualMode: 'data_visual',
     visualTitle: 'Fakt z artykułu',
     visualSubtitle: 'Cytat ze źródła Bankier.pl',
+    sourceEvidence: evidence,
     visualSvg: svg,
     facts: []
   };
+}
+
+const GENERIC_EVIDENCE_HINTS = new Set([
+  'business', 'chart', 'charts', 'data', 'display', 'exchange', 'financial', 'finance', 'footage',
+  'market', 'money', 'news', 'numbers', 'person', 'reading', 'report', 'screen', 'source', 'stock',
+  'trading', 'visual', 'laptop', 'zrodlo', 'artykulu'
+]);
+
+function evidenceTokens(value: string): string[] {
+  return normalizeFinanceText(value)
+    .split(/\s+/)
+    .filter((token) => token.length >= 4 && !GENERIC_EVIDENCE_HINTS.has(token));
+}
+
+/** Select an exact source fragment that best overlaps scene wording or the article topic. */
+export function selectSourceEvidenceForVisual(
+  sourceText: string,
+  hints: readonly string[],
+  topicHint = ''
+): string | null {
+  const source = String(sourceText || '').trim();
+  if (!source) return null;
+
+  const sceneTokens = new Set(evidenceTokens(hints.join(' ')));
+  const topicTokens = new Set(evidenceTokens(topicHint));
+  if (!sceneTokens.size && !topicTokens.size) return null;
+
+  const candidates = source
+    .split(/\r?\n|(?<=[.!?])\s+/u)
+    .map((candidate) => candidate.replace(/\s+/g, ' ').trim())
+    .filter((candidate) => candidate.length > 0 && candidate.length <= 600)
+    .map((candidate) => {
+      const words = candidate.split(/\s+/).filter(Boolean);
+      const normalizedCandidate = normalizeFinanceText(candidate);
+      const candidateTokens = new Set(normalizedCandidate.split(/\s+/).filter(Boolean));
+      const sceneMatches = [...sceneTokens].filter((token) => candidateTokens.has(token)).length;
+      const topicMatches = [...topicTokens].filter((token) => candidateTokens.has(token)).length;
+      return {
+        candidate,
+        score: sceneMatches * 100 + topicMatches * 10 + Math.min(candidate.length, 250) / 1000,
+        hasRelevantMatch: sceneMatches > 0 || topicMatches > 0,
+        hasEnoughWords: words.length >= 3
+      };
+    })
+    .filter((item) => item.hasRelevantMatch && item.hasEnoughWords)
+    .sort((left, right) => right.score - left.score);
+
+  for (const item of candidates) {
+    if (buildSourceEvidenceVisual(source, item.candidate)) return item.candidate;
+  }
+  return null;
 }
 
 /** Use a verified source quote only after stock resolution fails; otherwise preserve stock-first behavior. */
@@ -94,4 +147,30 @@ export async function resolveStockWithEvidenceFallback<TStock>(
     if (!fallback) throw stockError;
     return { kind: 'data_visual', value: fallback, stockError };
   }
+}
+
+/** Prefer supplied evidence; if it is absent or invalid, select a relevant exact quote from the source. */
+export async function resolveStockWithVerifiedEvidenceFallback<TStock>(input: {
+  resolveStock: () => Promise<TStock>;
+  sourceText: string;
+  sourceEvidence?: string;
+  hints: readonly string[];
+  topicHint?: string;
+}): Promise<StockOrEvidenceVisual<TStock>> {
+  return resolveStockWithEvidenceFallback(input.resolveStock, () => {
+    const explicitEvidence = String(input.sourceEvidence || '').trim();
+    const explicitVisual = explicitEvidence
+      ? buildSourceEvidenceVisual(input.sourceText, explicitEvidence)
+      : null;
+    if (explicitVisual) return explicitVisual;
+
+    const selectedEvidence = selectSourceEvidenceForVisual(
+      input.sourceText,
+      input.hints,
+      input.topicHint
+    );
+    return selectedEvidence
+      ? buildSourceEvidenceVisual(input.sourceText, selectedEvidence)
+      : null;
+  });
 }

@@ -28,6 +28,7 @@ export type NarrationFitResult = {
   estimatedSceneDurations: number[];
   totalEstimatedDurationSeconds: number;
   revisionAttempts: number;
+  rejectedLongerRevisionAttempts: number;
   reachedTargetDuration: boolean;
 };
 
@@ -276,6 +277,7 @@ export async function fitNarrationBeforeTts(input: {
   const maxRevisionAttempts = Math.min(2, Math.max(0, Math.floor(input.maxRevisionAttempts ?? 2)));
   let currentTexts = [...sceneTexts];
   let revisionAttempts = 0;
+  let rejectedLongerRevisionAttempts = 0;
 
   const calculate = () => {
     const estimatedNarrationDurations = currentTexts.map((text) =>
@@ -312,11 +314,15 @@ export async function fitNarrationBeforeTts(input: {
       if (!preservesNumericFacts(currentTexts[index], text)) {
         throw new Error(`Korekta narracji zmieniła lub usunęła wartość liczbową w scenie ${index + 1}; zmiana została odrzucona.`);
       }
-      if (countNarrationSpeechUnits(text) > countNarrationSpeechUnits(currentTexts[index]) + 0.001) {
-        throw new Error(`Korekta narracji zwiększyła długość sceny ${index + 1}; zmiana została odrzucona.`);
-      }
       return text.trim();
     });
+    const lengthenedSceneIndex = candidateTexts.findIndex((text, index) =>
+      countNarrationSpeechUnits(text) > countNarrationSpeechUnits(currentTexts[index]) + 0.001
+    );
+    if (lengthenedSceneIndex >= 0) {
+      rejectedLongerRevisionAttempts++;
+      continue;
+    }
     if (candidateTexts.every((text, index) => text === currentTexts[index].trim())) break;
     currentTexts = candidateTexts;
     estimate = calculate();
@@ -333,6 +339,7 @@ export async function fitNarrationBeforeTts(input: {
     sceneTexts: currentTexts,
     ...estimate,
     revisionAttempts,
+    rejectedLongerRevisionAttempts,
     reachedTargetDuration: estimate.totalEstimatedDurationSeconds <= targetDurationSeconds + 0.001
   };
 }
