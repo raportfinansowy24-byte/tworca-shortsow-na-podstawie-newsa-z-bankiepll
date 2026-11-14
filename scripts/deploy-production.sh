@@ -128,8 +128,12 @@ if [[ "$DRY_RUN" == true ]]; then
   exit 0
 fi
 
-log "Wysyłam aktualny main do Fly.io przez zdalny builder."
-"$FLY_BIN" deploy --app "$APP_NAME" --remote-only --yes
+IMAGE_LABEL="r24-tworca-$(date -u +'%Y%m%d-%H%M%S')-$(git rev-parse --short=7 HEAD)"
+log "Wysyłam aktualny main do Fly.io: obraz $IMAGE_LABEL."
+"$FLY_BIN" deploy --app "$APP_NAME" --remote-only --yes \
+  --image-label "$IMAGE_LABEL" \
+  --build-arg "APP_GIT_SHA=$LOCAL_HEAD" \
+  --build-arg "APP_IMAGE_LABEL=$IMAGE_LABEL"
 
 log "Czekam na zdrowy endpoint $BASE_URL$HEALTH_PATH."
 for ((attempt=1; attempt<=POLL_ATTEMPTS; attempt++)); do
