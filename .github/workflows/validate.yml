@@ -279,6 +279,8 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$FLY_API_TOKEN"
+          IMAGE_LABEL="r24-tworca-$(date -u +'%Y%m%d-%H%M%S')-${GITHUB_SHA:0:7}"
+          echo "Deploying RaportFinansowy24 image: $IMAGE_LABEL"
           flyctl deploy \
             --app tworca-shortsow-na-podstawie-newsa-z-bankiepll \
             --remote-only \
