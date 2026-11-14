@@ -7134,57 +7134,75 @@ function formatBytesHelper(bytes: number | string | undefined): string {
 }
 
 // Endpoint: Get Last 5 Successful (Completed) Rendering Jobs with Download Link (/api/jobs/recent-completed)
-router.get('/jobs/recent-completed', (req, res) => {
+// Supabase is the durable source of truth; jobsStore is only the fast in-process cache.
+router.get('/jobs/recent-completed', async (req, res) => {
   const baseUrl = getPublicBaseUrl(req);
   const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 5, 1), 20);
 
-  const completedJobs = Array.from(jobsStore.values())
-    .filter((job) => {
-      if (job.status !== 'completed' || !job.outputFilename) return false;
-      const filePath = path.join(EXPORTS_DIR, job.outputFilename);
-      return fs.existsSync(filePath);
-    })
-    .sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime())
-    .slice(0, limit)
-    .map((job) => {
-      const filePath = path.join(EXPORTS_DIR, job.outputFilename!);
-      let actualSize = job.fileSize;
-      try {
-        if (fs.existsSync(filePath)) {
+  try {
+    // Pull the durable history on every request so renders created by another
+    // process or after a machine restart are visible without waiting for boot hydration.
+    const remoteJobs = await loadShortJobsFromSupabase(2000);
+    for (const remoteJob of remoteJobs) {
+      const localJob = jobsStore.get(remoteJob.id);
+      const remoteUpdatedAt = Date.parse(remoteJob.updatedAt || remoteJob.createdAt) || 0;
+      const localUpdatedAt = Date.parse(localJob?.updatedAt || localJob?.createdAt || '') || 0;
+      if (!localJob || remoteUpdatedAt > localUpdatedAt) {
+        jobsStore.set(remoteJob.id, {
+          ...remoteJob,
+          step: remoteJob.step || 'Historia zsynchronizowana z Supabase',
+          logs: localJob?.logs
+        } as Job);
+      }
+    }
+
+    const completedJobs = Array.from(jobsStore.values())
+      .filter((job) => {
+        if (job.status !== 'completed' || !job.outputFilename) return false;
+        // Do not allow a stored filename to escape the exports directory.
+        if (path.basename(job.outputFilename) !== job.outputFilename) return false;
+        return fs.existsSync(path.join(EXPORTS_DIR, job.outputFilename));
+      })
+      .sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime())
+      .slice(0, limit)
+      .map((job) => {
+        const filePath = path.join(EXPORTS_DIR, job.outputFilename!);
+        let actualSize = job.fileSize;
+        try {
           actualSize = fs.statSync(filePath).size;
-        }
-      } catch {}
+        } catch {}
 
-      const thumbFilename = `thumb_${path.parse(job.outputFilename!).name}.jpg`;
-      const thumbExists = fs.existsSync(path.join(EXPORTS_DIR, thumbFilename));
+        const thumbFilename = `thumb_${path.parse(job.outputFilename!).name}.jpg`;
+        const thumbExists = fs.existsSync(path.join(EXPORTS_DIR, thumbFilename));
 
-      return {
-        id: job.id,
-        status: job.status,
-        step: job.step,
-        filename: job.outputFilename,
-        fileSize: formatBytesHelper(actualSize),
-        downloadUrl: `${baseUrl}/api/jobs/${job.id}/download`,
-        outputUrl: `${baseUrl}/exports/${job.outputFilename}`,
-        thumbnailUrl: job.thumbnailUrl || (thumbExists ? `${baseUrl}/exports/${thumbFilename}` : undefined),
-        createdAt: job.createdAt,
-        updatedAt: job.updatedAt,
-        timestampFormatted: new Date(job.updatedAt || job.createdAt).toLocaleString('pl-PL', {
-          year: 'numeric',
-          month: '2-digit',
-          day: '2-digit',
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit'
-        })
-      };
-    });
+        return {
+          id: job.id,
+          status: job.status,
+          step: job.step,
+          filename: job.outputFilename,
+          fileSize: formatBytesHelper(actualSize),
+          downloadUrl: `${baseUrl}/api/jobs/${job.id}/download`,
+          outputUrl: `${baseUrl}/exports/${job.outputFilename}`,
+          thumbnailUrl: job.thumbnailUrl || (thumbExists ? `${baseUrl}/exports/${thumbFilename}` : undefined),
+          createdAt: job.createdAt,
+          updatedAt: job.updatedAt,
+          timestampFormatted: new Date(job.updatedAt || job.createdAt).toLocaleString('pl-PL', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+          })
+        };
+      });
 
-  res.json({
-    success: true,
-    count: completedJobs.length,
-    jobs: completedJobs
-  });
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ success: true, count: completedJobs.length, jobs: completedJobs });
+  } catch (error) {
+    console.error('[Historia renderów] Nie udało się odświeżyć historii z Supabase:', (error as Error).message);
+    res.status(500).json({ success: false, error: 'Nie udało się odświeżyć historii renderów.' });
+  }
 });
 
 // Endpoint: Dedicated Video Thumbnail Generator & Retriever (/api/jobs/:jobId/thumbnail)
