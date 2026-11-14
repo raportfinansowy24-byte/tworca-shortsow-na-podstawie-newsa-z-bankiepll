@@ -247,7 +247,7 @@ export function buildFinanceShortPlan(articleInput: FinanceArticleInput): Financ
     targetDurationSeconds: 18,
     hookWindowSeconds: 2,
     mutedFirst: true,
-    proofWindow: [2, 17],
+    proofWindow: [2, 13],
     payoffWindow: [13, 18],
     platforms: ['tiktok', 'youtube-shorts', 'instagram-reels'],
     retentionTargets: { retention3s: 0.6, commentsPerThousand: 5 }
