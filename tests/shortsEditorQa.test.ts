@@ -226,7 +226,7 @@ assert.ok(repetitionReport.findings.some((finding) => finding.code === 'repeated
 assert.notEqual(repetitionReport.status, 'blocked');
 
 const tooLong = scenes.map((scene, index) => index === 7 ? { ...scene, voiceover_text: 'Więcej informacji tutaj.', subtitles: 'Więcej informacji tutaj.', duration: 10 } : scene);
-const durationReport = evaluateShortStoryboard(tooLong, { maxDurationSeconds: 23 });
+const durationReport = evaluateShortStoryboard(tooLong, { maxDurationSeconds: 25 });
 assert.equal(durationReport.status, 'blocked');
 assert.ok(durationReport.findings.some((finding) => finding.code === 'duration_over_limit'));
 
@@ -260,7 +260,7 @@ const truncatedMedia = evaluateRenderedShort({
   hasAudio: true,
   width: 720,
   height: 1280,
-  durationSeconds: 19.5,
+  durationSeconds: 14.5,
   sizeBytes: 1_200_000,
   requireAudio: true,
   maxDurationSeconds: 25,
