@@ -8033,7 +8033,7 @@ let cachedCandidateDecision: {
   timestamp: number;
   article: any;
   viralityScore: ViralityScore;
-  source: 'openai' | 'gemini' | 'heuristic';
+  source: 'gemini' | 'heuristic';
 } | null = null;
 const CANDIDATE_CACHE_TTL = 3 * 60 * 1000; // 3 minuty
 
@@ -8043,7 +8043,7 @@ async function selectMostViralBankierArticle(
 ): Promise<{
   selectedArticle: any;
   viralityScore: ViralityScore;
-  selectionSource: 'openai' | 'gemini' | 'heuristic';
+  selectionSource: 'gemini' | 'heuristic';
 }> {
   if (!articles || articles.length === 0) {
     throw new Error('Brak artykułów do analizy wiralowej.');
@@ -8110,7 +8110,7 @@ async function selectMostViralBankierArticle(
     };
   };
 
-  // Attempt selection via the shared OpenAI-first/Gemini-fallback model router
+  // Attempt selection via the shared Gemini 4 Hydrogen router
   try {
     const articlesPromptList = candidatePool.map((a, idx) => {
       const offerMatch = getNewsOfferMatch(a);
@@ -8202,7 +8202,7 @@ Zwróć odpowiedź w czystym formacie JSON zgodnie ze schematem:`;
         return {
           selectedArticle: chosenArticle,
           viralityScore: finalScore,
-          selectionSource: modelResult.modelUsed === OPENAI_SCRIPT_MODEL ? 'openai' : 'gemini'
+          selectionSource: 'gemini'
         };
       }
     }
@@ -8522,7 +8522,7 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
 
     const articleContext = `Tytuł artykułu z Bankier.pl: "${candidate.title}"\nPodsumowanie i treść: ${candidate.description}\nKategoria: ${candidate.category}`;
 
-    // 3. Autonomiczna synteza viralowa przez router OpenAI-first/Gemini-fallback
+    // 3. Autonomiczna synteza viralowa przez Gemini 4 Hydrogen
     const scriptRequest = {
       topic: candidate.title,
       niche: schedulerState.niche || 'Finanse & Biznes',
