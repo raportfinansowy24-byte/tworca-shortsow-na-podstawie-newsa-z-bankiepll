@@ -14,6 +14,11 @@ WORKDIR /app
 
 # Stamped by the CI deployment workflow so health checks can prove the running commit.
 ARG APP_GIT_SHA=unknown
+ARG APP_IMAGE_LABEL=local
+
+LABEL org.opencontainers.image.title="RaportFinansowy24 - Tworca Shortsow" \
+      org.opencontainers.image.revision="${APP_GIT_SHA}" \
+      org.opencontainers.image.version="${APP_IMAGE_LABEL}"
 
 # This repository tracks bun.lock, not package-lock.json; install from package.json.
 COPY package.json ./
