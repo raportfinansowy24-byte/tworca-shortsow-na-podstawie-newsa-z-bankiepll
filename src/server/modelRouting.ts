@@ -34,7 +34,7 @@ export function shouldRotateGeminiKey(error: unknown): boolean {
 
   const message = error instanceof Error ? error.message : String(error);
   return /\b(?:401|403|408|429|500|502|503|504)\b/i.test(message) ||
-    /\b(?:RESOURCE_EXHAUSTED|PERMISSION_DENIED|UNAUTHENTICATED|UNAVAILABLE|INTERNAL|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|fetch failed|network error|timed? ?out)\b/i.test(message);
+    /\b(?:RESOURCE_EXHAUSTED|PERMISSION_DENIED|UNAUTHENTICATED|UNAVAILABLE|INTERNAL|API_KEY_INVALID|API_KEY_SERVICE_BLOCKED|API key (?:is )?not valid|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|fetch failed|network error|timed? ?out)\b/i.test(message);
 }
 
 export async function withGeminiKeyRotation<T>(params: {
