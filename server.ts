@@ -63,7 +63,7 @@ import { buildVisualAnalysisUnavailableReport, buildVisualSemanticReport, parseC
 import { applyQaRepairAssets, buildQaRepairFailureReport, executeQaRepairOnce, QaRepairCancelledError, resolveUniqueQaRepairAssets, selectQaRepairCandidates, validatedPexelsRepairMetadata } from './src/server/qaRepair';
 import { buildConcatArgs, FAST_H264_OPTIONS, isValidConcatenatedVideo } from './src/server/renderOptimizations';
 import { getDeploymentInfo } from './src/server/deploymentInfo';
-import { requestOpenAiVisualQa, retryVisualQa, runVisualQaWithFallback } from './src/server/visualQaProviders';
+import { retryVisualQa, runVisualQaWithFallback } from './src/server/visualQaProviders';
 import { splitNarrationAlignmentByScenes } from './src/server/singleNarration';
 import { isTrustedStockPreviewUrl, selectVisuallyVerifiedPexelsCandidate } from './src/server/pexelsCandidateVisualQa';
 import { mapPixabayVideoCandidates } from './src/server/pixabayVideoProvider';
@@ -72,10 +72,31 @@ import { buildSourceEvidenceVisual, resolveStockWithEvidenceFallback, resolveSto
 import { buildPixabayFallbackQueries } from './src/server/pixabaySearchExpansion';
 import { buildFinancialNewsSearchAliases } from './src/server/stockSearchExpansion';
 import { findLegacyFailedAutopilotArticleUrl, getNextPendingAutopilotRetry, MAX_AUTOPILOT_RETRY_ATTEMPTS, MAX_STORYBOARD_QA_REPAIR_ATTEMPTS, recordAutopilotFailure, repairUntilPass, resolveAutopilotRetry, isCompatibleNarrationRetryCache, type AutopilotRetryEntry, type RetryableAutopilotArticle, type NarrationRetryCacheMetadata } from './src/server/autopilotRetry';
-import { GEMINI_FALLBACK_MODEL, isRetryableModelProviderError, OPENAI_PRIMARY_MODEL, requestOpenAiScript } from './src/server/modelRouting';
+import { GEMINI_PRIMARY_MODEL, getGeminiApiKeys, withGeminiKeyRotation } from './src/server/modelRouting';
 
 const execPromise = promisify(exec);
 const serverStartedAt = new Date().toISOString();
+
+async function generateGeminiHydrogenContent(params: { contents: any; config?: any }) {
+  const { result } = await withGeminiKeyRotation({
+    keys: getGeminiApiKeys(),
+    operation: (apiKey) => {
+      const client = new GoogleGenAI({
+        apiKey,
+        httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
+      });
+      return client.models.generateContent({
+        model: GEMINI_PRIMARY_MODEL,
+        contents: params.contents,
+        config: params.config
+      });
+    },
+    onKeyFailure: (keyName, error) => {
+      console.warn('[Gemini 4 Hydrogen] ' + keyName + ' nie powiódł się: ' + error.message.slice(0, 300));
+    }
+  });
+  return result;
+}
 let narrationCalibrationWriteQueue: Promise<void> = Promise.resolve();
 
 async function loadNarrationCalibration(calibrationPath: string) {
@@ -111,10 +132,9 @@ async function analyzeRenderedVisualFit(
   tempDir: string
 ): Promise<VisualSemanticReport> {
   const expectedScenes = scenes.length;
-  const geminiApiKey = process.env.GEMINI_API_KEY?.trim();
-  const openAiApiKey = process.env.OPENAI_API_KEY?.trim();
-  if (!geminiApiKey && !openAiApiKey) {
-    return buildVisualAnalysisUnavailableReport(expectedScenes, 'Nie skonfigurowano głównego OPENAI_API_KEY ani zapasowego GEMINI_API_KEY.', 'unavailable');
+  const geminiApiKeys = getGeminiApiKeys();
+  if (geminiApiKeys.length === 0) {
+    return buildVisualAnalysisUnavailableReport(expectedScenes, 'Nie skonfigurowano żadnego klucza Gemini (GEMINI_API_KEY, GEMINI_API_KEY_2, GEMINI_API_KEY_3).', 'unavailable');
   }
 
   const samples: VisualSemanticSample[] = [];
@@ -151,41 +171,20 @@ async function analyzeRenderedVisualFit(
       'Zwróć wyłącznie JSON: {"results":[{"scene":1,"match":true,"confidence":0.0,"reason":"krótkie uzasadnienie po polsku"}]}.',
       `Uwzględnij dokładnie ${samples.length} scen i zwróć jeden wynik dla każdej, z numerami 1–${samples.length}. Confidence to liczba 0..1. match=false oznacza wyraźnie niepasujący obraz.`
     ].join('\n');
-    const providers: Array<{ model: string; analyze: () => Promise<ReturnType<typeof parseCompleteVisualSemanticResponse>> }> = [];
-    if (openAiApiKey) {
-      providers.push({
-        model: 'openai:' + OPENAI_PRIMARY_MODEL,
-        analyze: async () => retryVisualQa(async () => {
-          const responseText = await requestOpenAiVisualQa({
-            apiKey: openAiApiKey,
-            model: OPENAI_PRIMARY_MODEL,
-            instructions,
-            imageParts
-          });
-          return parseCompleteVisualSemanticResponse(responseText, samples.length);
-        }, {
-          maxAttempts: 3,
-          onRetry: (attempt, error) => console.warn('[Shorts Editor QA] OpenAI ' + OPENAI_PRIMARY_MODEL + ': ponowienie ' + attempt + '/2 po błędzie analizy: ' + error.message)
-        })
-      });
-    }
-    if (geminiApiKey) {
-      providers.push({
-        model: GEMINI_FALLBACK_MODEL,
-        analyze: async () => retryVisualQa(async () => {
-          const response = await ai.models.generateContent({
-            model: GEMINI_FALLBACK_MODEL,
-            contents: [{ role: 'user', parts: [{ text: instructions }, ...imageParts] }],
-            config: { responseMimeType: 'application/json' }
-          });
-          if (!response.text?.trim()) throw new Error('Gemini 3.8 Flash zwrócił pustą odpowiedź.');
-          return parseCompleteVisualSemanticResponse(response.text, samples.length);
-        }, {
-          maxAttempts: 3,
-          onRetry: (attempt, error) => console.warn('[Shorts Editor QA] Gemini 3.8 Flash fallback: ponowienie ' + attempt + '/2 po błędzie analizy: ' + error.message)
-        })
-      });
-    }
+    const providers: Array<{ model: string; analyze: () => Promise<ReturnType<typeof parseCompleteVisualSemanticResponse>> }> = [{
+      model: GEMINI_PRIMARY_MODEL,
+      analyze: async () => retryVisualQa(async () => {
+        const response = await generateGeminiHydrogenContent({
+          contents: [{ role: 'user', parts: [{ text: instructions }, ...imageParts] }],
+          config: { responseMimeType: 'application/json' }
+        });
+        if (!response.text?.trim()) throw new Error('Gemini 4 Hydrogen zwrócił pustą odpowiedź.');
+        return parseCompleteVisualSemanticResponse(response.text, samples.length);
+      }, {
+        // The three-key router already performs provider failover; avoid repeating the same full key cycle.
+        maxAttempts: 1
+      })
+    }];
 
     const { model, result } = await runVisualQaWithFallback(providers, (provider, error) => {
       console.warn(`[Shorts Editor QA] Provider ${provider} nie wykonał analizy klatek; przechodzę do kolejnego: ${error.message}`);
@@ -288,16 +287,6 @@ function getNewsOfferMatch(article: any, context?: string): OfferMatchPreview {
     context
   }, offerCatalogSnapshot);
 }
-
-// Initialize GoogleGenAI SDK on server
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build'
-    }
-  }
-});
 
 export interface ResolvedStockVideo {
   videoUrl: string;
@@ -762,10 +751,9 @@ async function verifyStockVisualCandidates(
   sceneQuery: string,
   sceneIndex: number
 ): Promise<ResolvedStockVideo | null> {
-  const openAiApiKey = process.env.OPENAI_API_KEY?.trim();
-  const geminiApiKey = process.env.GEMINI_API_KEY?.trim();
-  if (!openAiApiKey && !geminiApiKey) {
-    throw new Error('Pre-renderowa kontrola obrazu stock wymaga OPENAI_API_KEY lub GEMINI_API_KEY.');
+  const geminiApiKeys = getGeminiApiKeys();
+  if (geminiApiKeys.length === 0) {
+    throw new Error('Pre-renderowa kontrola obrazu stock wymaga co najmniej jednego klucza Gemini.');
   }
   const shortlist = [...candidates]
     .filter((item) => Number.isSafeInteger(item.pexelsId) && (item.previewImageUrls?.length || 0) > 0)
@@ -812,22 +800,17 @@ async function verifyStockVisualCandidates(
     'Otrzymujesz ' + verified.length + ' kandydatów. Zwróć dokładnie jeden wynik dla każdego, pole scene to numer kandydata.',
     'Zwróć wyłącznie JSON: {"results":[{"scene":1,"match":true,"confidence":0.0,"reason":"krótkie uzasadnienie po polsku"}]}. match=true tylko dla sensownej ilustracji sceny.'
   ].join('\n');
-  const providers: Array<{ model: string; analyze: () => Promise<ReturnType<typeof parseCompleteVisualSemanticResponse>> }> = [];
-  if (openAiApiKey) providers.push({
-    model: 'openai:' + OPENAI_PRIMARY_MODEL,
+  const providers: Array<{ model: string; analyze: () => Promise<ReturnType<typeof parseCompleteVisualSemanticResponse>> }> = [{
+    model: GEMINI_PRIMARY_MODEL,
     analyze: async () => retryVisualQa(async () => {
-      const text = await requestOpenAiVisualQa({ apiKey: openAiApiKey, model: OPENAI_PRIMARY_MODEL, instructions, imageParts });
-      return parseCompleteVisualSemanticResponse(text, verified.length);
-    }, { maxAttempts: 2, delaysMs: [700] })
-  });
-  if (geminiApiKey) providers.push({
-    model: GEMINI_FALLBACK_MODEL,
-    analyze: async () => retryVisualQa(async () => {
-      const response = await ai.models.generateContent({ model: GEMINI_FALLBACK_MODEL, contents: [{ role: 'user', parts: [{ text: instructions }, ...imageParts] }], config: { responseMimeType: 'application/json' } });
-      if (!response.text?.trim()) throw new Error('Gemini zwrócił pustą odpowiedź w kontroli stock.');
+      const response = await generateGeminiHydrogenContent({
+        contents: [{ role: 'user', parts: [{ text: instructions }, ...imageParts] }],
+        config: { responseMimeType: 'application/json' }
+      });
+      if (!response.text?.trim()) throw new Error('Gemini 4 Hydrogen zwrócił pustą odpowiedź w kontroli stock.');
       return parseCompleteVisualSemanticResponse(response.text, verified.length);
-    }, { maxAttempts: 2, delaysMs: [700] })
-  });
+    }, { maxAttempts: 1 })
+  }];
   const { model, result } = await runVisualQaWithFallback(providers, (provider, error) => {
     console.warn('[Stock visual precheck] Provider ' + provider + ' nie zadziałał: ' + error.message);
   });
@@ -2707,7 +2690,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
     const calibratedSecondsPerUnit = getCalibratedSecondsPerSpeechUnit(calibrationStore, calibrationProfileKey);
 
     if (ttsEnabled) {
-      const hasEditorialModel = Boolean(process.env.OPENAI_API_KEY?.trim() || process.env.GEMINI_API_KEY?.trim());
+      const hasEditorialModel = getGeminiApiKeys().length > 0;
       const fit = await fitNarrationBeforeTts({
         sceneTexts: sceneSpeechTexts,
         baseSceneDurations,
@@ -4076,11 +4059,11 @@ router.get('/supervisor/status', async (_req, res) => {
   const envReady = {
     appAuth: Boolean(process.env.APP_AUTH_SECRET && process.env.APP_AUTH_SECRET.length >= 32),
     machineToken: Boolean(process.env.BANKIER_SHORTS_API_TOKEN),
-    openai: Boolean(process.env.OPENAI_API_KEY),
-    gemini: Boolean(process.env.GEMINI_API_KEY),
-    primaryModelProvider: process.env.OPENAI_API_KEY ? 'openai' : 'unconfigured',
-    primaryModel: OPENAI_PRIMARY_MODEL,
-    fallbackModel: process.env.GEMINI_API_KEY ? GEMINI_FALLBACK_MODEL : null,
+    gemini: getGeminiApiKeys().length > 0,
+    geminiKeyCount: getGeminiApiKeys().length,
+    primaryModelProvider: getGeminiApiKeys().length > 0 ? 'gemini' : 'unconfigured',
+    primaryModel: GEMINI_PRIMARY_MODEL,
+    fallbackModel: null,
     pexels: Boolean(process.env.PEXELS_API_KEY),
     pixabay: Boolean(process.env.PIXABAY_API_KEY),
     stockProvider: process.env.PEXELS_API_KEY ? 'pexels-primary' : (process.env.PIXABAY_API_KEY ? 'pixabay-primary' : 'unconfigured'),
@@ -4103,7 +4086,7 @@ router.get('/supervisor/status', async (_req, res) => {
   const missingRequired = [
     !envReady.appAuth ? 'APP_AUTH_SECRET (minimum 32 characters)' : null,
     !envReady.machineToken ? 'BANKIER_SHORTS_API_TOKEN' : null,
-    !envReady.openai ? 'OPENAI_API_KEY (required primary provider)' : null,
+    !envReady.gemini ? 'GEMINI_API_KEY, GEMINI_API_KEY_2 or GEMINI_API_KEY_3' : null,
     !envReady.pexels && !envReady.pixabay ? 'PEXELS_API_KEY or PIXABAY_API_KEY' : null,
     !envReady.elevenLabs ? 'ELEVENLABS_API_KEY' : null
   ].filter(Boolean);
@@ -4129,8 +4112,7 @@ router.get('/supervisor/status', async (_req, res) => {
       ...(!website.reachable ? ['Sprawdź domenę RaportFinansowy24: witryna nie zwróciła poprawnego HTTP 2xx.'] : []),
       ...(!mediaRuntime.ffmpegReady ? ['FFmpeg nie jest dostępny; sprawdź obraz wdrożeniowy i logi startowe Fly.io.'] : []),
       ...(!mediaRuntime.fontReady ? ['Brakuje fontu TikTok Sans; sprawdź pobieranie fontu i ścieżkę zasobu.'] : []),
-      ...(!envReady.openai ? ['Brak OPENAI_API_KEY: główny model GPT-6.1 Sol nie może działać.'] : []),
-      ...(envReady.openai && !envReady.gemini ? ['OpenAI GPT-6.1 Sol działa jako model główny, ale awaryjny Gemini 3.8 Flash nie jest skonfigurowany.'] : []),
+      ...(!envReady.gemini ? ['Brak klucza Gemini: Gemini 4 Hydrogen nie może działać.'] : []),
       ...(failedJobs > 0 ? [`W historii pamięciowej jest ${failedJobs} zadań zakończonych błędem; sprawdź szczegóły zadań.`] : []),
       ...missingRequired.map((name) => 'Uzupełnij sekret w Fly.io: ' + name + '.'),
       ...(!envReady.telegramApproval ? ['Skonfiguruj token bota, chat ID i sekret webhooka Telegrama, jeśli chcesz zatwierdzać shorty przez Telegram.'] : []),
@@ -4725,68 +4707,23 @@ function buildSmartFallbackScript(
   };
 }
 
-// One provider order across scripts, news analysis and editorial corrections:
-// OpenAI GPT-6.1 Sol is primary; Gemini 3.8 Flash is the sole emergency fallback.
-const OPENAI_SCRIPT_MODEL = OPENAI_PRIMARY_MODEL;
-
+// One model across scripts, news analysis, visual QA and editorial corrections.
 async function callModelRouter(params: {
   contents: string;
   config?: any;
 }): Promise<{ text: string; modelUsed: string } | null> {
-  let lastError: Error | null = null;
-  const openAiApiKey = process.env.OPENAI_API_KEY?.trim();
-  const geminiApiKey = process.env.GEMINI_API_KEY?.trim();
-
-  if (openAiApiKey) {
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      try {
-        const text = await requestOpenAiScript({ apiKey: openAiApiKey, contents: params.contents });
-        return { text, modelUsed: OPENAI_PRIMARY_MODEL };
-      } catch (cause) {
-        lastError = cause instanceof Error ? cause : new Error(String(cause));
-        const retryable = isRetryableModelProviderError(lastError);
-        if (attempt < 2 && retryable) {
-          console.warn('[OpenAI Primary] ' + OPENAI_PRIMARY_MODEL + ' failed temporarily; retry ' + attempt + '/1: ' + lastError.message);
-          await new Promise((resolve) => setTimeout(resolve, 900));
-          continue;
-        }
-        console.warn('[OpenAI Primary] ' + OPENAI_PRIMARY_MODEL + ' failed; switching only to Gemini 3.8 Flash fallback: ' + lastError.message);
-        break;
-      }
-    }
-  } else {
-    console.warn('[Model Router] OPENAI_API_KEY is missing; only the emergency Gemini 3.8 Flash fallback can run.');
+  try {
+    const response = await generateGeminiHydrogenContent({
+      contents: params.contents,
+      config: params.config
+    });
+    if (response?.text?.trim()) return { text: response.text, modelUsed: GEMINI_PRIMARY_MODEL };
+    throw new Error('Gemini 4 Hydrogen zwrócił pustą odpowiedź.');
+  } catch (cause) {
+    const error = cause instanceof Error ? cause : new Error(String(cause));
+    console.error('[Gemini 4 Hydrogen] Generowanie nie powiodło się po sprawdzeniu skonfigurowanych kluczy: ' + error.message);
+    return null;
   }
-
-  if (geminiApiKey) {
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      try {
-        const response = await ai.models.generateContent({
-          model: GEMINI_FALLBACK_MODEL,
-          contents: params.contents,
-          config: params.config
-        });
-        if (response?.text?.trim()) return { text: response.text, modelUsed: GEMINI_FALLBACK_MODEL };
-        throw new Error('Gemini 3.8 Flash zwrócił pustą odpowiedź.');
-      } catch (cause) {
-        lastError = cause instanceof Error ? cause : new Error(String(cause));
-        const retryable = isRetryableModelProviderError(lastError) ||
-          /\b(?:503|INTERNAL|UNAVAILABLE|RESOURCE_EXHAUSTED)\b/i.test(lastError.message);
-        if (attempt < 2 && retryable) {
-          console.warn('[Gemini Fallback] ' + GEMINI_FALLBACK_MODEL + ' failed temporarily; retry ' + attempt + '/1: ' + lastError.message);
-          await new Promise((resolve) => setTimeout(resolve, 900));
-          continue;
-        }
-        console.warn('[Gemini Fallback] Sole fallback ' + GEMINI_FALLBACK_MODEL + ' failed: ' + lastError.message);
-        break;
-      }
-    }
-  } else {
-    console.warn('[Model Router] GEMINI_API_KEY is missing; no emergency model fallback is configured.');
-  }
-
-  if (lastError) console.error('[Model Router] OpenAI primary and Gemini 3.8 fallback failed; caller must use validated deterministic fallback.');
-  return null;
 }
 
 // Semantic news analyzer: derives entities, market emotions, key metrics, and pairs proven Pexels search keywords per scene segment
