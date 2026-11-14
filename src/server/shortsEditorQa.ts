@@ -316,7 +316,7 @@ export function buildShortsEditorQaRevisionInstruction(
   return [
     'SHORTS EDITOR QA — POPRAWKA PLANU ' + attemptNumber + '/' + maxAttempts,
     'Zachowaj ten sam artykuł i wyłącznie potwierdzone fakty. Nie twórz nowego tematu ani nie wymyślaj liczb.',
-    'Zwróć dokładnie 8 scen na około 23 sekundy (maksymalnie 28 sekund). Pierwsze ujęcie ma zatrzymać uwagę od razu; ostatnie ma zawierać zatwierdzone CTA.',
+    'Zwróć dokładnie 8 scen na około 18 sekund (maksymalnie 25 sekund). Pierwsze ujęcie ma zatrzymać uwagę od razu; ostatnie ma zawierać zatwierdzone CTA.',
     'Każda scena ma mieć krótką narrację, identyczną treść napisów i konkretne zapytanie wizualne odnoszące się do tej kwestii.',
     'Każda scena faktograficzna musi zawierać sourceEvidence: krótki, dosłowny cytat z przekazanego artykułu. Cytat musi zawierać wykorzystane liczby i nie może być parafrazowany ani wymyślony.',
     'Usuń powtórzone zdania, ogólniki i niepotrzebne słowa. Nie czytaj URL-i lektorem. Nie zmieniaj polityki CTA.',
@@ -362,7 +362,7 @@ export function evaluateRenderedShort(metrics: RenderedShortMetrics): ShortsEdit
       addFinding({ code: 'output_too_short', severity: 'warning', message: `Gotowy film trwa tylko ${Number(metrics.durationSeconds).toFixed(2)} s.` });
     }
     // Longer speech-led renders may use the explicitly allowed reserve up to maxDurationSeconds.
-    // Do not warn merely because a valid narration expanded beyond the 23s editorial target.
+    // Do not warn merely because a valid narration expanded beyond the 18s editorial target.
     if (typeof metrics.expectedDurationSeconds === 'number' &&
         Number(metrics.durationSeconds) < metrics.expectedDurationSeconds - 3) {
       addFinding({
