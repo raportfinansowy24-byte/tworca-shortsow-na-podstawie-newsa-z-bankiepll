@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   getNextPendingAutopilotRetry,
+  findLegacyFailedAutopilotArticleUrl,
   isCompatibleNarrationRetryCache,
   recordAutopilotFailure,
   repairUntilPass,
@@ -82,6 +83,40 @@ assert.equal(isCompatibleNarrationRetryCache({ ...cacheMetadata, speed: 0.9 }, c
 assert.equal(isCompatibleNarrationRetryCache({ ...cacheMetadata, wordTimings: [] }, cacheExpected), false);
 assert.equal(isCompatibleNarrationRetryCache({ ...cacheMetadata, wordTimings: cacheMetadata.wordTimings.map((timing, index) => index === 2 ? { ...timing, word: 'inne' } : timing) }, cacheExpected), false);
 assert.equal(isCompatibleNarrationRetryCache({ ...cacheMetadata, durationSeconds: 0 }, cacheExpected), false);
+
+
+const legacyFailureUrl = 'https://www.bankier.pl/wiadomosc/legacy-failed';
+assert.equal(findLegacyFailedAutopilotArticleUrl({
+  lastRunStatus: 'failed',
+  processedUrls: [legacyFailureUrl, 'https://www.bankier.pl/wiadomosc/older'],
+  history: [{ articleLink: 'https://www.bankier.pl/wiadomosc/completed', status: 'completed' }],
+  retryQueue: []
+}), legacyFailureUrl, 'odzyskaj ostatni news oznaczony jako processed przez starszą wersję przed QA');
+assert.equal(findLegacyFailedAutopilotArticleUrl({
+  lastRunStatus: 'failed',
+  lastRunArticle: { link: legacyFailureUrl },
+  processedUrls: [],
+  history: [],
+  retryQueue: []
+}), legacyFailureUrl, 'preferuj stabilny link ostatniego artykułu, jeśli jest zapisany');
+assert.equal(findLegacyFailedAutopilotArticleUrl({
+  lastRunStatus: 'failed',
+  processedUrls: [legacyFailureUrl],
+  history: [{ articleLink: legacyFailureUrl, status: 'completed' }],
+  retryQueue: []
+}), null, 'nigdy nie ponawiaj artykułu z potwierdzonym udanym renderem');
+assert.equal(findLegacyFailedAutopilotArticleUrl({
+  lastRunStatus: 'completed',
+  processedUrls: [legacyFailureUrl],
+  history: [],
+  retryQueue: []
+}), null, 'nie odzyskuj artykułu po udanym ostatnim przebiegu');
+assert.equal(findLegacyFailedAutopilotArticleUrl({
+  lastRunStatus: 'failed',
+  processedUrls: [legacyFailureUrl],
+  history: [],
+  retryQueue: [{ article: { title: 'retry', link: legacyFailureUrl }, failedAttempts: 1, status: 'pending', lastError: 'failed', firstFailedAt: '2026-11-14T00:00:00.000Z', lastFailedAt: '2026-11-14T00:00:00.000Z' }]
+}), null, 'nie duplikuj migracji, gdy kolejka retry już istnieje');
 
 const article = {
   title: 'Powtórzone ujęcia w materiale o rynku',
