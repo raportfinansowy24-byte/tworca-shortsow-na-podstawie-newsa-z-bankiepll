@@ -64,7 +64,7 @@ assert.match(renderScenes[7].subtitles, /RAPORT-FINANSOWY24\.PL/);
 assert.equal(renderScenes[0].visualQuery, fallback.scenes[0].visualQuery);
 assert.equal(renderScenes[0].motionSound.motion, 'hero-zoom');
 assert.equal(renderScenes[7].motionSound.motion, 'end-card');
-assert.ok(Math.abs(renderScenes.reduce((sum, scene) => sum + scene.duration, 0) - 23) < 0.001);
+assert.ok(Math.abs(renderScenes.reduce((sum, scene) => sum + scene.duration, 0) - 18) < 0.001);
 assert.throws(() => mapCreativeDirectorPlanToRenderScenes({ ...fallback, scenes: fallback.scenes.slice(0, 7) }), /dokładnie 8 scen/);
 assert.throws(() => mapCreativeDirectorPlanToRenderScenes({
   ...fallback,
@@ -88,6 +88,6 @@ const missingQueryPlan = parseCreativeDirectorPlan(JSON.stringify({
 }), { article });
 assert.match(missingQueryPlan.scenes[0].visualQuery, /National Bank of Poland/i, 'gdy artykuł ma rozpoznany anchor, zapytanie jest uzupełniane deterministycznie');
 assert.throws(() => mapCreativeDirectorPlanToRenderScenes({ ...missingQueryPlan, scenes: Array.from({ length: 8 }, (_, index) => ({
-  ...missingQueryPlan.scenes[0], start: index * (23 / 8), end: (index + 1) * (23 / 8), visualQuery: ''
+  ...missingQueryPlan.scenes[0], start: index * (18 / 8), end: (index + 1) * (18 / 8), visualQuery: ''
 })) }), /zapytania wizualnego/);
 console.log('Creative Director tests passed');
