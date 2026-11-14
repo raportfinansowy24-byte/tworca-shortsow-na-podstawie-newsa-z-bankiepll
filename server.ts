@@ -18,6 +18,7 @@ import {
   classifyFinanceVisualCategory,
   getCategorySceneAlternatives,
   getFinanceSceneVisualPlan,
+  isGenericFinanceVisualQuery,
   isVisualQueryAlignedWithNews,
   scorePexelsCandidate
 } from './src/utils/financeSceneMatching';
@@ -457,14 +458,7 @@ async function searchPixabayVideoCandidates(query: string, options: {
 
 // Negative keywords that signal static, slow, or irrelevant footage
 const NEGATIVE_VIDEO_SLUG_TERMS = [
-  'eraser',
-  'writing-on-a-paper',
-  'writing-notes',
-  'taking-notes',
-  'drawing',
   'gymnast',
-  'training',
-  'reading-a-book',
   'doctor',
   'medical',
   'cooking',
@@ -472,80 +466,11 @@ const NEGATIVE_VIDEO_SLUG_TERMS = [
   'sport',
   'wedding',
   'beach-vacation',
-  'illustration',
   'cartoon',
-  'blackboard',
-  'whiteboard',
-  'pencil',
-  'holding-coffee',
-  'hand-holding-pen',
-  'signing-paper',
-  'static-portrait',
-  'smiling-at-camera',
-  'exhausted',
-  'tired',
-  'depressed',
-  'sad-man',
-  'sad-woman',
-  'sitting-at-desk',
-  'person-using-laptop',
-  'working-on-laptop',
-  'typing-on-keyboard',
-  'typing',
-  'man-in-front-of-laptop',
-  'talking-on-phone',
-  'drinking-coffee',
-  'drinking',
-  'eating',
-  'sleeping',
-  'staring-at-screen',
-  'office-worker-sitting',
-  'casual-meeting',
-  'interview',
-  'portrait',
-  'looking-at-camera',
-  'bored',
-  'senior',
-  'elderly',
-  'couch',
-  'sofa',
-  'slow',
-  'walk',
-  'walking-slowly'
-];
-
-// Positive keywords that indicate high-energy, viral motion graphics & cinematic b-roll
-const DYNAMIC_VIRAL_BOOST_TERMS = [
-  'timelapse',
-  'hyperlapse',
-  'dynamic',
-  'animation',
-  'flashing',
-  'trading',
-  'candlestick',
-  'exchange',
-  'skyline',
-  'aerial',
-  'traffic',
-  'stream',
-  'cash',
-  'banknotes',
-  'drone',
-  'display',
-  'charts',
-  'night',
-  'vault',
-  'luxury',
-  'speed',
-  'fast',
-  'matrix',
-  'cyber',
-  'digital',
-  'neon',
-  'rush',
-  'glitch',
-  'ticker',
-  'crypto'
+  'workout',
+  'basketball',
+  'football',
+  'beach'
 ];
 
 // Intelligent keyword translator & enhancer: converts Polish domain terms into proven, dynamic vertical (9:16) Pexels queries
@@ -560,23 +485,24 @@ function translateAndEnrichViralKeyword(
   const newsVisualContext = hasKnownContextCategory ? (context || '') : [context || '', trimmedRaw].filter(Boolean).join(' ');
   const requiredSceneCount = Math.min(8, Math.max(totalScenes, sceneIndex + 1));
   const plannedScene = getFinanceSceneVisualPlan(newsVisualContext, requiredSceneCount)?.[sceneIndex];
-  if (plannedScene && !isVisualQueryAlignedWithNews(newsVisualContext, trimmedRaw)) {
-    return plannedScene.primaryKeyword;
-  }
-
   // If already an English multi-word query without Polish special characters, preserve and clean it directly
   const hasPolishChars = /[ąćęłńóśźż]/i.test(trimmedRaw);
   const isEnglishWords = /^[a-zA-Z0-9\s-]+$/.test(trimmedRaw) && trimmedRaw.split(/\s+/).length >= 2;
 
-  if (isEnglishWords && !hasPolishChars && (!context || trimmedRaw.length > 12)) {
+  if (isEnglishWords && !hasPolishChars) {
     let clean = trimmedRaw
       .replace(/[^\w\s-]/gi, ' ')
       .replace(/\b(warning|mistake|illustration|draw|drawing|concept|documentation|compliance|bars|paper|notes|eraser|slide|tutorial)\b/gi, '')
       .replace(/\s+/g, ' ')
       .trim();
     if (clean.length >= 3) {
+      if (plannedScene && isGenericFinanceVisualQuery(clean)) return plannedScene.primaryKeyword;
       return clean;
     }
+  }
+
+  if (plannedScene && !isVisualQueryAlignedWithNews(newsVisualContext, trimmedRaw)) {
+    return plannedScene.primaryKeyword;
   }
 
   const combined = `${trimmedRaw} ${context || ''}`.toLowerCase().trim();
@@ -787,10 +713,6 @@ async function searchPexelsVideoDetailed(
             if (avoidUrls.includes(verticalMp4.link)) continue;
 
             let score = 50 + (relevance.relevant ? relevance.score : 0);
-            // Reward high-energy motion b-roll keywords
-            for (const boost of DYNAMIC_VIRAL_BOOST_TERMS) {
-              if (slug.includes(boost)) score += 3;
-            }
             // Prefer videos of optimal viral duration (8s to 30s)
             if (video.duration >= 8 && video.duration <= 30) score += 20;
             // Prefer 1080p / 2160p Full HD
@@ -863,7 +785,7 @@ async function verifyStockVisualCandidates(
   const shortlist = [...candidates]
     .filter((item) => Number.isSafeInteger(item.pexelsId) && (item.previewImageUrls?.length || 0) > 0)
     .sort((a, b) => (b.selectionScore ?? -Infinity) - (a.selectionScore ?? -Infinity))
-    .slice(0, 5);
+    .slice(0, 8);
   const downloaded = await Promise.all(shortlist.map(async (candidate) => {
     const frames = await Promise.all((candidate.previewImageUrls || []).slice(0, 2).map(async (imageUrl) => {
       try {
@@ -892,11 +814,12 @@ async function verifyStockVisualCandidates(
     imageParts.push({ inlineData: frame });
   }));
   const instructions = [
-    'Porównaj rzeczywiste klatki podglądowe kandydatów stockowych (Pexels lub Pixabay) z tematem jednej sceny filmu finansowo-informacyjnego.',
+    'Porównaj rzeczywiste klatki podglądowe kandydatów stockowych (Pexels lub Pixabay) z dokładną sceną filmu finansowo-informacyjnego, a nie tylko z ogólną kategorią artykułu.',
     'Kontekst artykułu i narracji: ' + context.slice(0, 1800),
-    'Docelowa scena: ' + sceneQuery,
-    'Akceptuj ogólne ujęcie ilustracyjne, jeśli pokazuje główny temat lub czynność. Nie wymagaj widoczności konkretnego miasta, urzędu, kwoty ani nazwy programu.',
-    'Odrzuć obrazy sprzeczne z tematem i inne kategorie. Dla poziomego klipu oceń, czy główny obiekt pozostanie widoczny po centralnym przycięciu do 9:16.',
+    'Docelowy obraz sceny: ' + sceneQuery,
+    'Wymagaj widocznego obiektu lub czynności odpowiadających konkretnemu ujęciu. Sam wykres, banknoty, biurowy ekran ani podobny nastrój nie wystarczają, chyba że dokładna scena mówi właśnie o tym.',
+    'Odrzuć obrazy sprzeczne z narracją i dopasowania oparte wyłącznie na ogólnym skojarzeniu „finanse”. Nie wymagaj niewidocznej nazwy firmy, miasta, kwoty ani urzędu. Dla poziomego klipu oceń, czy główny obiekt pozostanie widoczny po centralnym przycięciu do 9:16.',
+    'Jeżeli kontekst zawiera powód wcześniejszego odrzucenia ujęcia, unikaj podobnego motywu i wymagaj widocznego odpowiednika oczekiwanej czynności.',
     'Otrzymujesz ' + verified.length + ' kandydatów. Zwróć dokładnie jeden wynik dla każdego, pole scene to numer kandydata.',
     'Zwróć wyłącznie JSON: {"results":[{"scene":1,"match":true,"confidence":0.0,"reason":"krótkie uzasadnienie po polsku"}]}. match=true tylko dla sensownej ilustracji sceny.'
   ].join('\n');
@@ -937,11 +860,25 @@ async function verifyStockVisualCandidates(
 // chooses the strongest result. Keep that idea while retaining our
 // finance-specific relevance and forbidden-topic filters.
 function getShortGptSearchQueries(query: string, sceneIndex: number, context?: string): string[] {
-  const alternatives = context ? getCategorySceneAlternatives(context, sceneIndex) : [];
-  const raw = [translateAndEnrichViralKeyword(query, sceneIndex, 8, context), query, ...alternatives]
+  const alternatives = context ? getCategorySceneAlternatives(context, sceneIndex % 4) : [];
+  const enriched = translateAndEnrichViralKeyword(query, sceneIndex, 8, context);
+  const generalFinanceAlternatives = [
+    'person reviewing company earnings report documents',
+    'business analyst comparing company performance reports',
+    'person checking financial news on smartphone',
+    'accountant reviewing company financial paperwork'
+  ];
+  const specificAlternatives = alternatives.filter((candidate) => !isGenericFinanceVisualQuery(candidate));
+  const genericFallbacks = specificAlternatives.length > 0
+    ? specificAlternatives
+    : generalFinanceAlternatives;
+  const raw = isGenericFinanceVisualQuery(query)
+    ? [...genericFallbacks, enriched, query]
+    : [enriched, query, ...alternatives];
+  const unique = raw
     .map((value) => value.trim())
     .filter(Boolean);
-  return [...new Set(raw)].slice(0, 5);
+  return [...new Set(unique)].slice(0, 5);
 }
 
 // Refresh Pexels video-file links by video ID after a CDN denies an older link.
@@ -1040,9 +977,6 @@ async function searchPexelsMultiple(
 
         if (verticalMp4 && verticalMp4.link) {
           let score = 50 + (relevance.relevant ? relevance.score : 0);
-          for (const boost of DYNAMIC_VIRAL_BOOST_TERMS) {
-            if (slug.includes(boost)) score += 2;
-          }
           if (video.duration >= 8 && video.duration <= 45) score += 15;
           if (verticalMp4.height >= 1920) score += 15;
 
@@ -3579,7 +3513,7 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"króts
             return resolveUniqueQaRepairAssets(candidates, existingIds, async (candidate, usedIds): Promise<Replacement> => {
               const originalScene = scenes[candidate.sceneIndex] as any;
               const resolved = await resolveStockOrPexelsVideoDetailed(candidate.repairQuery, candidate.sceneIndex, usedIds, {
-                context: `${payload.qaRepairArticle.title}\n${payload.qaRepairArticle.description || payload.qaRepairArticle.summary || ''}\n${candidate.narration}`,
+                context: `${payload.qaRepairArticle.title}\n${payload.qaRepairArticle.description || payload.qaRepairArticle.summary || ''}\nNarracja sceny: ${candidate.narration}\nPoprzedni powód odrzucenia: ${candidate.reason}\nPierwotne zapytanie wizualne: ${candidate.originalQuery}`,
                 requirePexels: true,
                 targetDurationSeconds: plannedSceneDurations[candidate.sceneIndex]
               });
@@ -6236,8 +6170,9 @@ router.post('/auto-pilot-shorts', async (req, res) => {
           });
           continue;
         }
+        const sceneNarration = String(scene.voiceover_text || scene.subtitles || '');
         const resolved = await resolveStockOrPexelsVideoDetailed(scene.visualQuery, index, usedPexelsIds, {
-          context: visualContext,
+          context: `${visualContext}\nNarracja tej sceny: ${sceneNarration}\nOczekiwana czynność: ${scene.visualQuery}`,
           requirePexels: true,
           targetDurationSeconds: scene.duration
         });

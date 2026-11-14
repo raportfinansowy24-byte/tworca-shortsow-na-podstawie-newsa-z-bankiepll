@@ -1,6 +1,10 @@
-import { scorePexelsCandidate } from '../utils/financeSceneMatching';
+import { normalizeFinanceText, scorePexelsCandidate } from '../utils/financeSceneMatching';
 
 export const PIXABAY_INTERNAL_ID_OFFSET = 1_000_000_000_000;
+const GENERIC_SCENE_TERMS = new Set([
+  'business', 'chart', 'charts', 'data', 'display', 'exchange', 'finance', 'financial', 'market', 'money',
+  'screen', 'stock', 'trading', 'dynamic', 'animation', 'video', 'footage', 'person', 'people'
+]);
 
 export interface PixabayVideoSearchOptions {
   query: string;
@@ -77,9 +81,18 @@ export function mapPixabayVideoCandidates(
     const tags = String(hit.tags || '');
     const slug = `${tags} ${pageUrl}`.toLowerCase();
     const relevance = scorePexelsCandidate(context || query, query, slug);
-    const broadSceneMatches = query.toLowerCase().split(/\s+/).filter((token) => token.length >= 3 && slug.toLowerCase().includes(token));
-    const broadSceneMatch = options.allowBroadSceneMatch === true && broadSceneMatches.length > 0 && relevance.forbiddenMatches.length === 0;
-    if ((options.requireTopicMatch || context) && !relevance.relevant && !broadSceneMatch) continue;
+    const slugTokens = new Set(normalizeFinanceText(slug).split(/\s+/).filter(Boolean));
+    const specificQueryTokens = [...new Set(normalizeFinanceText(query).split(/\s+/)
+      .filter((token) => token.length >= 3 && !GENERIC_SCENE_TERMS.has(token)))];
+    const specificMatches = specificQueryTokens.filter((token) =>
+      slugTokens.has(token) || [...slugTokens].some((candidateToken) => candidateToken.startsWith(token) || token.startsWith(candidateToken))
+    );
+    const minimumSpecificMatches = Math.min(2, specificQueryTokens.length);
+    const hasSpecificSceneMatch = minimumSpecificMatches > 0 && specificMatches.length >= minimumSpecificMatches;
+    const broadSceneMatches = specificMatches;
+    const topicMatch = relevance.relevant && hasSpecificSceneMatch;
+    const broadSceneMatch = options.allowBroadSceneMatch === true && hasSpecificSceneMatch && relevance.forbiddenMatches.length === 0;
+    if ((options.requireTopicMatch || context) && !topicMatch && !broadSceneMatch) continue;
 
     const hasNegative = /\b(?:eraser|writing notes|taking notes|gymnast|workout|unrelated crypto)\b/i.test(slug);
     if (hasNegative) continue;
@@ -116,10 +129,6 @@ export function mapPixabayVideoCandidates(
     if (duration >= 6 && duration <= 35) selectionScore += 18;
     selectionScore += Math.max(0, 12 - Math.min(12, Math.abs(duration - targetDuration)));
     if (Number(file.height) >= 1920) selectionScore += 16;
-    for (const term of ['timelapse', 'hyperlapse', 'dynamic', 'trading', 'charts', 'aerial', 'drone', 'cash', 'traffic', 'animation']) {
-      if (slug.includes(term)) selectionScore += 2;
-    }
-
     const username = String(hit.user || '').trim();
     const userId = Number(hit.user_id);
     const photographerUrl = username && Number.isSafeInteger(userId) && userId > 0

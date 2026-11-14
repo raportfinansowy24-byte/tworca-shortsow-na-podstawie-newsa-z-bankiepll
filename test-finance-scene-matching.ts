@@ -2,12 +2,15 @@ import assert from 'node:assert/strict';
 import {
   classifyFinanceVisualCategory,
   getFinanceSceneVisualPlan,
+  isGenericFinanceVisualQuery,
   isVisualQueryAlignedWithNews,
   scorePexelsCandidate
 } from './src/utils/financeSceneMatching';
 
 const rppNews = 'Rada Polityki Pieniężnej utrzymała stopy procentowe. Rynek rozważa, czy zmieni się rata kredytu.';
 assert.equal(classifyFinanceVisualCategory(rppNews), 'rates-credit');
+assert.equal(isGenericFinanceVisualQuery('stock market candlestick chart dynamic'), true, 'ogólne hasła finansowe nie powinny dominować wyszukiwania sceny');
+assert.equal(isGenericFinanceVisualQuery('analyst reviewing company earnings report'), false, 'konkretna osoba/czynność/obiekt to użyteczne zapytanie stockowe');
 
 const rppPlan = getFinanceSceneVisualPlan(rppNews, 4);
 assert.ok(rppPlan, 'News o stopach powinien dostać plan scen.');

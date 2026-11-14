@@ -22,6 +22,7 @@ const candidates = selectQaRepairCandidates(scenes, report, article);
 assert.equal(candidates.length, 1, 'naprawa obejmuje jawne match=false także przy niskiej pewności modelu');
 assert.equal(candidates[0].sceneIndex, 2);
 assert.equal(candidates[0].narration, 'Narracja sceny 3');
+assert.match(candidates[0].reason, /widoczny temat jest sprzeczny z lektorem/i, 'naprawa zachowuje konkretny powód wizualny z QA');
 assert.match(candidates[0].repairQuery, /National Bank of Poland/i);
 assert.notEqual(candidates[0].repairQuery, candidates[0].originalQuery);
 assert.deepEqual(validatedPexelsRepairMetadata({ source: 'pexels', pexelsId: 102 }), { source: 'pexels', pexelsId: 102 });

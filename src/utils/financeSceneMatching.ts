@@ -188,6 +188,10 @@ const STOP_WORDS = new Set([
   'the', 'and', 'for', 'with', 'from', 'about', 'into', 'using', 'person', 'people', 'close', 'up', 'video',
   'dynamic', 'animation', 'timelapse', 'hyperlapse', 'portrait', 'vertical', 'finance', 'financial'
 ]);
+const GENERIC_VISUAL_QUERY_TERMS = new Set([
+  'business', 'chart', 'charts', 'data', 'display', 'exchange', 'market', 'money', 'screen', 'stock', 'trading',
+  'visual', 'footage', 'numbers', 'investing', 'investment', 'financial', 'finance', 'dynamic', 'animation'
+]);
 
 export function normalizeFinanceText(value: string): string {
   return String(value || '')
@@ -237,6 +241,12 @@ function queryTokens(query: string): string[] {
   return normalizeFinanceText(query)
     .split(/\s+/)
     .filter((token) => token.length >= 3 && !STOP_WORDS.has(token));
+}
+
+/** A stock query with fewer than two concrete visual concepts tends to return generic finance b-roll. */
+export function isGenericFinanceVisualQuery(query: string): boolean {
+  const concreteTerms = queryTokens(query).filter((token) => !GENERIC_VISUAL_QUERY_TERMS.has(token));
+  return concreteTerms.length < 2;
 }
 
 export function scorePexelsCandidate(newsContext: string, query: string, videoUrlOrSlug: string): PexelsRelevance {

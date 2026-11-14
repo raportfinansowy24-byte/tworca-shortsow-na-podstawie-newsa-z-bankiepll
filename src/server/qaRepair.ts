@@ -126,7 +126,8 @@ export function selectQaRepairCandidates(
     if (!narration) continue;
     const repairQuery = buildArticleVisualQuery(article, narration, (sceneIndex + 1) % 8);
     if (!repairQuery || repairQuery.toLowerCase() === String(scene.visualQuery || '').trim().toLowerCase()) continue;
-    candidates.push({ sceneIndex, narration, originalQuery: String(scene.visualQuery || ''), reason, repairQuery });
+    const detailedReason = [reason, qaResult.reason].map((value) => String(value || '').trim()).filter(Boolean).join(' ');
+    candidates.push({ sceneIndex, narration, originalQuery: String(scene.visualQuery || ''), reason: detailedReason, repairQuery });
   }
   return candidates;
 }

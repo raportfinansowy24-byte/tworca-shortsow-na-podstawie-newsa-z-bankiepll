@@ -42,7 +42,8 @@ export function selectVisuallyVerifiedPexelsCandidate(
     .map((item) => ({
       pexelsId: item.pexelsId,
       confidence: item.visual!.confidence,
-      score: item.selectionScore + item.visual!.confidence * 12,
+      // Text/relevance scores only break near-ties; visual fit is the primary signal.
+      score: item.visual!.confidence * 100 + Math.max(0, Math.min(300, item.selectionScore)) * 0.01,
       reason: item.visual!.reason
     }))
     .sort((a, b) => b.score - a.score);

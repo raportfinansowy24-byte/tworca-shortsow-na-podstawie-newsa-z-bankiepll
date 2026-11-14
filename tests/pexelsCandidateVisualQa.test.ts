@@ -35,8 +35,8 @@ assert.equal(selectVisuallyVerifiedPexelsCandidate([
 ]), null, 'nie przyjmuj ID niewłaściwego ani kandydata bez wyniku vision QA');
 
 const ranking = selectVisuallyVerifiedPexelsCandidate([
-  { pexelsId: 301, selectionScore: 200, visual: { scene: 1, match: true, confidence: 0.90, reason: 'Dobrze pasuje.' } },
-  { pexelsId: 302, selectionScore: 210, visual: { scene: 2, match: true, confidence: 0.80, reason: 'Pasuje.' } }
+  { pexelsId: 301, selectionScore: 100, visual: { scene: 1, match: true, confidence: 0.90, reason: 'Dobrze pasuje.' } },
+  { pexelsId: 302, selectionScore: 300, visual: { scene: 2, match: true, confidence: 0.80, reason: 'Pasuje.' } }
 ]);
-assert.equal(ranking?.pexelsId, 302, 'po przejściu bramki obraz dobiera najlepszy wynik łączony');
+assert.equal(ranking?.pexelsId, 301, 'wyższa pewność dopasowania obrazu musi przeważyć nad przewagą tekstowego rankingu');
 console.log('Pexels candidate visual QA tests passed');

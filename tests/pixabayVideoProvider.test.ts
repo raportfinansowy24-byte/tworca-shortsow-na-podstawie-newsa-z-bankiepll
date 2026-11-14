@@ -87,6 +87,22 @@ assert.equal(mapPixabayVideoCandidates(payload, {
 }).length, 1, 'wyklucz użyty klip i zachowaj kolejny niezależny kandydat');
 assert.equal(mapPixabayVideoCandidates({ hits: [{ id: 0 }] }, { query: 'office' }).length, 0);
 
+const genericFinanceOnly = mapPixabayVideoCandidates({
+  hits: [{
+    id: 128,
+    pageURL: 'https://pixabay.com/videos/id-128/',
+    tags: 'financial market charts data screen',
+    duration: 14,
+    videos: { medium: { url: 'https://cdn.pixabay.com/video/generic-finance.mp4', width: 720, height: 1280, thumbnail: 'https://cdn.pixabay.com/video/generic-finance.jpg' } }
+  }]
+}, {
+  query: 'stock market chart dynamic financial data',
+  context: 'News about a Polish company and its factory expansion',
+  requireTopicMatch: true,
+  allowBroadSceneMatch: true
+});
+assert.equal(genericFinanceOnly.length, 0, 'odrzuć generyczne finanse, gdy nie zgadzają się konkretne pojęcia sceny');
+
 const technologyFallbackPayload = {
   hits: [{
     id: 126,
