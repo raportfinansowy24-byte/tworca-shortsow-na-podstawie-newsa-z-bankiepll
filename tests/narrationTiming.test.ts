@@ -52,7 +52,7 @@ const noEdit = await fitNarrationBeforeTts({
   baseSceneDurations: base,
   secondsPerSpeechUnit: 0.4,
   speed: 1,
-  targetDurationSeconds: 23,
+  targetDurationSeconds: 18,
   maxTotalDurationSeconds: 25,
   revise: async () => { throw new Error('nie powinno wywołać redakcji'); }
 });
@@ -69,7 +69,7 @@ const revised = await fitNarrationBeforeTts({
   baseSceneDurations: base,
   secondsPerSpeechUnit: 0.4,
   speed: 1,
-  targetDurationSeconds: 23,
+  targetDurationSeconds: 18,
   maxTotalDurationSeconds: 25,
   revise: async ({ sceneTexts, attemptNumber }) => {
     revisionCalls++;
@@ -93,7 +93,7 @@ await assert.rejects(() => fitNarrationBeforeTts({
   baseSceneDurations: base,
   secondsPerSpeechUnit: 0.4,
   speed: 1,
-  targetDurationSeconds: 23,
+  targetDurationSeconds: 18,
   maxTotalDurationSeconds: 25,
   revise: async ({ sceneTexts }) => {
     const candidate = [...sceneTexts];
@@ -108,7 +108,7 @@ await assert.rejects(() => fitNarrationBeforeTts({
   baseSceneDurations: base,
   secondsPerSpeechUnit: 0.6,
   speed: 1,
-  targetDurationSeconds: 23,
+  targetDurationSeconds: 18,
   maxTotalDurationSeconds: 25,
   revise: async () => {
     revisionAttemptsForHardFail++;
@@ -122,7 +122,7 @@ await assert.rejects(() => fitNarrationBeforeTts({
   baseSceneDurations: base,
   secondsPerSpeechUnit: 0.4,
   speed: 1,
-  targetDurationSeconds: 23,
+  targetDurationSeconds: 18,
   maxTotalDurationSeconds: 25,
   revise: async ({ sceneTexts }) => {
     const candidate = [...sceneTexts];
@@ -141,7 +141,7 @@ await assert.rejects(() => fitNarrationBeforeTts({
   baseSceneDurations: base,
   secondsPerSpeechUnit: 0.4,
   speed: 1,
-  targetDurationSeconds: 23,
+  targetDurationSeconds: 18,
   maxTotalDurationSeconds: 25,
   revise: async ({ sceneTexts }) => {
     const candidate = [...sceneTexts];
@@ -155,7 +155,7 @@ const inflectedWordNumber = await fitNarrationBeforeTts({
   baseSceneDurations: base,
   secondsPerSpeechUnit: 0.4,
   speed: 1,
-  targetDurationSeconds: 23,
+  targetDurationSeconds: 18,
   maxTotalDurationSeconds: 25,
   revise: async ({ sceneTexts }) => {
     const candidate = [...sceneTexts];
@@ -172,7 +172,7 @@ await assert.rejects(() => fitNarrationBeforeTts({
   baseSceneDurations: base,
   secondsPerSpeechUnit: 0.4,
   speed: 1,
-  targetDurationSeconds: 23,
+  targetDurationSeconds: 18,
   maxTotalDurationSeconds: 25,
   revise: async ({ sceneTexts }) => {
     const candidate = [...sceneTexts];
@@ -186,7 +186,7 @@ await assert.rejects(() => fitNarrationBeforeTts({
   baseSceneDurations: base,
   secondsPerSpeechUnit: 0.4,
   speed: 1,
-  targetDurationSeconds: 23,
+  targetDurationSeconds: 18,
   maxTotalDurationSeconds: 25,
   revise: async ({ sceneTexts }) => {
     const candidate = [...sceneTexts];
@@ -202,7 +202,7 @@ await assert.rejects(() => fitNarrationBeforeTts({
   baseSceneDurations: base,
   secondsPerSpeechUnit: 0.4,
   speed: 1,
-  targetDurationSeconds: 23,
+  targetDurationSeconds: 18,
   maxTotalDurationSeconds: 25,
   revise: async ({ sceneTexts }) => {
     const candidate = [...sceneTexts];
@@ -217,7 +217,7 @@ await assert.rejects(() => fitNarrationBeforeTts({
   baseSceneDurations: base,
   secondsPerSpeechUnit: 0.4,
   speed: 1,
-  targetDurationSeconds: 23,
+  targetDurationSeconds: 18,
   maxTotalDurationSeconds: 25,
   revise: async ({ sceneTexts }) => {
     const candidate = [...sceneTexts];
@@ -232,7 +232,7 @@ await assert.rejects(() => fitNarrationBeforeTts({
   baseSceneDurations: base,
   secondsPerSpeechUnit: 0.4,
   speed: 1,
-  targetDurationSeconds: 23,
+  targetDurationSeconds: 18,
   maxTotalDurationSeconds: 25,
   revise: async ({ sceneTexts }) => {
     const candidate = [...sceneTexts];
