@@ -29,6 +29,7 @@ export type NarrationFitResult = {
   totalEstimatedDurationSeconds: number;
   revisionAttempts: number;
   rejectedLongerRevisionAttempts: number;
+  rejectedNumericRevisionAttempts: number;
   reachedTargetDuration: boolean;
 };
 
@@ -278,6 +279,7 @@ export async function fitNarrationBeforeTts(input: {
   let currentTexts = [...sceneTexts];
   let revisionAttempts = 0;
   let rejectedLongerRevisionAttempts = 0;
+  let rejectedNumericRevisionAttempts = 0;
 
   const calculate = () => {
     const estimatedNarrationDurations = currentTexts.map((text) =>
@@ -306,16 +308,24 @@ export async function fitNarrationBeforeTts(input: {
     if (revised.length !== currentTexts.length) {
       throw new Error('Korekta narracji zwróciła nieprawidłową liczbę scen.');
     }
-    const candidateTexts = revised.map((text, index) => {
+    const candidateTexts: string[] = [];
+    let changedNumericSceneIndex = -1;
+    for (let index = 0; index < revised.length; index++) {
+      const text = revised[index];
       if (typeof text !== 'string' || !text.trim()) throw new Error(`Korekta narracji pozostawiła pustą scenę ${index + 1}.`);
       if (index === currentTexts.length - 1 && text.trim() !== currentTexts[index].trim()) {
         throw new Error('Korekta narracji nie może zmieniać końcowego CTA.');
       }
       if (!preservesNumericFacts(currentTexts[index], text)) {
-        throw new Error(`Korekta narracji zmieniła lub usunęła wartość liczbową w scenie ${index + 1}; zmiana została odrzucona.`);
+        changedNumericSceneIndex = index;
+        break;
       }
-      return text.trim();
-    });
+      candidateTexts.push(text.trim());
+    }
+    if (changedNumericSceneIndex >= 0) {
+      rejectedNumericRevisionAttempts++;
+      continue;
+    }
     const lengthenedSceneIndex = candidateTexts.findIndex((text, index) =>
       countNarrationSpeechUnits(text) > countNarrationSpeechUnits(currentTexts[index]) + 0.001
     );
@@ -340,6 +350,7 @@ export async function fitNarrationBeforeTts(input: {
     ...estimate,
     revisionAttempts,
     rejectedLongerRevisionAttempts,
+    rejectedNumericRevisionAttempts,
     reachedTargetDuration: estimate.totalEstimatedDurationSeconds <= targetDurationSeconds + 0.001
   };
 }

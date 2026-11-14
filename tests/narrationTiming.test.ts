@@ -109,22 +109,71 @@ assert.equal(sceneSevenFit.rejectedLongerRevisionAttempts, 1);
 assert.equal(countNarrationSpeechUnits(sceneSevenFit.sceneTexts[6]) < countNarrationSpeechUnits(longSceneSevenTexts[6]), true);
 assert.ok(sceneSevenFit.totalEstimatedDurationSeconds <= 25, 'the safe hard limit still applies after a later valid rewrite');
 
-await assert.rejects(() => fitNarrationBeforeTts({
-  sceneTexts: [
-    Array.from({ length: 30 }, () => 'konkret').join(' ') + ' Wartość wyniosła 5,2%.',
-    ...shortTexts.slice(1)
-  ],
+async function assertNumericRewriteIsRejected(originalText: string, revisedText: string, label: string): Promise<void> {
+  let calls = 0;
+  const sceneTexts = [originalText, ...shortTexts.slice(1)];
+  const result = await fitNarrationBeforeTts({
+    sceneTexts,
+    baseSceneDurations: base,
+    secondsPerSpeechUnit: 0.4,
+    speed: 1,
+    targetDurationSeconds: 18,
+    maxTotalDurationSeconds: 25,
+    maxRevisionAttempts: 1,
+    revise: async ({ sceneTexts: current }) => {
+      calls++;
+      const candidate = [...current];
+      candidate[0] = revisedText;
+      return candidate;
+    }
+  });
+  assert.equal(calls, 1, `${label}: numeric rewrite was checked`);
+  assert.equal(result.rejectedNumericRevisionAttempts, 1, `${label}: unsafe candidate was counted as rejected`);
+  assert.equal(result.sceneTexts[0], originalText, `${label}: last verified narration was preserved`);
+  assert.ok(result.totalEstimatedDurationSeconds <= 25, `${label}: the existing narration remains below the hard limit`);
+}
+
+const longNumericOriginal = Array.from({ length: 18 }, () => 'konkret').join(' ') + ' Wartość wyniosła 5,2%.';
+let numericRetryCalls = 0;
+const numericRetryFit = await fitNarrationBeforeTts({
+  sceneTexts: [longNumericOriginal, ...shortTexts.slice(1)],
   baseSceneDurations: base,
   secondsPerSpeechUnit: 0.4,
   speed: 1,
   targetDurationSeconds: 18,
   maxTotalDurationSeconds: 25,
-  revise: async ({ sceneTexts }) => {
+  maxRevisionAttempts: 2,
+  revise: async ({ sceneTexts, attemptNumber }) => {
+    numericRetryCalls++;
     const candidate = [...sceneTexts];
-    candidate[0] = 'Konkretna zmiana bez liczby.';
+    candidate[0] = attemptNumber === 1 ? 'Wartość wyniosła 7,2%.' : 'Wartość wyniosła 5,2%.';
     return candidate;
   }
-}), /zmieniła lub usunęła wartość liczbową/);
+});
+assert.equal(numericRetryCalls, 2, 'after a fact-changing edit is rejected, the remaining correction attempt is used');
+assert.equal(numericRetryFit.revisionAttempts, 2);
+assert.equal(numericRetryFit.rejectedNumericRevisionAttempts, 1);
+assert.equal(numericRetryFit.sceneTexts[0], 'Wartość wyniosła 5,2%.', 'the valid shorter rewrite keeps the original numeric fact');
+assert.ok(numericRetryFit.totalEstimatedDurationSeconds <= 25);
+
+const longNumericOverLimit = Array.from({ length: 30 }, () => 'konkret').join(' ') + ' Wartość wyniosła 5,2%.';
+let invalidNumericHardCapCalls = 0;
+await assert.rejects(() => fitNarrationBeforeTts({
+  sceneTexts: [longNumericOverLimit, ...shortTexts.slice(1)],
+  baseSceneDurations: base,
+  secondsPerSpeechUnit: 0.4,
+  speed: 1,
+  targetDurationSeconds: 18,
+  maxTotalDurationSeconds: 25,
+  maxRevisionAttempts: 2,
+  revise: async ({ sceneTexts }) => {
+    invalidNumericHardCapCalls++;
+    const candidate = [...sceneTexts];
+    candidate[0] = Array.from({ length: 12 }, () => 'konkret').join(' ') + ' Wartość wyniosła 7,2%.';
+    return candidate;
+  }
+}), /TTS nie został uruchomiony/);
+assert.equal(invalidNumericHardCapCalls, 2, 'fact-changing rewrites are rejected, but an overlong verified original still hits the 25-second hard cap');
 
 let revisionAttemptsForHardFail = 0;
 await assert.rejects(() => fitNarrationBeforeTts({
@@ -155,25 +204,14 @@ await assert.rejects(() => fitNarrationBeforeTts({
   }
 }), /nie może zmieniać końcowego CTA/);
 
+const modestNumberText = (claim: string) => Array.from({ length: 12 }, () => 'konkret').join(' ') + ' ' + claim;
+await assertNumericRewriteIsRejected(modestNumberText('Wartość wyniosła 5,2%.'), 'Konkretna zmiana bez liczby.', 'usunięcie liczby');
 
 const wordNumberLongTexts = [
-  Array.from({ length: 30 }, () => 'konkret').join(' ') + ' Wartość wyniosła pięć procent.',
+  modestNumberText('Wartość wyniosła pięć procent.'),
   ...shortTexts.slice(1)
 ];
-await assert.rejects(() => fitNarrationBeforeTts({
-  sceneTexts: wordNumberLongTexts,
-  baseSceneDurations: base,
-  secondsPerSpeechUnit: 0.4,
-  speed: 1,
-  targetDurationSeconds: 18,
-  maxTotalDurationSeconds: 25,
-  revise: async ({ sceneTexts }) => {
-    const candidate = [...sceneTexts];
-    candidate[0] = Array.from({ length: 12 }, () => 'konkret').join(' ') + ' Wartość wyniosła siedem procent.';
-    return candidate;
-  }
-}), /zmieniła lub usunęła wartość liczbową/);
-
+await assertNumericRewriteIsRejected(wordNumberLongTexts[0], Array.from({ length: 8 }, () => 'konkret').join(' ') + ' Wartość wyniosła siedem procent.', 'zmiana liczby zapisanej słownie');
 const inflectedWordNumber = await fitNarrationBeforeTts({
   sceneTexts: wordNumberLongTexts,
   baseSceneDurations: base,
@@ -183,86 +221,24 @@ const inflectedWordNumber = await fitNarrationBeforeTts({
   maxTotalDurationSeconds: 25,
   revise: async ({ sceneTexts }) => {
     const candidate = [...sceneTexts];
-    candidate[0] = Array.from({ length: 12 }, () => 'konkret').join(' ') + ' Wartość wyniosła pięciu procent.';
+    candidate[0] = Array.from({ length: 8 }, () => 'konkret').join(' ') + ' Wartość wyniosła pięciu procent.';
     return candidate;
   }
 });
 assert.match(inflectedWordNumber.sceneTexts[0], /pięciu procent/, 'odmiana gramatyczna tej samej liczby pozostaje dozwolona');
+assert.equal(inflectedWordNumber.rejectedNumericRevisionAttempts, 0);
 
+const digitFactsLongText = modestNumberText('Wynik: 5% wzrostu, 2% spadku.');
+await assertNumericRewriteIsRejected(digitFactsLongText, Array.from({ length: 8 }, () => 'konkret').join(' ') + ' Wynik: 2% wzrostu, 5% spadku.', 'zamiana kolejności liczb');
+await assertNumericRewriteIsRejected(digitFactsLongText, Array.from({ length: 8 }, () => 'konkret').join(' ') + ' Wynik: 5% wzrostu, 2% spadku w 2027 roku.', 'dodanie liczby');
 
-const digitFactsLongText = Array.from({ length: 30 }, () => 'konkret').join(' ') + ' Wynik: 5% wzrostu, 2% spadku.';
-await assert.rejects(() => fitNarrationBeforeTts({
-  sceneTexts: [digitFactsLongText, ...shortTexts.slice(1)],
-  baseSceneDurations: base,
-  secondsPerSpeechUnit: 0.4,
-  speed: 1,
-  targetDurationSeconds: 18,
-  maxTotalDurationSeconds: 25,
-  revise: async ({ sceneTexts }) => {
-    const candidate = [...sceneTexts];
-    candidate[0] = Array.from({ length: 12 }, () => 'konkret').join(' ') + ' Wynik: 2% wzrostu, 5% spadku.';
-    return candidate;
-  }
-}), /zmieniła lub usunęła wartość liczbową/);
+const signedUnitLongText = modestNumberText('Zmiana wyniosła -5%.');
+await assertNumericRewriteIsRejected(signedUnitLongText, Array.from({ length: 8 }, () => 'konkret').join(' ') + ' Zmiana wyniosła 5%.', 'zmiana znaku wartości');
 
-await assert.rejects(() => fitNarrationBeforeTts({
-  sceneTexts: [digitFactsLongText, ...shortTexts.slice(1)],
-  baseSceneDurations: base,
-  secondsPerSpeechUnit: 0.4,
-  speed: 1,
-  targetDurationSeconds: 18,
-  maxTotalDurationSeconds: 25,
-  revise: async ({ sceneTexts }) => {
-    const candidate = [...sceneTexts];
-    candidate[0] = Array.from({ length: 12 }, () => 'konkret').join(' ') + ' Wynik: 5% wzrostu, 2% spadku w 2027 roku.';
-    return candidate;
-  }
-}), /zmieniła lub usunęła wartość liczbową/);
+const changedUnitLongText = modestNumberText('Zmiana wyniosła 5%.');
+await assertNumericRewriteIsRejected(changedUnitLongText, Array.from({ length: 8 }, () => 'konkret').join(' ') + ' Zmiana wyniosła 5 zł.', 'zmiana jednostki');
 
-
-const signedUnitLongText = Array.from({ length: 30 }, () => 'konkret').join(' ') + ' Zmiana wyniosła -5%.';
-await assert.rejects(() => fitNarrationBeforeTts({
-  sceneTexts: [signedUnitLongText, ...shortTexts.slice(1)],
-  baseSceneDurations: base,
-  secondsPerSpeechUnit: 0.4,
-  speed: 1,
-  targetDurationSeconds: 18,
-  maxTotalDurationSeconds: 25,
-  revise: async ({ sceneTexts }) => {
-    const candidate = [...sceneTexts];
-    candidate[0] = Array.from({ length: 12 }, () => 'konkret').join(' ') + ' Zmiana wyniosła 5%.';
-    return candidate;
-  }
-}), /zmieniła lub usunęła wartość liczbową/);
-
-const changedUnitLongText = Array.from({ length: 30 }, () => 'konkret').join(' ') + ' Zmiana wyniosła 5%.';
-await assert.rejects(() => fitNarrationBeforeTts({
-  sceneTexts: [changedUnitLongText, ...shortTexts.slice(1)],
-  baseSceneDurations: base,
-  secondsPerSpeechUnit: 0.4,
-  speed: 1,
-  targetDurationSeconds: 18,
-  maxTotalDurationSeconds: 25,
-  revise: async ({ sceneTexts }) => {
-    const candidate = [...sceneTexts];
-    candidate[0] = Array.from({ length: 12 }, () => 'konkret').join(' ') + ' Zmiana wyniosła 5 zł.';
-    return candidate;
-  }
-}), /zmieniła lub usunęła wartość liczbową/);
-
-const ordinalYearLongText = Array.from({ length: 30 }, () => 'konkret').join(' ') + ' Zmiana nastąpiła w dwa tysiące dwudziestym siódmym roku.';
-await assert.rejects(() => fitNarrationBeforeTts({
-  sceneTexts: [ordinalYearLongText, ...shortTexts.slice(1)],
-  baseSceneDurations: base,
-  secondsPerSpeechUnit: 0.4,
-  speed: 1,
-  targetDurationSeconds: 18,
-  maxTotalDurationSeconds: 25,
-  revise: async ({ sceneTexts }) => {
-    const candidate = [...sceneTexts];
-    candidate[0] = Array.from({ length: 12 }, () => 'konkret').join(' ') + ' Zmiana nastąpiła w dwa tysiące dwudziestym ósmym roku.';
-    return candidate;
-  }
-}), /zmieniła lub usunęła wartość liczbową/);
+const ordinalYearLongText = modestNumberText('Zmiana nastąpiła w dwa tysiące dwudziestym siódmym roku.');
+await assertNumericRewriteIsRejected(ordinalYearLongText, Array.from({ length: 8 }, () => 'konkret').join(' ') + ' Zmiana nastąpiła w dwa tysiące dwudziestym ósmym roku.', 'zmiana roku zapisanego słownie');
 
 console.log('Narration timing tests passed');

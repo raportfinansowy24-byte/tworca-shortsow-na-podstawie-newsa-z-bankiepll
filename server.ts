@@ -2806,13 +2806,13 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"króts
           scenes[index].subtitles = sceneSpeechTexts[index];
         }
       }
-      console.info(`[Narration preflight] estimate=${fit.totalEstimatedDurationSeconds.toFixed(2)}s; target=${TARGET_SHORT_DURATION_SECONDS}s; hardCap=${MAX_SHORT_DURATION_SECONDS}s; revisions=${fit.revisionAttempts}/2; rejectedLongerEdits=${fit.rejectedLongerRevisionAttempts}; calibration=${calibratedSecondsPerUnit.toFixed(3)}s/unit; profileSamples=${calibrationStore.profiles[calibrationProfileKey]?.length || 0}.`);
+      console.info(`[Narration preflight] estimate=${fit.totalEstimatedDurationSeconds.toFixed(2)}s; target=${TARGET_SHORT_DURATION_SECONDS}s; hardCap=${MAX_SHORT_DURATION_SECONDS}s; revisions=${fit.revisionAttempts}/2; rejectedLongerEdits=${fit.rejectedLongerRevisionAttempts}; rejectedNumericEdits=${fit.rejectedNumericRevisionAttempts}; calibration=${calibratedSecondsPerUnit.toFixed(3)}s/unit; profileSamples=${calibrationStore.profiles[calibrationProfileKey]?.length || 0}.`);
       updateJobProgress(
         jobId,
         { step: 'Estymacja narracji przed TTS', progress: 11 },
         fit.reachedTargetDuration
-          ? `Szacowana narracja: ${fit.totalEstimatedDurationSeconds.toFixed(2)} s. CTA zachowane; korekty tekstu: ${fit.revisionAttempts}/2, odrzucone dłuższe: ${fit.rejectedLongerRevisionAttempts}. Dopiero teraz rozpocznie się TTS.`
-          : `Szacowana narracja: ${fit.totalEstimatedDurationSeconds.toFixed(2)} s. Używam awaryjnego zapasu do ${MAX_SHORT_DURATION_SECONDS} s po ${fit.revisionAttempts}/2 korektach; odrzucone dłuższe: ${fit.rejectedLongerRevisionAttempts}. Dopiero teraz rozpocznie się TTS.`
+          ? `Szacowana narracja: ${fit.totalEstimatedDurationSeconds.toFixed(2)} s. CTA zachowane; korekty tekstu: ${fit.revisionAttempts}/2, odrzucone dłuższe: ${fit.rejectedLongerRevisionAttempts}, odrzucone zmieniające liczby: ${fit.rejectedNumericRevisionAttempts}. Dopiero teraz rozpocznie się TTS.`
+          : `Szacowana narracja: ${fit.totalEstimatedDurationSeconds.toFixed(2)} s. Używam awaryjnego zapasu do ${MAX_SHORT_DURATION_SECONDS} s po ${fit.revisionAttempts}/2 korektach; odrzucone dłuższe: ${fit.rejectedLongerRevisionAttempts}, odrzucone zmieniające liczby: ${fit.rejectedNumericRevisionAttempts}. Dopiero teraz rozpocznie się TTS.`
       );
     }
 
