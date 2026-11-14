@@ -43,6 +43,8 @@ jobs:
         run: npm run test:render-optimizations
       - name: Dynamic highlight board tests
         run: npm run test:highlight-boards
+      - name: Autopilot retry queue and bounded QA repair tests
+        run: npm run test:autopilot-retry
       - name: Telegram approval and revision tests
         run: npm run test:telegram-review
       - name: Telegram chat command tests

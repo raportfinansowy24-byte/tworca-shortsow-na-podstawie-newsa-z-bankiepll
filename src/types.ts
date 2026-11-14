@@ -401,6 +401,23 @@ export interface ProfitMonitorState {
   logs: VideoProfitLog[];
 }
 
+export interface AutopilotRetryItem {
+  article: {
+    title: string;
+    link: string;
+    description?: string;
+    summary?: string;
+    category?: string;
+  };
+  failedAttempts: number;
+  status: 'pending' | 'exhausted';
+  lastError: string;
+  firstFailedAt: string;
+  lastFailedAt: string;
+  lastFailedJobId?: string;
+  retryPayloadJobId?: string;
+}
+
 export interface AutopilotSchedulerState {
   enabled: boolean;
   timeZone?: string;
@@ -419,6 +436,7 @@ export interface AutopilotSchedulerState {
   runsCount: number;
   history: AutopilotRunRecord[];
   processedUrls: string[];
+  retryQueue?: AutopilotRetryItem[];
   nextRun?: {
     time: string;
     slot: string;

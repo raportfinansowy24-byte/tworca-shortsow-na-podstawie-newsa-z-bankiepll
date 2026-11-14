@@ -292,18 +292,39 @@ export function evaluateShortStoryboard(rawScenes: unknown, options: ShortsEdito
   };
 }
 
-export function buildShortsEditorQaRevisionInstruction(report: ShortsEditorQaReport): string {
-  const issues = report.findings.slice(0, 12).map((finding) => `- ${finding.message}`);
+export function buildShortsEditorQaRevisionInstruction(
+  report: ShortsEditorQaReport,
+  attemptNumber = 1,
+  maxAttempts = 3,
+  previousError?: string
+): string {
+  const issues = report.findings.slice(0, 12).map((finding) => '- ' + finding.message);
+  const repeatedVisualScenes = [...new Set(
+    report.findings
+      .filter((finding) => finding.code === 'repeated_visual_query' && Number.isInteger(finding.scene))
+      .map((finding) => finding.scene as number)
+  )];
+  const visualUniquenessRules = repeatedVisualScenes.length > 0
+    ? [
+        'KRYTYCZNA NAPRAWA POWTÓRZONYCH UJĘĆ: zmień searchKeyword wyłącznie w scenach ' + repeatedVisualScenes.join(', ') + ' oraz w każdej innej scenie zgłoszonej jako powtórzona.',
+        'Każde searchKeyword musi opisywać inny, konkretny i widoczny obiekt lub czynność zgodną z narracją tej sceny.',
+        'Nie twórz pozornej unikalności przez dopisanie numeru sceny, słowa „cinematic”, „close-up”, „vertical” lub samej zmiany szyku wyrazów. Zmień rzeczywisty motyw ujęcia.',
+        'Sprawdź wszystkie 8 zapytań jednocześnie: żadne dwa nie mogą być identyczne ani opisywać tego samego ujęcia innymi słowami.'
+      ]
+    : [];
+
   return [
-    'SHORTS EDITOR QA — JEDNA OGRANICZONA POPRAWKA PLANU PRZED RENDEREM',
+    'SHORTS EDITOR QA — POPRAWKA PLANU ' + attemptNumber + '/' + maxAttempts,
     'Zachowaj ten sam artykuł i wyłącznie potwierdzone fakty. Nie twórz nowego tematu ani nie wymyślaj liczb.',
     'Zwróć dokładnie 8 scen na około 23 sekundy (maksymalnie 28 sekund). Pierwsze ujęcie ma zatrzymać uwagę od razu; ostatnie ma zawierać zatwierdzone CTA.',
-    'Każda scena ma mieć krótką narrację, identyczną treść napisów i konkretne, unikalne zapytanie wizualne odnoszące się do tej kwestii.',
+    'Każda scena ma mieć krótką narrację, identyczną treść napisów i konkretne zapytanie wizualne odnoszące się do tej kwestii.',
     'Każda scena faktograficzna musi zawierać sourceEvidence: krótki, dosłowny cytat z przekazanego artykułu. Cytat musi zawierać wykorzystane liczby i nie może być parafrazowany ani wymyślony.',
     'Usuń powtórzone zdania, ogólniki i niepotrzebne słowa. Nie czytaj URL-i lektorem. Nie zmieniaj polityki CTA.',
-    'Popraw tylko wykazane problemy:',
+    ...visualUniquenessRules,
+    'Popraw wykazane problemy:',
     ...(issues.length ? issues : ['- Podnieś jakość hooka, różnorodność ujęć i czytelność narracji.']),
-    'To ostatnia próba poprawienia scenariusza. Nie uruchamiaj dodatkowych renderów.'
+    ...(previousError ? ['Poprzednia próba poprawki zakończyła się błędem technicznym: ' + previousError.slice(0, 500) + '. Kontynuuj od zgłoszonych problemów; nie porzucaj artykułu.'] : []),
+    'Nie uruchamiaj dodatkowych renderów, syntez TTS ani publikacji. Zwróć poprawiony storyboard do ponownej walidacji.'
   ].join('\n');
 }
 

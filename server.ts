@@ -67,6 +67,7 @@ import { splitNarrationAlignmentByScenes } from './src/server/singleNarration';
 import { isTrustedStockPreviewUrl, selectVisuallyVerifiedPexelsCandidate } from './src/server/pexelsCandidateVisualQa';
 import { mapPixabayVideoCandidates } from './src/server/pixabayVideoProvider';
 import { buildPixabayFallbackQueries } from './src/server/pixabaySearchExpansion';
+import { getNextPendingAutopilotRetry, MAX_AUTOPILOT_RETRY_ATTEMPTS, MAX_STORYBOARD_QA_REPAIR_ATTEMPTS, recordAutopilotFailure, repairUntilPass, resolveAutopilotRetry, isCompatibleNarrationRetryCache, type AutopilotRetryEntry, type RetryableAutopilotArticle, type NarrationRetryCacheMetadata } from './src/server/autopilotRetry';
 import { GEMINI_FALLBACK_MODEL, isRetryableModelProviderError, OPENAI_PRIMARY_MODEL, requestOpenAiScript } from './src/server/modelRouting';
 
 const execPromise = promisify(exec);
@@ -2055,6 +2056,8 @@ interface CombineScenesPayload {
   qaRepairLog?: ReturnType<typeof selectQaRepairCandidates>;
   qaRepairDeadline?: number;
   qaRepairSceneDurations?: number[];
+  reuseNarrationCacheJobId?: string;
+  retrySourcePayloadJobId?: string;
   requireAllQaPass?: boolean;
   requireSourceEvidence?: boolean;
   sourceArticleText?: string;
@@ -2908,47 +2911,156 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"króts
     }
 
 
-    // Synthesize the complete short ONCE, then split this one continuous audio track
-    // by ElevenLabs character alignment. Scene files are PCM cuts of the same voice take.
+    // Synthesize the complete short ONCE, then split this one continuous audio track.
+    // A failed render retry must reuse the durable full-take cache instead of spending TTS credits again.
     let narrationSceneSegments: ReturnType<typeof splitNarrationAlignmentByScenes> = [];
     let wholeNarrationDuration = 0;
     if (ttsEnabled) {
       if (sceneSpeechTexts.some((text) => !text)) {
-        throw new Error(`Każda z ${scenes.length} scen musi zawierać tekst lektora.`);
+        throw new Error('Każda z ' + scenes.length + ' scen musi zawierać tekst lektora.');
       }
       const fullNarrationText = sceneSpeechTexts.join(' ').replace(/\s+/g, ' ').trim();
       const fullNarrationPath = path.join(jobTempDir, 'short_narration_full.mp3');
+      const localNarrationMetadataPath = path.join(jobTempDir, 'short_narration_full.json');
       const fullWordTimings: CaptionWordTiming[] = [];
+      const allowAutopilotRetryCache = ['scheduler', 'test-render'].includes(String(payload.source || '')) || Boolean(payload.reuseNarrationCacheJobId || payload.retrySourcePayloadJobId);
+      const narrationRetryCacheDir = path.join(EXPORTS_DIR, 'narration_retry_cache');
+      const cacheOwnerJobId = payload.reuseNarrationCacheJobId || jobId;
+      const safeCacheOwnerId = cacheOwnerJobId.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const durableNarrationPath = path.join(narrationRetryCacheDir, safeCacheOwnerId + '.mp3');
+      const durableNarrationMetadataPath = path.join(narrationRetryCacheDir, safeCacheOwnerId + '.json');
+      const expectedNarrationCache = {
+        text: fullNarrationText,
+        language: ttsLanguage,
+        voiceId: lockedTtsVoiceId,
+        speed: ttsSpeed
+      };
+      let narrationCacheSource: 'local' | 'durable' | 'elevenlabs' = 'elevenlabs';
+      let reusedNarrationCache: NarrationRetryCacheMetadata | null = null;
+
       updateJobProgress(
         jobId,
         { step: 'Jedna synteza ElevenLabs dla całego Shorta', progress: 12 },
-        `Generuję jeden ciągły lektor dla ${scenes.length} scen (${fullNarrationText.length} znaków); bez oddzielnych wywołań TTS na scenę.`
+        'Przygotowuję jeden ciągły lektor dla ' + scenes.length + ' scen (' + fullNarrationText.length + ' znaków). Sprawdzam zapisany lektor przed kolejną syntezą.'
       );
-      wholeNarrationDuration = await generateTtsAudio(
-        fullNarrationText,
-        ttsLanguage,
-        fullNarrationPath,
-        jobTempDir,
-        lockedTtsVoiceId,
-        ttsSpeed,
-        fullWordTimings,
-        abortController.signal
-      );
-      if (wholeNarrationDuration <= 0 || !fs.existsSync(fullNarrationPath)) {
-        throw new Error('ElevenLabs nie wygenerował kompletnego audio dla Shorta.');
-      }
-      // Persist the measured single-take duration immediately. Even if scene budgeting
-      // rejects this render afterwards, the paid TTS sample must calibrate the next job.
 
-      try {
-        await persistNarrationCalibration(calibrationPath, calibrationProfileKey, [{
-          text: fullNarrationText,
-          durationSeconds: wholeNarrationDuration,
-          speed: ttsSpeed
-        }]);
-        console.info(`[Narration calibration] Stored one full-short duration ${wholeNarrationDuration.toFixed(2)}s for profile ${calibrationProfileKey}.`);
-      } catch (error) {
-        console.warn(`[Narration calibration] Could not persist full-short measurement: ${(error as Error).message}`);
+      // Same-job post-render repair re-enters this function while the temporary directory survives.
+      if (fs.existsSync(fullNarrationPath) && fs.existsSync(localNarrationMetadataPath)) {
+        try {
+          const localMetadata = JSON.parse(await fs.promises.readFile(localNarrationMetadataPath, 'utf8'));
+          if (isCompatibleNarrationRetryCache(localMetadata, expectedNarrationCache)) {
+            reusedNarrationCache = localMetadata;
+            narrationCacheSource = 'local';
+            console.info('[Narration retry cache] Reusing same-job audio ' + jobId + '; no ElevenLabs request.');
+          }
+        } catch (error) {
+          console.warn('[Narration retry cache] Local metadata is unreadable; checking durable cache: ' + (error as Error).message);
+        }
+      }
+
+      // Cross-job retry after a failed render uses the previous job's durable audio and timing metadata.
+      if (allowAutopilotRetryCache && !reusedNarrationCache && payload.reuseNarrationCacheJobId && fs.existsSync(durableNarrationPath) && fs.existsSync(durableNarrationMetadataPath)) {
+        try {
+          const durableMetadata = JSON.parse(await fs.promises.readFile(durableNarrationMetadataPath, 'utf8'));
+          if (isCompatibleNarrationRetryCache(durableMetadata, expectedNarrationCache)) {
+            await fs.promises.copyFile(durableNarrationPath, fullNarrationPath);
+            reusedNarrationCache = durableMetadata;
+            narrationCacheSource = 'durable';
+            console.info('[Narration retry cache] Reused persisted ElevenLabs audio from job ' + payload.reuseNarrationCacheJobId + '; no additional TTS credit used.');
+          } else {
+            console.warn('[Narration retry cache] Cached take does not match retry text/voice/language/speed; a new single TTS take is required.');
+          }
+        } catch (error) {
+          console.warn('[Narration retry cache] Durable cache is unreadable: ' + (error as Error).message);
+        }
+      }
+
+      if (reusedNarrationCache) {
+        wholeNarrationDuration = Number(reusedNarrationCache.durationSeconds);
+        fullWordTimings.push(...reusedNarrationCache.wordTimings);
+      } else {
+        wholeNarrationDuration = await generateTtsAudio(
+          fullNarrationText,
+          ttsLanguage,
+          fullNarrationPath,
+          jobTempDir,
+          lockedTtsVoiceId,
+          ttsSpeed,
+          fullWordTimings,
+          abortController.signal
+        );
+        if (wholeNarrationDuration <= 0 || !fs.existsSync(fullNarrationPath)) {
+          throw new Error('ElevenLabs nie wygenerował kompletnego audio dla Shorta.');
+        }
+      }
+
+      if (wholeNarrationDuration <= 0 || !fs.existsSync(fullNarrationPath)) {
+        throw new Error('Nie udało się odtworzyć kompletnego audio jednego lektora dla Shorta.');
+      }
+      const expectedNarrationWords = fullNarrationText.trim().split(/\s+/u).filter(Boolean);
+      const normalizedWord = (word: string) => String(word || '').toLocaleLowerCase('pl-PL')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^\p{L}\p{N}]/gu, '');
+      const exactNarrationAlignment = fullWordTimings.length === expectedNarrationWords.length &&
+        fullWordTimings.every((timing, index) => normalizedWord(timing.word) === normalizedWord(expectedNarrationWords[index]));
+      if (!exactNarrationAlignment) {
+        const estimatedTimings = generateEstimatedWordTimings(fullNarrationText, wholeNarrationDuration);
+        fullWordTimings.splice(0, fullWordTimings.length, ...estimatedTimings);
+        console.warn('[Narration] Alignment ElevenLabs nie był kompletny; użyto wyliczonych timingów słów bez ponownej syntezy.');
+      }
+      if (fullWordTimings.length === 0) {
+        throw new Error('Nie udało się przygotować znaczników czasu dla jednego lektora.');
+      }
+
+      const narrationCacheMetadata: NarrationRetryCacheMetadata = {
+        text: fullNarrationText,
+        durationSeconds: wholeNarrationDuration,
+        language: ttsLanguage,
+        voiceId: lockedTtsVoiceId,
+        speed: ttsSpeed,
+        wordTimings: fullWordTimings.map((timing) => ({
+          word: String(timing.word),
+          start: Number(timing.start),
+          end: Number(timing.end)
+        }))
+      };
+      if (!isCompatibleNarrationRetryCache(narrationCacheMetadata, expectedNarrationCache)) {
+        throw new Error('Timing lub metadane lektora nie przeszły kontroli zgodności cache.');
+      }
+
+      // Persist locally for same-job QA rerenders.
+      await fs.promises.writeFile(localNarrationMetadataPath, JSON.stringify(narrationCacheMetadata), { encoding: 'utf8', mode: 0o600 });
+
+      // Persist on the mounted Fly volume for a later manual or scheduled retry.
+      if (allowAutopilotRetryCache) {
+        try {
+          await fs.promises.mkdir(narrationRetryCacheDir, { recursive: true });
+          const temporaryAudioPath = durableNarrationPath + '.' + process.pid + '.tmp';
+          const temporaryMetadataPath = durableNarrationMetadataPath + '.' + process.pid + '.tmp';
+          await fs.promises.copyFile(fullNarrationPath, temporaryAudioPath);
+          await fs.promises.writeFile(temporaryMetadataPath, JSON.stringify(narrationCacheMetadata), { encoding: 'utf8', mode: 0o600 });
+          await fs.promises.rename(temporaryAudioPath, durableNarrationPath);
+          await fs.promises.rename(temporaryMetadataPath, durableNarrationMetadataPath);
+          console.info('[Narration retry cache] Durable single-take audio saved for cache owner ' + cacheOwnerJobId + '.');
+        } catch (error) {
+          console.warn('[Narration retry cache] Could not persist retry audio on the mounted volume: ' + (error as Error).message);
+        }
+      }
+
+      if (narrationCacheSource === 'elevenlabs') {
+        try {
+          await persistNarrationCalibration(calibrationPath, calibrationProfileKey, [{
+            text: fullNarrationText,
+            durationSeconds: wholeNarrationDuration,
+            speed: ttsSpeed
+          }]);
+          console.info('[Narration calibration] Stored one full-short duration ' + wholeNarrationDuration.toFixed(2) + 's for profile ' + calibrationProfileKey + '.');
+        } catch (error) {
+          console.warn('[Narration calibration] Could not persist full-short measurement: ' + (error as Error).message);
+        }
+      } else {
+        console.info('[Narration retry cache] Reused existing TTS timing; no duplicate calibration sample recorded.');
       }
 
       narrationSceneSegments = splitNarrationAlignmentByScenes(sceneSpeechTexts, fullWordTimings, wholeNarrationDuration);
@@ -2964,7 +3076,7 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"króts
       for (let index = 0; index < scenes.length; index++) {
         if (abortController.signal.aborted) throw new Error('Zadanie zostało anulowane przez użytkownika.');
         const segment = narrationSceneSegments[index];
-        const sceneAudioPath = path.join(jobTempDir, `scene_tts_${index + 1}.wav`);
+        const sceneAudioPath = path.join(jobTempDir, 'scene_tts_' + (index + 1) + '.wav');
         const sceneOutputDuration = plannedSceneDurations[index];
         await extractNarrationSceneAudio(
           fullNarrationPath,
@@ -2981,10 +3093,9 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"króts
         updateJobProgress(
           jobId,
           { progress: 12 + Math.floor(((index + 1) / scenes.length) * 3) },
-          `Podzielono jedną ścieżkę lektora na scenę ${index + 1}/${scenes.length}; bez ponownej syntezy.`
+          'Podzielono jedną ścieżkę lektora na scenę ' + (index + 1) + '/' + scenes.length + '; bez ponownej syntezy.'
         );
       }
-
     }
 
     const plannedSceneDurations = ttsEnabled
@@ -3610,6 +3721,14 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"króts
       } catch (webhookErr) {
         console.warn('Webhook callback error:', (webhookErr as Error).message);
       }
+    }
+
+    if (['scheduler', 'test-render'].includes(String(payload.source || '')) || payload.retrySourcePayloadJobId || payload.reuseNarrationCacheJobId) {
+      await removeAutopilotRetryArtifacts([
+        jobId,
+        payload.retrySourcePayloadJobId,
+        payload.reuseNarrationCacheJobId
+      ]);
     }
   } catch (error) {
     const errorMsg = (error as Error).message || 'Unknown video processing error';
@@ -8148,6 +8267,7 @@ interface AutopilotSchedulerState {
   runsCount: number;
   history: AutopilotRunRecord[];
   processedUrls: string[];
+  retryQueue: AutopilotRetryEntry[];
 }
 
 const SCHEDULER_CONTROL_VERSION = 1;
@@ -8170,7 +8290,8 @@ const DEFAULT_SCHEDULER_STATE: AutopilotSchedulerState = {
   lastRunJobId: null,
   runsCount: 0,
   history: [],
-  processedUrls: []
+  processedUrls: [],
+  retryQueue: []
 };
 
 let schedulerState: AutopilotSchedulerState = { ...DEFAULT_SCHEDULER_STATE };
@@ -8187,6 +8308,7 @@ function loadSchedulerStateFromDisk() {
         // Old persisted `enabled: true` values must not start a schedule during this migration.
         schedulerControlVersion: SCHEDULER_CONTROL_VERSION,
         enabled: hasCurrentToggleVersion && parsed.enabled === true,
+        retryQueue: Array.isArray(parsed.retryQueue) ? parsed.retryQueue : [],
         lastRunStatus: parsed.lastRunStatus === 'running' ? 'idle' : (parsed.lastRunStatus || 'idle')
       };
       if (!hasCurrentToggleVersion) saveSchedulerStateToDisk();
@@ -8206,6 +8328,107 @@ function saveSchedulerStateToDisk() {
   } catch (err) {
     console.warn('Nie można zapisać stanu harmonogramu na dysk:', (err as Error).message);
   }
+}
+
+interface AutopilotRetryPayloadSnapshot {
+  scriptData: any;
+  payload: CombineScenesPayload;
+}
+
+function getAutopilotRetryPayloadPath(jobId: string): string {
+  const safeId = String(jobId || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+  return path.join(EXPORTS_DIR, 'autopilot_retry_payloads', safeId + '.json');
+}
+
+async function persistAutopilotRetryPayload(
+  jobId: string,
+  scriptData: any,
+  payload: CombineScenesPayload
+): Promise<void> {
+  const destination = getAutopilotRetryPayloadPath(jobId);
+  await fs.promises.mkdir(path.dirname(destination), { recursive: true });
+  const temporary = destination + '.' + process.pid + '.tmp';
+  await fs.promises.writeFile(temporary, JSON.stringify({ scriptData, payload }), { encoding: 'utf8', mode: 0o600 });
+  await fs.promises.rename(temporary, destination);
+}
+
+async function loadAutopilotRetryPayload(jobId: string): Promise<AutopilotRetryPayloadSnapshot | null> {
+  if (!jobId) return null;
+  try {
+    const parsed = JSON.parse(await fs.promises.readFile(getAutopilotRetryPayloadPath(jobId), 'utf8')) as AutopilotRetryPayloadSnapshot;
+    if (!Array.isArray(parsed?.scriptData?.scenes) || !Array.isArray(parsed?.payload?.scenes)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+async function removeAutopilotRetryArtifacts(jobIds: Array<string | undefined>): Promise<void> {
+  const uniqueIds = [...new Set(jobIds.map((value) => String(value || '').trim()).filter(Boolean))];
+  await Promise.all(uniqueIds.map(async (jobId) => {
+    const safeId = jobId.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const cacheDir = path.join(EXPORTS_DIR, 'narration_retry_cache');
+    await Promise.all([
+      fs.promises.unlink(path.join(cacheDir, safeId + '.mp3')).catch(() => undefined),
+      fs.promises.unlink(path.join(cacheDir, safeId + '.json')).catch(() => undefined),
+      fs.promises.unlink(getAutopilotRetryPayloadPath(jobId)).catch(() => undefined)
+    ]);
+  }));
+}
+
+function queueFailedAutopilotArticle(
+  article: any,
+  error: string,
+  jobId?: string
+): void {
+  if (!article || typeof article !== 'object') return;
+  const retryArticle: RetryableAutopilotArticle = {
+    title: String(article.title || 'Nieudany short').slice(0, 500),
+    link: String(article.link || article.url || '').trim(),
+    description: String(article.description || '').slice(0, 6000),
+    summary: String(article.summary || '').slice(0, 6000),
+    category: String(article.category || 'Wiadomości').slice(0, 200),
+    ...(article.pubDate ? { pubDate: String(article.pubDate) } : {}),
+    ...(article.imageUrl ? { imageUrl: String(article.imageUrl) } : {})
+  };
+  if (!retryArticle.link) {
+    console.warn('[Autopilot Retry] Nie dodaję do kolejki — artykuł nie ma stabilnego adresu URL.');
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const retryPayloadJobId = jobId && fs.existsSync(getAutopilotRetryPayloadPath(jobId)) ? jobId : undefined;
+  schedulerState.retryQueue = recordAutopilotFailure(
+    schedulerState.retryQueue || [],
+    retryArticle,
+    error,
+    retryPayloadJobId,
+    now,
+    MAX_AUTOPILOT_RETRY_ATTEMPTS
+  );
+  const entry = schedulerState.retryQueue.find((item) => item.article.link === retryArticle.link);
+  schedulerState.lastRunTime = now;
+  schedulerState.lastRunArticle = {
+    title: retryArticle.title,
+    link: retryArticle.link,
+    category: retryArticle.category
+  };
+  schedulerState.lastRunStatus = 'failed';
+  if (entry?.status === 'exhausted') {
+    schedulerState.processedUrls = [retryArticle.link, ...schedulerState.processedUrls.filter((url) => url !== retryArticle.link)].slice(0, 200);
+    console.warn('[Autopilot Retry] Wyczerpano ' + MAX_AUTOPILOT_RETRY_ATTEMPTS + ' dodatkowe próby dla: ' + retryArticle.title);
+  } else {
+    console.warn('[Autopilot Retry] Zachowano nieudany artykuł do ponowienia (' + (entry?.failedAttempts || 1) + '/' + (MAX_AUTOPILOT_RETRY_ATTEMPTS + 1) + '): ' + retryArticle.title);
+  }
+  saveSchedulerStateToDisk();
+}
+
+function markAutopilotArticleCompleted(articleLink: string): void {
+  const link = String(articleLink || '').trim();
+  if (!link) return;
+  schedulerState.retryQueue = resolveAutopilotRetry(schedulerState.retryQueue || [], link);
+  schedulerState.processedUrls = [link, ...schedulerState.processedUrls.filter((url) => url !== link)].slice(0, 200);
+  saveSchedulerStateToDisk();
 }
 
 function getNextScheduledRun(dailySlots: string[]) {
@@ -8256,24 +8479,34 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
 
   schedulerState.lastRunStatus = 'running';
   saveSchedulerStateToDisk();
+  let selectedCandidate: any = null;
+  let selectedJobId: string | undefined;
+  let selectedRetryEntry: AutopilotRetryEntry | null = null;
 
   try {
     console.log(`[Autopilot 4x/dobę] Uruchamianie autonomicznego startu (Slot: ${slotTrigger})...`);
 
-    // 1. Pobierz najświeższe wiadomości z Bankier.pl
-    const articles = await fetchBankierArticlesInternal(schedulerState.category || 'wiadomosci', true);
-    if (!articles || articles.length === 0) {
-      throw new Error('Brak artykułów z portalu Bankier.pl do przetworzenia.');
+    // 1. Retry queue ma priorytet nad nowymi newsami, aby nie gubić nieudanych shortów.
+    selectedRetryEntry = slotTrigger === 'test-render' ? null : getNextPendingAutopilotRetry(schedulerState.retryQueue || []);
+    let candidate: any;
+    let viralityScore: ViralityScore;
+    let selectionSource: string;
+    if (selectedRetryEntry) {
+      candidate = selectedRetryEntry.article;
+      viralityScore = calculateViralityScore(candidate.title, candidate.description || candidate.summary || '', candidate.category || 'Wiadomości');
+      selectionSource = 'retry_queue';
+      console.info('[Autopilot Retry] Wznawiam artykuł: ' + candidate.title + ' (' + selectedRetryEntry.failedAttempts + '/' + (MAX_AUTOPILOT_RETRY_ATTEMPTS + 1) + ' nieudanych przebiegów).');
+    } else {
+      const articles = await fetchBankierArticlesInternal(schedulerState.category || 'wiadomosci', true);
+      if (!articles || articles.length === 0) {
+        throw new Error('Brak artykułów z portalu Bankier.pl do przetworzenia.');
+      }
+      const selection = await selectMostViralBankierArticle(articles);
+      candidate = selection.selectedArticle;
+      viralityScore = selection.viralityScore;
+      selectionSource = selection.selectionSource;
     }
-
-    // 2. Autonomiczna selekcja newsa przez wspólny OpenAI-first/Gemini-fallback model router
-    // (Priorytet: maksymalna konwersja do kredytów i kont bankowych, cel 10 000 €/mc)
-    const selection = await selectMostViralBankierArticle(articles);
-    const candidate = selection.selectedArticle;
-    const viralityScore = selection.viralityScore;
-
-    // Oznacz link jako przetworzony
-    schedulerState.processedUrls = [candidate.link, ...schedulerState.processedUrls.filter(u => u !== candidate.link)].slice(0, 200);
+    selectedCandidate = candidate;
     cachedCandidateDecision = null;
 
     const articleContext = `Tytuł artykułu z Bankier.pl: "${candidate.title}"\nPodsumowanie i treść: ${candidate.description}\nKategoria: ${candidate.category}`;
@@ -8287,7 +8520,68 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
       articleContext,
       bankierArticle: candidate
     };
-    let scriptData = await generateSmartOrGeminiViralScript(scriptRequest);
+    let retrySnapshot = selectedRetryEntry?.retryPayloadJobId
+      ? await loadAutopilotRetryPayload(selectedRetryEntry.retryPayloadJobId)
+      : null;
+    let scriptData = retrySnapshot?.scriptData?.scenes?.length
+      ? retrySnapshot.scriptData
+      : await generateSmartOrGeminiViralScript(scriptRequest);
+    if (retrySnapshot) {
+      console.info('[Autopilot Retry] Wznawiam zapisany storyboard jobu ' + selectedRetryEntry?.retryPayloadJobId + '; narracja, napisy i czasy pozostają bez zmian.');
+      const previousFailure = String(selectedRetryEntry?.lastError || '');
+      const retryNeedsVisualRefresh = /qa|visual|wizual|obraz|klip|stock|pexels|pixabay|duplikat|dopasowan|download|http\s*403|cdn|materiał/i.test(previousFailure);
+      if (retryNeedsVisualRefresh) {
+        const retryScenes = retrySnapshot.payload.scenes.map((scene) => ({ ...scene }));
+        const usedStockIds = retryScenes
+          .map((scene) => Number(scene.pexelsId))
+          .filter((id) => Number.isSafeInteger(id) && id > 0);
+        let refreshedVisualCount = 0;
+        console.info('[Autopilot Retry] Błąd dotyczył materiału wizualnego — ponownie dobieram klipy bez zmiany lektora.');
+        for (let index = 0; index < retryScenes.length; index++) {
+          const scene = retryScenes[index] as any;
+          if (scene.visualMode === 'data_visual' || !scene.videoUrl || !['pexels', 'pixabay'].includes(String(scene.source))) continue;
+          const query = String(scene.searchKeyword || scene.visualQuery || '').trim();
+          if (!query) continue;
+          try {
+            const resolved = await resolveStockOrPexelsVideoDetailed(query, index, usedStockIds, {
+              context: articleContext,
+              requirePexels: true,
+              targetDurationSeconds: Number(scene.duration) || 3
+            });
+            if (!resolved.pexelsId || usedStockIds.includes(resolved.pexelsId)) {
+              throw new Error('Dostawca nie zwrócił nowego, unikalnego klipu.');
+            }
+            usedStockIds.push(resolved.pexelsId);
+            retryScenes[index] = {
+              ...scene,
+              videoUrl: resolved.videoUrl,
+              thumbnailUrl: resolved.thumbnailUrl,
+              source: resolved.source,
+              pexelsId: resolved.pexelsId,
+              pixabayId: resolved.pixabayId,
+              stockId: resolved.stockId,
+              sourcePageUrl: resolved.sourcePageUrl,
+              width: resolved.width,
+              height: resolved.height,
+              photographer: resolved.photographer,
+              photographerUrl: resolved.photographerUrl
+            };
+            refreshedVisualCount += 1;
+            console.info('[Autopilot Retry] Scena ' + (index + 1) + ' otrzymała nowy klip ' + (resolved.stockId || resolved.pexelsId) + '; narracja zachowana.');
+          } catch (visualError) {
+            console.warn('[Autopilot Retry] Scena ' + (index + 1) + ' zachowuje dotychczasowy klip — nie znaleziono bezpiecznej alternatywy: ' + (visualError as Error).message);
+          }
+        }
+        if (refreshedVisualCount > 0) {
+          retrySnapshot = {
+            scriptData: { ...retrySnapshot.scriptData, scenes: retryScenes },
+            payload: { ...retrySnapshot.payload, scenes: retryScenes }
+          };
+          scriptData = retrySnapshot.scriptData;
+        }
+        console.info('[Autopilot Retry] Ponownie dobrano ' + refreshedVisualCount + '/' + retryScenes.length + ' klipów; bez nowej syntezy TTS.');
+      }
+    }
     const qaOptions = {
       expectedSceneCount: FINANCE_SHORT_SCENE_COUNT,
       expectedDurationSeconds: TARGET_SHORT_DURATION_SECONDS,
@@ -8302,29 +8596,56 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
       maxNarrationWordsExcludingLast: 32,
       maxWordsPerScene: (index: number) => index < 4 ? 5 : index < 7 ? 6 : 9
     };
-    let editorQa = evaluateShortStoryboard(scriptData.scenes, qaOptions);
-    let qaRepairAttempted = false;
-    if (editorQa.status !== 'pass') {
-      qaRepairAttempted = true;
-      try {
-        const repairedScript = await generateSmartOrGeminiViralScript({
-          ...scriptRequest,
-          revisionInstruction: buildShortsEditorQaRevisionInstruction(editorQa)
+    const initialEditorQa = evaluateShortStoryboard(scriptData.scenes, qaOptions);
+    const qaRepairResult = retrySnapshot
+      ? {
+          value: scriptData,
+          report: initialEditorQa,
+          attempts: 0,
+          errors: [] as string[],
+          passed: initialEditorQa.status === 'pass'
+        }
+      : await repairUntilPass({
+          initialValue: scriptData,
+          initialReport: initialEditorQa,
+          maxAttempts: MAX_STORYBOARD_QA_REPAIR_ATTEMPTS,
+          revise: async (currentReport, attempt, previousError) => {
+            console.warn('[Shorts Editor QA] Poprawka storyboardu ' + attempt + '/' + MAX_STORYBOARD_QA_REPAIR_ATTEMPTS + '. Problemy: ' + currentReport.findings.map((finding) => finding.message).join(' | '));
+            return generateSmartOrGeminiViralScript({
+              ...scriptRequest,
+              revisionInstruction: buildShortsEditorQaRevisionInstruction(
+                currentReport,
+                attempt,
+                MAX_STORYBOARD_QA_REPAIR_ATTEMPTS,
+                previousError
+              )
+            });
+          },
+          evaluate: (revisedScript) => evaluateShortStoryboard(revisedScript.scenes, qaOptions),
+          onAttempt: (attempt, currentReport, previousError) => {
+            if (previousError) {
+              console.warn('[Shorts Editor QA] Poprzednia poprawka nie powiodła się; kontynuuję próbę ' + attempt + '/' + MAX_STORYBOARD_QA_REPAIR_ATTEMPTS + ': ' + previousError);
+            }
+          }
         });
-        const repairedQa = evaluateShortStoryboard(repairedScript.scenes, qaOptions);
-        scriptData = repairedScript;
-        editorQa = repairedQa;
-      } catch (repairError) {
-        throw new Error(`Shorts Editor QA nie uzyskało statusu pass, a jedyna poprawka nie powiodła się: ${(repairError as Error).message}`);
-      }
-    }
-    if (editorQa.status !== 'pass') {
+    scriptData = qaRepairResult.value;
+    const editorQa = qaRepairResult.report;
+    const qaRepairAttempted = qaRepairResult.attempts > 0;
+    if (!qaRepairResult.passed) {
       const issues = editorQa.findings.map((finding) => finding.message);
-      throw new Error(`Shorts Editor QA wymaga statusu pass i zablokowało utworzenie render-jobu (${editorQa.status}): ${issues.join(' | ')}`);
+      const repairErrors = qaRepairResult.errors.length
+        ? ' Błędy techniczne poprawek: ' + qaRepairResult.errors.join(' | ')
+        : '';
+      throw new Error(
+        'Shorts Editor QA wymaga statusu pass i zablokowało utworzenie render-jobu po ' +
+        qaRepairResult.attempts + '/' + MAX_STORYBOARD_QA_REPAIR_ATTEMPTS +
+        ' poprawkach (' + editorQa.status + '): ' + issues.join(' | ') + repairErrors + (retrySnapshot ? ' Zapisany lektor nie został zmieniony.' : '')
+      );
     }
 
     // 4. Konfiguracja renderera FFmpeg z autonomicznymi decyzjami SI
     const jobId = `job_auto_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    selectedJobId = jobId;
     const baseUrl = explicitBaseUrl || getPublicBaseUrl();
 
     const aiDecisions: AiViralDecisions = (scriptData as any).aiDecisions || deriveAiViralDecisions(
@@ -8333,33 +8654,43 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
       candidate.category
     );
 
-    const payload: CombineScenesPayload = {
-      scenes: scriptData.scenes,
-      expectedSceneCount: FINANCE_SHORT_SCENE_COUNT,
-      requireAllQaPass: true,
-      requireSourceEvidence: true,
-      sourceArticleText: [candidate.title, candidate.description, candidate.summary].filter(Boolean).join('\n'),
-      requireBrandedCta: true,
-      source: isOneOffTest ? 'test-render' : 'scheduler',
-      requestId: jobId,
-      backgroundMusicUrl: selectAdaptiveBackgroundMusic({
-        title: candidate.title,
-        content: candidate.description || candidate.summary
-      }).url,
-      audioVolume: 0.2,
-      outputResolution: schedulerState.resolution || '720x1280',
-      fps: 30,
-      async: true,
-      tts: true,
-      ttsLanguage: 'pl',
-      ttsVoice: schedulerState.voice || process.env.ELEVENLABS_VOICE_ID || DEFAULT_ELEVENLABS_VOICE_ID,
-      ttsSpeed: 1.0,
-      syncDurationWithVoice: true,
-      lockSceneDurations: true,
-      captionAnimation: 'single-word',
-      highlightColor: 'red',
-      telegramApproval: !isOneOffTest
-    };
+    const payload: CombineScenesPayload = retrySnapshot
+      ? {
+          ...retrySnapshot.payload,
+          requestId: jobId,
+          source: isOneOffTest ? 'test-render' : 'scheduler',
+          telegramApproval: !isOneOffTest,
+          reuseNarrationCacheJobId: retrySnapshot.payload.reuseNarrationCacheJobId || selectedRetryEntry?.retryPayloadJobId,
+          retrySourcePayloadJobId: selectedRetryEntry?.retryPayloadJobId
+        }
+      : {
+          scenes: scriptData.scenes,
+          expectedSceneCount: FINANCE_SHORT_SCENE_COUNT,
+          requireAllQaPass: true,
+          requireSourceEvidence: true,
+          sourceArticleText: [candidate.title, candidate.description, candidate.summary].filter(Boolean).join('\n'),
+          requireBrandedCta: true,
+          qaRepairArticle: candidate,
+          source: isOneOffTest ? 'test-render' : 'scheduler',
+          requestId: jobId,
+          backgroundMusicUrl: selectAdaptiveBackgroundMusic({
+            title: candidate.title,
+            content: candidate.description || candidate.summary
+          }).url,
+          audioVolume: 0.2,
+          outputResolution: schedulerState.resolution || '720x1280',
+          fps: 30,
+          async: true,
+          tts: true,
+          ttsLanguage: 'pl',
+          ttsVoice: schedulerState.voice || process.env.ELEVENLABS_VOICE_ID || DEFAULT_ELEVENLABS_VOICE_ID,
+          ttsSpeed: 1.0,
+          syncDurationWithVoice: true,
+          lockSceneDurations: true,
+          captionAnimation: 'single-word',
+          highlightColor: 'red',
+          telegramApproval: !isOneOffTest
+        };
 
     const newJob: Job = {
       id: jobId,
@@ -8391,29 +8722,34 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
         sceneCount: scriptData.scenes.length,
         schedulerSlot: slotTrigger,
         viralityScore,
-        selectionSource: selection.selectionSource,
+        selectionSource: selectionSource,
         runMode: isOneOffTest ? 'one-off-test' : 'scheduled',
         aiDecisions,
-        editorQa: { preflight: editorQa, repairAttempted: qaRepairAttempted },
+        editorQa: { preflight: editorQa, repairAttempted: qaRepairAttempted, repairAttempts: qaRepairResult.attempts, repairErrors: qaRepairResult.errors },
         offerMatch: scriptData.offerMatch
       },
       revisionNumber: 0,
       exportStatus: 'not_started',
       logs: [
-        `[${new Date().toLocaleTimeString()}] ${isOneOffTest ? 'Uruchomiono jeden testowy render' : 'Uruchomiono autonomiczny cykl 4x/dobę'} dla newsa Bankier.pl (${candidate.title}) [Virality: ${viralityScore.totalScore}/100, Źródło: ${selection.selectionSource}]`,
-        `[Shorts Editor QA] Preflight ${editorQa.status} (${editorQa.score}/100); jednokrotna poprawka: ${qaRepairAttempted ? 'wykonana' : 'niepotrzebna'}.`
+        `[${new Date().toLocaleTimeString()}] ${isOneOffTest ? 'Uruchomiono jeden testowy render' : 'Uruchomiono autonomiczny cykl 4x/dobę'} dla newsa Bankier.pl (${candidate.title}) [Virality: ${viralityScore.totalScore}/100, Źródło: ${selectionSource}]`,
+        `[Shorts Editor QA] Preflight ${editorQa.status} (${editorQa.score}/100); poprawki storyboardu: ${qaRepairAttempted ? 'wykonana' : 'niepotrzebna'}.`
       ],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
 
+    try {
+      await persistAutopilotRetryPayload(jobId, scriptData, payload);
+    } catch (error) {
+      console.warn('[Autopilot Retry] Nie udało się zapisać dokładnego payloadu do wznowienia: ' + (error as Error).message);
+    }
     jobsStore.set(jobId, newJob);
     saveJobsToDisk();
     queueShortJobSnapshot(newJob as ShortJobSnapshot, true);
 
     // 5. Zapisz wpis w historii schedulera z prognozą dochodu i algorytmem Virality Score przed renderem
     const projectedEarnings = calculateProjectedVideoEarnings(candidate.title, candidate.category);
-    console.log(`[Autopilot 4x/dobę] AI wybrało news: "${candidate.title.slice(0, 45)}..." (Virality: ${viralityScore.totalScore}/100, Źródło: ${selection.selectionSource})`);
+    console.log(`[Autopilot 4x/dobę] AI wybrało news: "${candidate.title.slice(0, 45)}..." (Virality: ${viralityScore.totalScore}/100, Źródło: ${selectionSource})`);
 
     const runRecord: AutopilotRunRecord = {
       id: `run_${Date.now()}`,
@@ -8451,9 +8787,11 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
           runRecord.outputFilename = finishedJob.outputFilename;
           runRecord.duration = finishedJob.duration;
           schedulerState.lastRunStatus = 'completed';
+          markAutopilotArticleCompleted(candidate.link);
         } else {
           runRecord.status = 'failed';
           runRecord.error = finishedJob?.error || 'Błąd renderowania wideo';
+          queueFailedAutopilotArticle(candidate, runRecord.error, jobId);
           schedulerState.lastRunStatus = 'failed';
         }
         saveSchedulerStateToDisk();
@@ -8461,6 +8799,7 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
       .catch((err) => {
         runRecord.status = 'failed';
         runRecord.error = (err as Error).message;
+        queueFailedAutopilotArticle(candidate, runRecord.error, jobId);
         schedulerState.lastRunStatus = 'failed';
         saveSchedulerStateToDisk();
       });
@@ -8475,12 +8814,18 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
       script: scriptData
     };
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
     console.error('❌ [Autopilot 4x/dobę] Błąd wykonywania cyklu:', err);
-    schedulerState.lastRunStatus = 'failed';
-    saveSchedulerStateToDisk();
+    if (selectedCandidate) {
+      queueFailedAutopilotArticle(selectedCandidate, message, selectedJobId);
+    } else {
+      schedulerState.lastRunStatus = 'failed';
+      schedulerState.lastRunTime = new Date().toISOString();
+      saveSchedulerStateToDisk();
+    }
     return {
       success: false,
-      error: (err as Error).message
+      error: message
     };
   }
 }
@@ -8617,6 +8962,23 @@ router.post('/autopilot/scheduler/run-now', async (req, res) => {
     return res.status(400).json(result);
   }
   return res.json(result);
+});
+
+router.post('/autopilot/scheduler/retry-failed', async (req, res) => {
+  const pendingRetry = getNextPendingAutopilotRetry(schedulerState.retryQueue || []);
+  if (!pendingRetry) {
+    return res.status(409).json({ success: false, error: 'Brak nieudanych shortów oczekujących na ponowienie.' });
+  }
+  const baseUrl = getPublicBaseUrl(req);
+  const result = await executeAutonomousRun('retry-failed', baseUrl);
+  if (!result.success) {
+    return res.status(400).json({ ...result, retryArticle: pendingRetry.article });
+  }
+  return res.json({
+    ...result,
+    retryArticle: pendingRetry.article,
+    retriesRemaining: Math.max(0, MAX_AUTOPILOT_RETRY_ATTEMPTS + 1 - pendingRetry.failedAttempts)
+  });
 });
 
 router.post('/autopilot/scheduler/toggle', (req, res) => {

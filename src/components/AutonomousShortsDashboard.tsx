@@ -9,6 +9,8 @@ interface AutonomousShortsDashboardProps {
   onToggle: () => void;
   onRunOnce: () => void;
   runOnceLoading: boolean;
+  onRetryFailed: () => void;
+  retryLoading: boolean;
 }
 
 function formatDate(value?: string | null): string {
@@ -33,10 +35,13 @@ function statusLabel(status?: string): string {
   }
 }
 
-export const AutonomousShortsDashboard: React.FC<AutonomousShortsDashboardProps> = ({ state, loading, error, onToggle, onRunOnce, runOnceLoading }) => {
+export const AutonomousShortsDashboard: React.FC<AutonomousShortsDashboardProps> = ({ state, loading, error, onToggle, onRunOnce, runOnceLoading, onRetryFailed, retryLoading }) => {
   const enabled = Boolean(state?.enabled);
   const runOnceDisabled = !state || runOnceLoading || state.lastRunStatus === 'running';
   const history = state?.history || [];
+  const retryQueue = state?.retryQueue || [];
+  const pendingRetries = retryQueue.filter((entry) => entry.status === 'pending');
+  const exhaustedRetries = retryQueue.filter((entry) => entry.status === 'exhausted');
   const slots = state?.dailySlots?.length ? state.dailySlots : ['06:00', '11:00', '16:00', '21:00'];
 
   return (
@@ -62,6 +67,17 @@ export const AutonomousShortsDashboard: React.FC<AutonomousShortsDashboardProps>
               {runOnceLoading || state?.lastRunStatus === 'running' ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Film className="h-4 w-4" />}
               {runOnceLoading ? 'Uruchamiam render…' : state?.lastRunStatus === 'running' ? 'Render w toku…' : 'Renderuj jeden testowy short'}
             </button>
+            {pendingRetries.length > 0 && (
+              <button
+                type="button"
+                onClick={onRetryFailed}
+                disabled={runOnceDisabled || retryLoading}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-amber-500/60 bg-amber-700/70 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {retryLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                {retryLoading ? 'Ponawiam nieudany short…' : 'Ponów nieudany short (' + pendingRetries.length + ')'}
+              </button>
+            )}
             {state && (
               <button
                 type="button"
@@ -139,6 +155,36 @@ export const AutonomousShortsDashboard: React.FC<AutonomousShortsDashboardProps>
             {state.candidateArticle?.description && <p className="mt-2 line-clamp-3 text-sm text-slate-400">{state.candidateArticle.description}</p>}
             {state.candidateArticle?.link && <a className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-300 hover:text-indigo-200" href={state.candidateArticle.link} target="_blank" rel="noreferrer">Źródło: Bankier.pl <ExternalLink className="h-3 w-3" /></a>}
           </section>
+
+          {retryQueue.length > 0 && (
+            <section className="rounded-2xl border border-amber-500/30 bg-slate-900 p-5 sm:p-6">
+              <div className="mb-4 flex flex-col gap-1">
+                <h2 className="font-bold text-white">Kolejka ponowień</h2>
+                <p className="text-xs text-slate-400">
+                  Nieudane artykuły są zachowane. Przy następnym cyklu zostaną wznowione przed nowymi newsami; można też użyć przycisku ponowienia. Po dwóch dodatkowych niepowodzeniach próba zostanie oznaczona jako wyczerpana.
+                </p>
+              </div>
+              <div className="space-y-3">
+                {retryQueue.slice(0, 6).map((entry) => (
+                  <article key={entry.article.link} className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <span className={entry.status === 'pending' ? 'font-semibold text-amber-200' : 'font-semibold text-slate-400'}>
+                        {entry.status === 'pending' ? 'Oczekuje na ponowienie' : 'Wyczerpano próby'}
+                      </span>
+                      <span className="text-slate-500">Nieudane przebiegi: {entry.failedAttempts}</span>
+                      <span className="text-slate-500">{formatDate(entry.lastFailedAt)}</span>
+                    </div>
+                    <p className="mt-1 text-sm font-semibold text-white">{entry.article.title}</p>
+                    <p className="mt-1 line-clamp-3 text-xs text-rose-300">{entry.lastError}</p>
+                  </article>
+                ))}
+                {retryQueue.length > 6 && <p className="text-xs text-slate-500">Pozostałe wpisy: {retryQueue.length - 6}</p>}
+              </div>
+              {exhaustedRetries.length > 0 && (
+                <p className="mt-3 text-xs text-slate-500">Wyczerpane próby: {exhaustedRetries.length}. Te artykuły pozostają w historii, ale nie uruchamiają się w nieskończonej pętli.</p>
+              )}
+            </section>
+          )}
 
           <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 sm:p-6">
             <div className="mb-4 flex items-center justify-between gap-3">
