@@ -68,6 +68,7 @@ import { splitNarrationAlignmentByScenes } from './src/server/singleNarration';
 import { isTrustedStockPreviewUrl, selectVisuallyVerifiedPexelsCandidate } from './src/server/pexelsCandidateVisualQa';
 import { mapPixabayVideoCandidates } from './src/server/pixabayVideoProvider';
 import { buildPixabayFallbackQueries } from './src/server/pixabaySearchExpansion';
+import { buildFinancialNewsSearchAliases } from './src/server/stockSearchExpansion';
 import { findLegacyFailedAutopilotArticleUrl, getNextPendingAutopilotRetry, MAX_AUTOPILOT_RETRY_ATTEMPTS, MAX_STORYBOARD_QA_REPAIR_ATTEMPTS, recordAutopilotFailure, repairUntilPass, resolveAutopilotRetry, isCompatibleNarrationRetryCache, type AutopilotRetryEntry, type RetryableAutopilotArticle, type NarrationRetryCacheMetadata } from './src/server/autopilotRetry';
 import { GEMINI_FALLBACK_MODEL, isRetryableModelProviderError, OPENAI_PRIMARY_MODEL, requestOpenAiScript } from './src/server/modelRouting';
 
@@ -804,7 +805,11 @@ async function verifyStockVisualCandidates(
     }));
     return { candidate, frames: frames.filter((frame): frame is { mimeType: string; data: string } => Boolean(frame)) };
   }));
+  downloaded.filter((item) => item.frames.length === 0).forEach(({ candidate }) => {
+    console.warn('[Stock visual precheck] Scena ' + (sceneIndex + 1) + ': ' + (candidate.stockId || candidate.pexelsId) + ' odrzucono przed QA — brak użytecznej klatki podglądu.');
+  });
   const usable = downloaded.filter((item) => item.frames.length > 0);
+  console.info('[Stock visual precheck] Scena ' + (sceneIndex + 1) + ': wejściowe=' + candidates.length + ', z podglądem=' + usable.length + '.');
   if (!usable.length) return null;
   const verified = usable.map((item) => item.candidate);
   const imageParts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [];
@@ -842,6 +847,12 @@ async function verifyStockVisualCandidates(
   const { model, result } = await runVisualQaWithFallback(providers, (provider, error) => {
     console.warn('[Stock visual precheck] Provider ' + provider + ' nie zadziałał: ' + error.message);
   });
+  verified.forEach((candidate, index) => {
+    const assessment = result.find((item) => item.scene === index + 1);
+    const reason = String(assessment?.reason || 'Brak uzasadnienia.').replace(/[\r\n"]+/g, ' ').slice(0, 180);
+    const confidence = Number.isFinite(assessment?.confidence) ? assessment!.confidence.toFixed(2) : 'n/a';
+    console.info('[Stock visual QA] Scena ' + (sceneIndex + 1) + ': ' + (candidate.stockId || candidate.pexelsId) + ' match=' + String(assessment?.match === true) + ' confidence=' + confidence + ' reason="' + reason + '"');
+  });
   const selected = selectVisuallyVerifiedPexelsCandidate(verified.map((candidate, index) => ({
     pexelsId: candidate.pexelsId!, selectionScore: candidate.selectionScore || 0,
     visual: result.find((item) => item.scene === index + 1)
@@ -868,13 +879,14 @@ function getShortGptSearchQueries(query: string, sceneIndex: number, context?: s
     'person checking financial news on smartphone',
     'accountant reviewing company financial paperwork'
   ];
+  const focusedSearchAliases = buildFinancialNewsSearchAliases(query);
   const specificAlternatives = alternatives.filter((candidate) => !isGenericFinanceVisualQuery(candidate));
   const genericFallbacks = specificAlternatives.length > 0
     ? specificAlternatives
     : generalFinanceAlternatives;
   const raw = isGenericFinanceVisualQuery(query)
-    ? [...genericFallbacks, enriched, query]
-    : [enriched, query, ...alternatives];
+    ? [...genericFallbacks, ...focusedSearchAliases, enriched, query]
+    : [enriched, query, ...focusedSearchAliases, ...alternatives];
   const unique = raw
     .map((value) => value.trim())
     .filter(Boolean);
@@ -1055,7 +1067,7 @@ async function resolveStockOrPexelsVideoDetailed(
       query,
       options?.context || '',
       searchQueries.filter((value) => value.trim().toLowerCase() !== query.trim().toLowerCase()),
-      4
+      5
     );
     console.info('[Pixabay Fallback] Scena ' + (index + 1) + ': rozszerzone zapytania=' + pixabayQueries.map((value) => '"' + value + '"').join(' | '));
     const requireTopicMatch = options?.requirePexels === true || Boolean(options?.context?.trim());

@@ -1,3 +1,5 @@
+import { buildFinancialNewsSearchAliases } from './stockSearchExpansion';
+
 /**
  * Build a small, bounded set of semantic aliases for Pixabay's video search.
  * Search aliases broaden the retrieval query only; every candidate must still
@@ -19,7 +21,7 @@ export function buildPixabayFallbackQueries(
   if (!original) return [];
 
   const combined = (original + " " + context).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-  const expansions: string[] = [];
+  const expansions: string[] = buildFinancialNewsSearchAliases(original);
 
   // Technology/AI news often names a person or company, while stock libraries
   // tag footage by subject matter (chips, servers, conferences), not names.

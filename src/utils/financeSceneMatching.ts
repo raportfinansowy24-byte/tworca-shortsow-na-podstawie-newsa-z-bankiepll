@@ -202,6 +202,16 @@ export function normalizeFinanceText(value: string): string {
     .trim();
 }
 
+export function matchesStockSearchToken(queryToken: string, candidateToken: string): boolean {
+  const query = normalizeFinanceText(queryToken);
+  const candidate = normalizeFinanceText(candidateToken);
+  if (!query || !candidate) return false;
+  if (query === candidate) return true;
+  const shorter = query.length <= candidate.length ? query : candidate;
+  const longer = query.length > candidate.length ? query : candidate;
+  return shorter.length >= 4 && longer.length - shorter.length <= 3 && longer.startsWith(shorter);
+}
+
 function containsPhrase(text: string, phrase: string): boolean {
   const normalizedText = ` ${normalizeFinanceText(text)} `;
   const normalizedPhrase = ` ${normalizeFinanceText(phrase)} `;
@@ -260,7 +270,7 @@ export function scorePexelsCandidate(newsContext: string, query: string, videoUr
     const normalized = normalizeFinanceText(term);
     if (!normalized) return false;
     if (normalized.includes(' ')) return slug.includes(normalized);
-    return candidateTokens.has(normalized) || [...candidateTokens].some((token) => token.startsWith(normalized) || normalized.startsWith(token));
+    return candidateTokens.has(normalized) || [...candidateTokens].some((token) => matchesStockSearchToken(normalized, token));
   };
 
   const forbiddenMatches = (definition?.forbiddenTerms || []).filter(hasToken);

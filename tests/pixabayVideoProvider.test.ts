@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { buildPixabayFallbackQueries } from '../src/server/pixabaySearchExpansion';
+import { buildFinancialNewsSearchAliases } from '../src/server/stockSearchExpansion';
 import {
   isTrustedPixabayMediaUrl,
   mapPixabayVideoCandidates,
@@ -26,6 +27,20 @@ assert.ok(nvidiaFallbackQueries.some((query) => /artificial intelligence/i.test(
 assert.ok(nvidiaFallbackQueries.some((query) => /GPU|semiconductor/i.test(query)), 'dodaj warianty GPU i półprzewodników');
 assert.ok(nvidiaFallbackQueries.length <= 4, 'ogranicz liczbę zapytań Pixabay na scenę');
 assert.equal(new Set(nvidiaFallbackQueries.map((query) => query.toLowerCase())).size, nvidiaFallbackQueries.length, 'usuń duplikaty zapytań');
+const newsFallbackQueries = buildPixabayFallbackQueries(
+  'person reading financial news on laptop',
+  '',
+  ['inflation chart consumer prices data screen', 'consumer price index graph laptop', 'economist reviewing inflation chart'],
+  5
+);
+assert.deepEqual(newsFallbackQueries, [
+  'person reading financial news on laptop',
+  'financial analyst reviewing business news laptop',
+  'inflation chart consumer prices data screen',
+  'consumer price index graph laptop',
+  'economist reviewing inflation chart'
+], 'dodaj celowany alias wiadomości bez usuwania trzech alternatyw kategorii');
+assert.deepEqual(buildFinancialNewsSearchAliases('quarterly company report'), [], 'nie rozszerzaj niezwiązanych zapytań');
 
 const payload = {
   hits: [
@@ -130,4 +145,41 @@ const technologyFallbackOptions = {
 };
 assert.equal(mapPixabayVideoCandidates(technologyFallbackPayload, technologyFallbackOptions).length, 1, 'przyjmij tematyczny alias do późniejszej kontroli obrazu, nawet bez tagu kategorii rynkowej');
 assert.equal(mapPixabayVideoCandidates(technologyFallbackPayload, { ...technologyFallbackOptions, allowBroadSceneMatch: false }).length, 0, 'bez flagi broad match zachowaj dotychczasowy rygor tagów kategorii');
+
+const prefixTrapPayload = { hits: [
+  {
+    id: 846,
+    pageURL: 'https://pixabay.com/videos/id-846/',
+    tags: 'library, books, reading, new items, shelves',
+    duration: 13,
+    videos: { medium: { url: 'https://cdn.pixabay.com/video/library.mp4', width: 1920, height: 1080, thumbnail: 'https://cdn.pixabay.com/video/library.jpg' } }
+  },
+  {
+    id: 1028,
+    pageURL: 'https://pixabay.com/videos/id-1028/',
+    tags: 'homework, girl, student, laptop, study, studying, notebook, desk, reading, education',
+    duration: 12,
+    videos: { medium: { url: 'https://cdn.pixabay.com/video/student.mp4', width: 1920, height: 1080, thumbnail: 'https://cdn.pixabay.com/video/student.jpg' } }
+  },
+  {
+    id: 35792,
+    pageURL: 'https://pixabay.com/videos/id-35792/',
+    tags: 'boat, sea, boat review, yacht, ship in storm, new, tips',
+    duration: 10,
+    videos: { medium: { url: 'https://cdn.pixabay.com/video/boat.mp4', width: 1920, height: 1080, thumbnail: 'https://cdn.pixabay.com/video/boat.jpg' } }
+  }
+] };
+const newsSceneCandidates = mapPixabayVideoCandidates(prefixTrapPayload, {
+  query: 'person reading financial news on laptop',
+  context: 'inflation and financial news',
+  requireTopicMatch: true,
+  allowBroadSceneMatch: true
+});
+assert.deepEqual(newsSceneCandidates.map((candidate) => candidate.pixabayId), [1028], 'news/new must not let the library clip through, while a broader laptop clip remains available for visual QA');
+assert.equal(mapPixabayVideoCandidates(prefixTrapPayload, {
+  query: 'economist reviewing inflation chart',
+  context: 'inflation and financial news',
+  requireTopicMatch: true,
+  allowBroadSceneMatch: true
+}).length, 0, 'inflation/in must not let a boat-in-storm clip satisfy the query');
 console.log('Pixabay video provider tests passed');

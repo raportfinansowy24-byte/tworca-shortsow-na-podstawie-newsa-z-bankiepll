@@ -1,4 +1,4 @@
-import { normalizeFinanceText, scorePexelsCandidate } from '../utils/financeSceneMatching';
+import { matchesStockSearchToken, normalizeFinanceText, scorePexelsCandidate } from '../utils/financeSceneMatching';
 
 export const PIXABAY_INTERNAL_ID_OFFSET = 1_000_000_000_000;
 const GENERIC_SCENE_TERMS = new Set([
@@ -85,7 +85,7 @@ export function mapPixabayVideoCandidates(
     const specificQueryTokens = [...new Set(normalizeFinanceText(query).split(/\s+/)
       .filter((token) => token.length >= 3 && !GENERIC_SCENE_TERMS.has(token)))];
     const specificMatches = specificQueryTokens.filter((token) =>
-      slugTokens.has(token) || [...slugTokens].some((candidateToken) => candidateToken.startsWith(token) || token.startsWith(candidateToken))
+      slugTokens.has(token) || [...slugTokens].some((candidateToken) => matchesStockSearchToken(token, candidateToken))
     );
     const minimumSpecificMatches = Math.min(2, specificQueryTokens.length);
     const hasSpecificSceneMatch = minimumSpecificMatches > 0 && specificMatches.length >= minimumSpecificMatches;

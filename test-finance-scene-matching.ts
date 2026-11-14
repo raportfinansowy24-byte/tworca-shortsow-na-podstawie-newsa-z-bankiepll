@@ -34,6 +34,10 @@ const unrelatedCashClip = scorePexelsCandidate(
 );
 assert.equal(unrelatedCashClip.relevant, false, 'Klip z liczeniem gotówki powinien zostać odrzucony.');
 assert.ok(unrelatedCashClip.forbiddenMatches.length > 0, 'Powód odrzucenia powinien wskazywać wykluczony motyw.');
+const falseNewsPrefix = scorePexelsCandidate('', 'news', 'https://www.pexels.com/video/new-books-library-123456/');
+assert.equal(falseNewsPrefix.relevant, false, 'news nie może dopasować krótszego tokenu new.');
+const falseInflationPrefix = scorePexelsCandidate('', 'inflation', 'https://www.pexels.com/video/ship-in-storm-123456/');
+assert.deepEqual(falseInflationPrefix.sceneMatches, [], 'inflation nie może dopasować przyimka in w slugu.');
 
 const savingsNews = 'Bank uruchamia nowe konto oszczędnościowe z oprocentowaniem promocyjnym.';
 assert.equal(classifyFinanceVisualCategory(savingsNews), 'savings-deposits');
