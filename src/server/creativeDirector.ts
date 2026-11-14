@@ -129,7 +129,7 @@ export function buildCreativeDirectorPrompt(params: {
   sceneCount?: number;
   language?: string;
 }): string {
-  const { article, brandContext, ctaText, platform = 'youtube-shorts', duration = 23, sceneCount = 8, language = 'Polski' } = params;
+  const { article, brandContext, ctaText, platform = 'youtube-shorts', duration = 18, sceneCount = 8, language = 'Polski' } = params;
   return `Jesteś Creative Directorem marki RaportFinansowy24. Przygotuj plan pionowego Shorta na podstawie wyłącznie faktów z przekazanego newsa.
 
 ZASADY RZETELNOŚCI:
@@ -165,7 +165,7 @@ CTA wymagane przez politykę redakcyjną: ${ctaText || 'Wejdź na raport-finanso
 PARAMETRY:
 Platforma: ${platform}
 Język: ${language}
-Długość docelowa: ${duration} sekund; limit bezwzględny 28 sekund
+Długość docelowa: ${duration} sekund; limit bezwzględny 25 sekund
 Liczba beatów/scen: ${sceneCount}
 
 WYMAGANY JSON:
@@ -207,7 +207,7 @@ export function parseCreativeDirectorPlan(text: string, params: { platform?: str
   if (!parsed.title || !parsed.hook || !Array.isArray(parsed.scenes) || parsed.scenes.length === 0) {
     throw new Error('Creative Director zwrócił niepełny plan.');
   }
-  const duration = params.duration || 23;
+  const duration = params.duration || 18;
   return {
     title: String(parsed.title).slice(0, 240),
     hook: String(parsed.hook).slice(0, 600),
@@ -315,7 +315,7 @@ export function buildCreativeDirectorFallback(article: CreativeDirectorArticle, 
   const cta = params.ctaText || 'Sprawdź pełny kontekst.';
   const fallbackNarration = buildFallbackMiddleNarration(article, hook, cta);
   const sceneCount = 8;
-  const segmentDuration = (params.duration || 23) / sceneCount;
+  const segmentDuration = (params.duration || 18) / sceneCount;
   const purposes = ['hook', 'fakt', 'kontekst', 'mechanizm', 'wpływ', 'praktyczny wniosek', 'podsumowanie', 'cta'];
   const scenes = Array.from({ length: sceneCount }, (_, index) => ({
     start: Number((index * segmentDuration).toFixed(2)),
@@ -341,7 +341,7 @@ export function buildCreativeDirectorFallback(article: CreativeDirectorArticle, 
     voice: 'pl-PL-MarekNeural',
     voiceSpeed: 1.05,
     platform: params.platform || 'youtube-shorts',
-    duration: params.duration || 23,
+    duration: params.duration || 18,
     directorBrief: 'Pionowy format 9:16, kontrastowy grading granat/lime, szybki hook w pierwszych 2 sekundach, dynamiczne lecz czytelne przejścia, ambientowy beat newsroomowy i subtelne dźwięki interfejsu.',
     scenes,
     riskFlags: [
@@ -366,9 +366,9 @@ export function mapCreativeDirectorPlanToRenderScenes(
   if (!plan || !Array.isArray(plan.scenes) || plan.scenes.length !== 8) {
     throw new Error('Storyboard do renderu musi zawierać dokładnie 8 scen.');
   }
-  const targetDuration = Number(plan.duration) || 23;
-  if (Math.abs(targetDuration - 23) > 0.01 || targetDuration > 25) {
-    throw new Error('Storyboard do renderu musi celować w 23 sekundy i nie może przekraczać 25 sekund.');
+  const targetDuration = Number(plan.duration) || 18;
+  if (Math.abs(targetDuration - 18) > 0.01 || targetDuration > 25) {
+    throw new Error('Storyboard do renderu musi celować w 18 sekund i nie może przekraczać 25 sekund.');
   }
 
   let previousEnd = 0;
@@ -388,8 +388,8 @@ export function mapCreativeDirectorPlanToRenderScenes(
   });
 
   const sourceTotal = sourceDurations.reduce((sum, seconds) => sum + seconds, 0);
-  if (Math.abs(previousEnd - targetDuration) > 0.75 || sourceTotal < 20 || sourceTotal > 25.5) {
-    throw new Error('Zakresy scen storyboardu muszą obejmować około 23 sekund. Wygeneruj storyboard ponownie.');
+  if (Math.abs(previousEnd - targetDuration) > 0.75 || sourceTotal < 15 || sourceTotal > 20.5) {
+    throw new Error('Zakresy scen storyboardu muszą obejmować około 18 sekund. Wygeneruj storyboard ponownie.');
   }
   const scale = targetDuration / sourceTotal;
   const normalizedDurations = sourceDurations.map((seconds) => Number((seconds * scale).toFixed(3)));

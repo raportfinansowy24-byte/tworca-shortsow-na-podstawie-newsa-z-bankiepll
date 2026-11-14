@@ -10,24 +10,24 @@ assert.match(getSceneCountError(undefined, 8) || '', /expectedSceneCount musi by
 assert.match(getSceneCountError(0, 0) || '', /expectedSceneCount musi być liczbą całkowitą/);
 assert.match(getSceneCountError(9, 9) || '', /expectedSceneCount musi być liczbą całkowitą/);
 
-assert.deepEqual(sceneDurationsForCount(8), Array(8).fill(23 / 8));
-assert.equal(TARGET_SHORT_DURATION_SECONDS, 23);
-assert.equal(MAX_SHORT_DURATION_SECONDS, 28);
+assert.deepEqual(sceneDurationsForCount(8), Array(8).fill(18 / 8));
+assert.equal(TARGET_SHORT_DURATION_SECONDS, 18);
+assert.equal(MAX_SHORT_DURATION_SECONDS, 25);
 const shortNarrationBudgets = sceneDurationsWithNarration(sceneDurationsForCount(8), Array(8).fill(1));
-assert.ok(Math.abs(shortNarrationBudgets.reduce((sum, duration) => sum + duration, 0) - 23) < 0.001, 'krótszy lektor zachowuje 23-sekundowy storyboard, bez przenoszenia całej ciszy na ostatnią scenę');
-assert.ok(Math.abs(shortNarrationBudgets[7] - 23 / 8) < 0.001, 'ostatnia scena CTA nie otrzymuje sztucznie długiego ogona ciszy');
-const durationAtHardCap = sceneDurationsWithNarration([2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5], [11.88, null, null, null, null, null, null, null]);
-assert.ok(Math.abs(durationAtHardCap.reduce((sum, duration) => sum + duration, 0) - 28) < 0.001, 'dopuszcza narrację do uzgodnionego twardego limitu 28 s');
-assert.throws(() => sceneDurationsWithNarration([2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5], [12.01, null, null, null, null, null, null, null]), /Maksymalny czas Shorta to 28 s/);
+assert.ok(Math.abs(shortNarrationBudgets.reduce((sum, duration) => sum + duration, 0) - 18) < 0.001, 'krótszy lektor zachowuje 18-sekundowy storyboard, bez przenoszenia całej ciszy na ostatnią scenę');
+assert.ok(Math.abs(shortNarrationBudgets[7] - 18 / 8) < 0.001, 'ostatnia scena CTA nie otrzymuje sztucznie długiego ogona ciszy');
+const durationAtHardCap = sceneDurationsWithNarration([2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5], [8.88, null, null, null, null, null, null, null]);
+assert.ok(Math.abs(durationAtHardCap.reduce((sum, duration) => sum + duration, 0) - 25) < 0.001, 'dopuszcza narrację do uzgodnionego twardego limitu 25 s');
+assert.throws(() => sceneDurationsWithNarration([2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5], [9.01, null, null, null, null, null, null, null]), /Maksymalny czas Shorta to 25 s/);
 const nearCapNarration = sceneDurationsWithNarration(
-  Array(8).fill(23 / 8),
-  Array(8).fill(27.91 / 8),
+  Array(8).fill(18 / 8),
+  Array(8).fill(24.91 / 8),
   MAX_SHORT_DURATION_SECONDS
 );
-assert.ok(nearCapNarration.every((duration) => duration >= 27.91 / 8), 'żadna scena nie ucina naturalnego lektora przy narracji bliskiej limitowi');
-assert.ok(nearCapNarration.reduce((sum, duration) => sum + duration, 0) <= MAX_SHORT_DURATION_SECONDS + 0.000001, 'zapas scen jest automatycznie ograniczany do wolnego budżetu 28 s');
+assert.ok(nearCapNarration.every((duration) => duration >= 24.91 / 8), 'żadna scena nie ucina naturalnego lektora przy narracji bliskiej limitowi');
+assert.ok(nearCapNarration.reduce((sum, duration) => sum + duration, 0) <= MAX_SHORT_DURATION_SECONDS + 0.000001, 'zapas scen jest automatycznie ograniczany do wolnego budżetu 25 s');
 assert.throws(
-  () => sceneDurationsWithNarration(Array(8).fill(23 / 8), Array(8).fill(28.01 / 8), MAX_SHORT_DURATION_SECONDS),
+  () => sceneDurationsWithNarration(Array(8).fill(18 / 8), Array(8).fill(25.01 / 8), MAX_SHORT_DURATION_SECONDS),
   /bez dodatkowego zapasu scen/
 );
 assert.equal(selectFinanceCta({ title: 'RPP obniża stopy, co z ratą kredytu?' }).destinationPath, '/loan');
@@ -56,7 +56,7 @@ assert.ok(Math.abs(naturalSceneDurations[0] - 6.02) < 0.001);
 assert.ok(naturalSceneDurations.reduce((sum, duration) => sum + duration, 0) < MAX_SHORT_DURATION_SECONDS);
 assert.throws(
   () => sceneDurationsWithNarration([2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5], Array(8).fill(7.9)),
-  /Maksymalny czas Shorta to 28 s/
+  /Maksymalny czas Shorta to 25 s/
 );
 const repairBaseDurations = [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5];
 const repairDurationsFromFreshTts = sceneDurationsWithNarration(
@@ -68,10 +68,10 @@ assert.ok(Math.abs(repairDurationsFromFreshTts[0] - 2.92) < 0.001, 'naprawa prze
 assert.ok(repairDurationsFromFreshTts.reduce((sum, duration) => sum + duration, 0) <= MAX_SHORT_DURATION_SECONDS);
 assert.throws(
   () => sceneDurationsWithNarration(repairBaseDurations, Array(8).fill(7.9), MAX_SHORT_DURATION_SECONDS),
-  /Maksymalny czas Shorta to 28 s/
+  /Maksymalny czas Shorta to 25 s/
 );
 
-assert.deepEqual(sceneDurationsForCount(4), [5.75, 5.75, 5.75, 5.75]);
+assert.deepEqual(sceneDurationsForCount(4), [4.5, 4.5, 4.5, 4.5]);
 assert.throws(() => sceneDurationsForCount(0), /Liczba scen musi być/);
 const distinctPexels = Array.from({ length: 8 }, (_, i) => ({ source: 'pexels', pexelsId: i + 1 }));
 assert.equal(hasUniquePexelsSceneIds(distinctPexels), true);

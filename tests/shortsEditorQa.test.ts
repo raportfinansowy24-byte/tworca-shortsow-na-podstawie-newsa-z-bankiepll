@@ -12,7 +12,7 @@ assert.equal(shouldBlockQa('pass', true), false);
 const scenes = Array.from({ length: 8 }, (_, index) => {
   const narration = index === 0 ? 'Co się zmieniło?' : index === 7 ? 'Policz ratę kredytu.' : `Fakt numer ${index + 1}.`;
   return {
-    duration: 23 / 8,
+    duration: 18 / 8,
     voiceover_text: narration,
     subtitles: narration,
     searchKeyword: `specific financial news shot ${index + 1}`,
@@ -22,7 +22,7 @@ const scenes = Array.from({ length: 8 }, (_, index) => {
 
 const validStoryboard = evaluateShortStoryboard(scenes, {
   expectedSceneCount: 8,
-  expectedDurationSeconds: 23,
+  expectedDurationSeconds: 18,
   maxDurationSeconds: 25,
   requireCta: true,
   requireVisualQueries: true,
@@ -146,14 +146,14 @@ const sixWordScenes = [
   'Sprawdź szczegóły przed decyzją',
   'Policz ratę kredytu.'
 ].map((voiceover_text, index) => ({
-  duration: 23 / 8,
+  duration: 18 / 8,
   voiceover_text,
   subtitles: voiceover_text,
   searchKeyword: `unique topic shot ${index + 1}`
 }));
 const autonomousQaOptions = {
   expectedSceneCount: 8,
-  expectedDurationSeconds: 23,
+  expectedDurationSeconds: 18,
   maxDurationSeconds: 25,
   requireCta: true,
   requireCaptionAlignment: true,
@@ -226,7 +226,7 @@ assert.ok(repetitionReport.findings.some((finding) => finding.code === 'repeated
 assert.notEqual(repetitionReport.status, 'blocked');
 
 const tooLong = scenes.map((scene, index) => index === 7 ? { ...scene, voiceover_text: 'Więcej informacji tutaj.', subtitles: 'Więcej informacji tutaj.', duration: 10 } : scene);
-const durationReport = evaluateShortStoryboard(tooLong, { maxDurationSeconds: 23 });
+const durationReport = evaluateShortStoryboard(tooLong, { maxDurationSeconds: 25 });
 assert.equal(durationReport.status, 'blocked');
 assert.ok(durationReport.findings.some((finding) => finding.code === 'duration_over_limit'));
 
@@ -235,10 +235,10 @@ const validMedia = evaluateRenderedShort({
   hasAudio: true,
   width: 720,
   height: 1280,
-  durationSeconds: 23.1,
+  durationSeconds: 18.1,
   sizeBytes: 1_200_000,
   requireAudio: true,
-  expectedDurationSeconds: 23
+  expectedDurationSeconds: 18
 });
 assert.equal(validMedia.status, 'pass');
 const extendedMedia = evaluateRenderedShort({
@@ -246,13 +246,13 @@ const extendedMedia = evaluateRenderedShort({
   hasAudio: true,
   width: 720,
   height: 1280,
-  durationSeconds: 27.9,
+  durationSeconds: 24.9,
   sizeBytes: 1_200_000,
   requireAudio: true,
-  maxDurationSeconds: 28,
-  expectedDurationSeconds: 23
+  maxDurationSeconds: 25,
+  expectedDurationSeconds: 18
 });
-assert.equal(extendedMedia.status, 'pass', 'dłuższy lektor może wykorzystać uzgodniony zapas do 28 s');
+assert.equal(extendedMedia.status, 'pass', 'dłuższy lektor może wykorzystać uzgodniony zapas do 25 s');
 assert.equal(extendedMedia.findings.some((finding) => finding.code === 'output_duration_off_target'), false);
 
 const truncatedMedia = evaluateRenderedShort({
@@ -260,11 +260,11 @@ const truncatedMedia = evaluateRenderedShort({
   hasAudio: true,
   width: 720,
   height: 1280,
-  durationSeconds: 19.5,
+  durationSeconds: 14.5,
   sizeBytes: 1_200_000,
   requireAudio: true,
-  maxDurationSeconds: 28,
-  expectedDurationSeconds: 23
+  maxDurationSeconds: 25,
+  expectedDurationSeconds: 18
 });
 assert.equal(truncatedMedia.status, 'review', 'zbyt krótki film nadal wymaga kontroli');
 assert.ok(truncatedMedia.findings.some((finding) => finding.code === 'output_duration_off_target'));

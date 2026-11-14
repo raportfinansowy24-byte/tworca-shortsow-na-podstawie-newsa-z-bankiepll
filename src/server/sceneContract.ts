@@ -1,7 +1,7 @@
 export const FINANCE_SHORT_SCENE_COUNT = 8;
 export const MAX_SCENE_COUNT = 8;
-export const TARGET_SHORT_DURATION_SECONDS = 23;
-export const MAX_SHORT_DURATION_SECONDS = 28;
+export const TARGET_SHORT_DURATION_SECONDS = 18;
+export const MAX_SHORT_DURATION_SECONDS = 25;
 export const SCENE_NARRATION_PADDING_SECONDS = 0.12;
 
 export function getSceneCountError(expectedSceneCount: unknown, actualSceneCount: number): string | null {
@@ -94,7 +94,7 @@ export function sceneDurationsWithNarration(
   // First reserve enough time for every complete spoken segment. Only then
   // distribute the optional scene tails from the remaining global budget.
   // A fixed 0.12s per scene could add 0.96s to an eight-scene Short and push
-  // a valid 27.9s narration past the agreed 28s cap.
+  // a valid narration past the agreed 25s hard cap.
   const durationsWithPaddingScale = (paddingScale: number) => baseSceneDurations.map((baseDuration, index) => {
     const narrationDuration = narrationDurations[index];
     if (narrationDuration === null || narrationDuration === undefined) return baseDuration;
