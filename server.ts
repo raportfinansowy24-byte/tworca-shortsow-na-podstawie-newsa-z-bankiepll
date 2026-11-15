@@ -2002,7 +2002,7 @@ export const ELEVEN_VOICES_MAP: Record<string, string> = {
   'eleven_george': 'JBFqnCBsd6RMkjVDRZzb',
   'eleven_liam': 'TX3LPaxmHKxFdv7VOQHJ'
 };
-export const DEFAULT_ELEVENLABS_VOICE_ID = 'onwK4e9ZLuTAKqWW03F9'; // Daniel - Steady Broadcaster (premade)
+export const DEFAULT_ELEVENLABS_VOICE_ID = '04BD7Fenyf9Ysq983wrd'; // Oscar - Energetic & Direct (Polish Shorts default)
 
 type ElevenLabsAlignment = {
   characters?: string[];
