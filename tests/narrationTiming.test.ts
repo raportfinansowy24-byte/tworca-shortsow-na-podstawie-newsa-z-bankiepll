@@ -71,6 +71,7 @@ const revised = await fitNarrationBeforeTts({
   speed: 1,
   targetDurationSeconds: 18,
   maxTotalDurationSeconds: 25,
+  maxRevisionAttempts: 2,
   revise: async ({ sceneTexts, attemptNumber }) => {
     revisionCalls++;
     const candidate = [...sceneTexts];
