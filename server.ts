@@ -2736,7 +2736,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
 TWARDY WARUNEK: łączna liczba jednostek mowy po korekcie nie może przekroczyć ${maxNarrationSpeechUnits} (obecnie ${currentNarrationSpeechUnits}; CTA zablokowane zajmuje ${lockedCtaSpeechUnits}). Jednostka mowy to słowo plus niewielki koszt interpunkcji. Musisz skrócić tekst na tyle, by zmieścił się w tym budżecie — samo kosmetyczne skrócenie nie wystarczy.
 
 Zadanie: skróć WYŁĄCZNIE przekazane kwestie lektora tak, aby łączna estymacja weszła w cel. Zachowaj kluczowy sens, kierunek zmian (wzrost/spadek), nazwy podmiotów oraz wszystkie liczby, daty i wartości. Nie dodawaj faktów, ocen, obietnic ani nowych zależności. Usuń powtórzenia, wstępy i wypełniacze. Używaj naturalnego, mówionego polskiego. Każda zmieniona kwestia ma być wyraźnie krótsza. Nie zmieniaj kolejności scen.
-CTA ostatniej sceny jest zablokowane i nie wolno go zmieniać. Nie zwracaj go w odpowiedzi.`;
+CTA ostatniej sceny jest zablokowane i nie wolno go zmieniać. Nie zwracaj go w odpowiedzi.
 
 Kontekst źródłowy (wyłącznie do kontroli faktów):
 ${sourceContext || '[brak dodatkowego kontekstu; nie dodawaj żadnych faktów]'}
