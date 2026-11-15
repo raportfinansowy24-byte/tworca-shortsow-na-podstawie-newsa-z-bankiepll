@@ -147,7 +147,7 @@ let fourStepCalls = 0;
 const fourStepFit = await fitNarrationBeforeTts({
   sceneTexts: fourStepTexts,
   baseSceneDurations: base,
-  secondsPerSpeechUnit: 0.8,
+  secondsPerSpeechUnit: 0.43,
   speed: 1,
   targetDurationSeconds: 18,
   maxTotalDurationSeconds: 25,
