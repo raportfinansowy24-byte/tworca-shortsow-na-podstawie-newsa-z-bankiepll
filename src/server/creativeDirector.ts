@@ -137,6 +137,11 @@ ZASADY RZETELNOŚCI:
 - Każda scena 1–7 musi zawierać sourceEvidence: krótki dosłowny cytat z tytułu/opisu/streszczenia artykułu, który wspiera jej wypowiedź. Każda liczba z lektora musi być w tym cytacie. Nie twórz cytatów. CTA (scena 8) może mieć pusty sourceEvidence.
 - Jeśli fakt wymaga potwierdzenia, dodaj go do riskFlags.
 - Hook ma być mocny, ale nie może sugerować spisku ani wprowadzać w błąd.
+- REŻYSERIA GŁOSU: hook prowadź z zaciekawieniem i energią; fakty podawaj pewnie i wyraźnie; ryzyko lub stratę przedstawiaj poważnie, ale spokojnie; pozytywną szansę — optymistycznie, bez reklamowego entuzjazmu; wyjaśnienie — rzeczowo i naturalnie; CTA — zdecydowanie i bez nachalności.
+- Każdy beat ma mieć jedną dominującą emocję. Zmieniaj ton wyłącznie przy zmianie sensu wypowiedzi, nie losowo między zdaniami.
+- Pisz tekst do wypowiedzenia na głos: krótkie, naturalne zdania; interpunkcja ma pomagać w pauzach i akcentach. Ważne kwoty, liczby i konsekwencje umieszczaj w czytelnych frazach.
+- Nie używaj krzyku, teatralnej gry, sztucznego napięcia ani straszenia. Emocja musi wynikać z faktów artykułu.
+- Nie dopisuj w tekście lektora nazw emocji ani instrukcji w nawiasach kwadratowych. Warstwa TTS doda obsługiwane znaczniki tylko wtedy, gdy wybrany model ElevenLabs je obsługuje.
 - Ostatnia scena musi zawierać jawne, wypowiadane CTA z adresem „raport-finansowy24.pl”; nie skracaj ani nie usuwaj domeny.
 - Odpowiedź zwróć wyłącznie jako poprawny JSON zgodny z wymaganym kształtem.
 

@@ -24,6 +24,7 @@
     "test:scene-contract": "tsx tests/sceneContract.test.ts",
     "test:narration-timing": "tsx tests/narrationTiming.test.ts",
     "test:creative-director": "tsx tests/creativeDirector.test.ts",
+    "test:emotional-direction": "tsx tests/emotionalDirection.test.ts",
     "test:campaign-tracking": "tsx tests/campaignTracking.test.ts",
     "test:render-optimizations": "tsx tests/renderOptimizations.test.ts",
     "test:qa-repair": "tsx tests/qaRepair.test.ts",
