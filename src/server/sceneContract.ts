@@ -1,6 +1,7 @@
 export const FINANCE_SHORT_SCENE_COUNT = 8;
 export const MAX_SCENE_COUNT = 8;
-export const TARGET_SHORT_DURATION_SECONDS = 25;
+export const MIN_SHORT_DURATION_SECONDS = 18;
+export const TARGET_SHORT_DURATION_SECONDS = MIN_SHORT_DURATION_SECONDS;
 export const MAX_SHORT_DURATION_SECONDS = 25;
 export const SCENE_NARRATION_PADDING_SECONDS = 0.12;
 
@@ -61,9 +62,9 @@ export function sceneDurationsForCount(sceneCount: number): number[] {
 }
 
 /**
- * Extend each scene just enough to contain its natural TTS audio.
- * This preserves the selected ElevenLabs speed and prevents FFmpeg from
- * truncating narration. The total video remains bounded.
+ * Size each scene from its actual TTS segment plus a short natural tail.
+ * The baseline duration is used only when no aligned speech segment exists.
+ * This prevents short narration from being stretched with artificial silence.
  */
 export function sceneDurationsWithNarration(
   baseSceneDurations: number[],
@@ -91,14 +92,13 @@ export function sceneDurationsWithNarration(
     }
   });
 
-  // First reserve enough time for every complete spoken segment. Only then
-  // distribute the optional scene tails from the remaining global budget.
-  // A fixed 0.12s per scene could add 0.96s to an eight-scene Short and push
-  // a valid narration past the agreed 25s hard cap.
+  // A supplied alignment is authoritative: do not stretch a speech segment
+  // to the old storyboard allocation. Missing alignment alone uses the base.
+  // Padding is reduced uniformly only when the full Short approaches the 25s cap.
   const durationsWithPaddingScale = (paddingScale: number) => baseSceneDurations.map((baseDuration, index) => {
     const narrationDuration = narrationDurations[index];
     if (narrationDuration === null || narrationDuration === undefined) return baseDuration;
-    return Math.max(baseDuration, narrationDuration + narrationPaddingSeconds * paddingScale);
+    return narrationDuration + narrationPaddingSeconds * paddingScale;
   });
   const totalDuration = (durations: number[]) => durations.reduce((sum, duration) => sum + duration, 0);
   const unpaddedDurations = durationsWithPaddingScale(0);

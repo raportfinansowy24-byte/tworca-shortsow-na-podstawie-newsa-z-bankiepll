@@ -1,5 +1,5 @@
 import { evaluateSourceEvidence } from './sourceFactQa';
-import { isSafeFinanceDataVisualSvg, MAX_SHORT_DURATION_SECONDS, TARGET_SHORT_DURATION_SECONDS } from './sceneContract';
+import { isSafeFinanceDataVisualSvg, MAX_SHORT_DURATION_SECONDS, MIN_SHORT_DURATION_SECONDS, TARGET_SHORT_DURATION_SECONDS } from './sceneContract';
 
 export type ShortsEditorQaSeverity = 'blocker' | 'warning';
 export type ShortsEditorQaStatus = 'pass' | 'review' | 'blocked';
@@ -358,8 +358,12 @@ export function evaluateRenderedShort(metrics: RenderedShortMetrics): ShortsEdit
     if (Number(metrics.durationSeconds) > maxDurationSeconds + 0.25) {
       addFinding({ code: 'output_over_duration_limit', severity: 'blocker', message: `Gotowy film trwa ${Number(metrics.durationSeconds).toFixed(2)} s; limit wynosi ${maxDurationSeconds} s.` });
     }
-    if (Number(metrics.durationSeconds) < 6) {
-      addFinding({ code: 'output_too_short', severity: 'warning', message: `Gotowy film trwa tylko ${Number(metrics.durationSeconds).toFixed(2)} s.` });
+    if (Number(metrics.durationSeconds) < MIN_SHORT_DURATION_SECONDS - 0.001) {
+      addFinding({
+        code: 'output_under_minimum_duration',
+        severity: 'blocker',
+        message: `Gotowy film trwa ${Number(metrics.durationSeconds).toFixed(2)} s; minimum wynosi ${MIN_SHORT_DURATION_SECONDS} s.`
+      });
     }
     // Longer speech-led renders may use the explicitly allowed reserve up to maxDurationSeconds.
     // Do not warn merely because a valid narration expanded beyond the 18s editorial target.
