@@ -110,6 +110,31 @@ export async function recordPipelineRun(run: PipelineRunRecord): Promise<void> {
   warnError('recordPipelineRun', error);
 }
 
+export interface AutopilotPipelineRunRecord {
+  runId: string;
+  jobId: string;
+  title: string;
+  articleUrl?: string;
+  niche?: string;
+  hookText?: string;
+  source?: string;
+  plan: Record<string, unknown>;
+  status: 'queued' | 'rendering' | 'completed' | 'failed' | 'cancelled';
+}
+
+/** Persist non-Finance-v2 Auto-Pilot runs in the same durable pipeline history. */
+export async function recordAutopilotPipelineRun(run: AutopilotPipelineRunRecord): Promise<void> {
+  const supabase = getClient();
+  if (!supabase) return;
+  const { error } = await supabase.from('short_pipeline_runs').upsert({
+    id: run.runId, job_id: run.jobId, plan_id: run.runId, source: run.source || 'autopilot',
+    status: run.status, title: run.title, article_url: run.articleUrl || null, niche: run.niche || 'Finanse & Biznes',
+    hook_text: run.hookText || '', cta_text: '', selected_hook_variant: run.hookText || '',
+    facts: [], plan: run.plan, quality_gate: {}, architecture: []
+  }, { onConflict: 'id' });
+  warnError('recordAutopilotPipelineRun', error);
+}
+
 export async function recordHookVariants(runId: string, variants: HookVariantRecord[]): Promise<void> {
   const supabase = getClient();
   if (!supabase || variants.length === 0) return;
