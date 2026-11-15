@@ -71,6 +71,7 @@ const revised = await fitNarrationBeforeTts({
   speed: 1,
   targetDurationSeconds: 18,
   maxTotalDurationSeconds: 25,
+  maxRevisionAttempts: 2,
   revise: async ({ sceneTexts, attemptNumber }) => {
     revisionCalls++;
     const candidate = [...sceneTexts];
@@ -84,6 +85,31 @@ assert.equal(revisionCalls, 2);
 assert.equal(revised.revisionAttempts, 2);
 assert.ok(revised.totalEstimatedDurationSeconds <= 25);
 assert.equal(revised.sceneTexts[revised.sceneTexts.length - 1], longTexts[longTexts.length - 1], 'CTA ostatniej sceny pozostaje bez zmian');
+
+const fourStepTexts = [
+  Array.from({ length: 40 }, () => 'konkret').join(' ') + '.',
+  ...shortTexts.slice(1)
+];
+let fourStepCalls = 0;
+const fourStepFit = await fitNarrationBeforeTts({
+  sceneTexts: fourStepTexts,
+  baseSceneDurations: base,
+  secondsPerSpeechUnit: 0.8,
+  speed: 1,
+  targetDurationSeconds: 18,
+  maxTotalDurationSeconds: 25,
+  maxRevisionAttempts: 4,
+  revise: async ({ sceneTexts, attemptNumber }) => {
+    fourStepCalls++;
+    const candidate = [...sceneTexts];
+    const wordCounts = [35, 30, 20, 10];
+    candidate[0] = Array.from({ length: wordCounts[attemptNumber - 1] }, () => 'konkret').join(' ') + '.';
+    return candidate;
+  }
+});
+assert.equal(fourStepCalls, 4, 'narration fit keeps revising beyond the former two-attempt ceiling');
+assert.equal(fourStepFit.revisionAttempts, 4);
+assert.ok(fourStepFit.totalEstimatedDurationSeconds <= 25, 'fourth verified edit fits the 25-second hard cap');
 
 const longSceneSevenTexts = [...shortTexts];
 longSceneSevenTexts[6] = Array.from({ length: 30 }, () => 'konkret').join(' ') + '.';
@@ -188,7 +214,7 @@ await assert.rejects(() => fitNarrationBeforeTts({
     return longTexts;
   }
 }), /TTS nie został uruchomiony/);
-assert.ok(revisionAttemptsForHardFail <= 2);
+assert.ok(revisionAttemptsForHardFail <= 4);
 
 await assert.rejects(() => fitNarrationBeforeTts({
   sceneTexts: longTexts,
