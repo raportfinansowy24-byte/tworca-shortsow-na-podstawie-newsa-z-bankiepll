@@ -275,7 +275,7 @@ export async function fitNarrationBeforeTts(input: {
     throw new Error('Nieprawidłowa konfiguracja limitów estymacji narracji.');
   }
 
-  const maxRevisionAttempts = Math.min(2, Math.max(0, Math.floor(input.maxRevisionAttempts ?? 2)));
+  const maxRevisionAttempts = Math.min(4, Math.max(0, Math.floor(input.maxRevisionAttempts ?? 4)));
   let currentTexts = [...sceneTexts];
   let revisionAttempts = 0;
   let rejectedLongerRevisionAttempts = 0;
