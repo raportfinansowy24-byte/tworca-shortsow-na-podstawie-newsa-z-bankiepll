@@ -57,7 +57,7 @@ import { buildFinancialChartSvg } from './src/server/financeChartVisual';
 import { selectAdaptiveBackgroundMusic } from './src/server/adaptiveMusicStrategy';
 import { generateHighlightBoardAss, type HighlightBoardOptions } from './src/server/highlightBoards';
 import { buildAudioMixFilter, buildMotionFilter, generateSceneSoundEffect, motionSoundSpecForBeat } from './src/server/motionSoundRenderer';
-import { getLearningSignals, recordHookVariants, recordPipelineEvent, recordPipelineRun, recordRetentionMetric, updatePipelineRunStatus } from './src/server/pipelineTelemetry';
+import { getLearningSignals, recordHookVariants, recordPipelineEvent, recordPipelineRun, recordAutopilotPipelineRun, recordRetentionMetric, updatePipelineRunStatus } from './src/server/pipelineTelemetry';
 import { buildShortsEditorQaRevisionInstruction, evaluateRenderedShort, evaluateShortStoryboard, hasNarrationWithinWordRanges, shouldBlockQa } from './src/server/shortsEditorQa';
 import { buildVisualAnalysisUnavailableReport, buildVisualSemanticReport, parseCompleteVisualSemanticResponse, type VisualSemanticReport, type VisualSemanticSample } from './src/server/shortsVisualSemanticQa';
 import { applyQaRepairAssets, buildQaRepairFailureReport, executeQaRepairOnce, QaRepairCancelledError, resolveUniqueQaRepairAssets, selectQaRepairCandidates, validatedPexelsRepairMetadata } from './src/server/qaRepair';
@@ -8757,6 +8757,12 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
     jobsStore.set(jobId, newJob);
     saveJobsToDisk();
     queueShortJobSnapshot(newJob as ShortJobSnapshot, true);
+    void recordAutopilotPipelineRun({
+      runId: jobId, jobId, title: candidate.title, articleUrl: candidate.link,
+      niche: String(candidate.category || schedulerState.niche || 'Finanse & Biznes'),
+      hookText: String(scriptData.scenes?.[0]?.voiceover_text || scriptData.scenes?.[0]?.caption || ''),
+      source: isOneOffTest ? 'autopilot-test' : 'autopilot', plan: scriptData as unknown as Record<string, unknown>, status: 'queued'
+    });
 
     // 5. Zapisz wpis w historii schedulera z prognozą dochodu i algorytmem Virality Score przed renderem
     const projectedEarnings = calculateProjectedVideoEarnings(candidate.title, candidate.category);
@@ -8794,6 +8800,7 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
         const finishedJob = jobsStore.get(jobId);
         if (finishedJob?.status === 'completed') {
           runRecord.status = 'completed';
+          void updatePipelineRunStatus(jobId, 'completed', jobId);
           runRecord.videoUrl = finishedJob.outputUrl;
           runRecord.outputFilename = finishedJob.outputFilename;
           runRecord.duration = finishedJob.duration;
@@ -8801,6 +8808,7 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
           markAutopilotArticleCompleted(candidate.link);
         } else {
           runRecord.status = 'failed';
+          void updatePipelineRunStatus(jobId, 'failed', jobId, { quality_gate: { error: finishedJob?.error || 'Błąd renderowania wideo' } });
           runRecord.error = finishedJob?.error || 'Błąd renderowania wideo';
           queueFailedAutopilotArticle(candidate, runRecord.error, jobId);
           schedulerState.lastRunStatus = 'failed';
@@ -8809,6 +8817,7 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
       })
       .catch((err) => {
         runRecord.status = 'failed';
+        void updatePipelineRunStatus(jobId, 'failed', jobId, { quality_gate: { error: (err as Error).message } });
         runRecord.error = (err as Error).message;
         queueFailedAutopilotArticle(candidate, runRecord.error, jobId);
         schedulerState.lastRunStatus = 'failed';
