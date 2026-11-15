@@ -191,7 +191,7 @@ assert.ok(sceneSevenFit.totalEstimatedDurationSeconds <= 25, 'the safe hard limi
 async function assertNumericRewriteIsRejected(originalText: string, revisedText: string, label: string): Promise<void> {
   let calls = 0;
   const sceneTexts = [originalText, ...shortTexts.slice(1)];
-  const safeShorterText = originalText.replace(/^(?:konkret\\s+){8}/u, '');
+  const safeShorterText = originalText.replace(/^(?:konkret\s+){8}/u, '');
   const result = await fitNarrationBeforeTts({
     sceneTexts,
     baseSceneDurations: base,
