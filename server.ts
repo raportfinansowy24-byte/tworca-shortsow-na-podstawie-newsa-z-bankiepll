@@ -44,7 +44,7 @@ import {
 } from './src/server/telegramApproval';
 import { classifyTelegramChatMessage } from './src/server/telegramChatCommands';
 import { FINANCE_SHORT_SCENE_COUNT, getSceneCountError, hasCompleteFinanceSceneVisualAssets, isSafeFinanceDataVisualSvg, MAX_SHORT_DURATION_SECONDS, TARGET_SHORT_DURATION_SECONDS, sceneDurationsForCount, sceneDurationsWithNarration, sceneRequestMetadata } from './src/server/sceneContract';
-import { emptyNarrationCalibrationStore, fitNarrationBeforeTts, getCalibratedSecondsPerSpeechUnit, getNarrationCalibrationProfileKey, parseNarrationCalibrationStore, recordNarrationCalibrationSamples, type NarrationCalibrationSample } from './src/server/narrationTiming';
+import { countNarrationSpeechUnits, emptyNarrationCalibrationStore, fitNarrationBeforeTts, getCalibratedSecondsPerSpeechUnit, getNarrationCalibrationProfileKey, parseNarrationCalibrationStore, recordNarrationCalibrationSamples, type NarrationCalibrationSample } from './src/server/narrationTiming';
 import { buildCtaPolicyPrompt, selectFinanceCta } from './src/server/financeCtaStrategy';
 import { nextTelegramRevisionNumber, normalizeTelegramFeedback } from './src/server/telegramRevision';
 import { publishApprovedShortToPostiz } from './src/server/postizPublisher';
@@ -2698,7 +2698,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
         speed: ttsSpeed,
         targetDurationSeconds: TARGET_SHORT_DURATION_SECONDS,
         maxTotalDurationSeconds: MAX_SHORT_DURATION_SECONDS,
-        maxRevisionAttempts: 2,
+        maxRevisionAttempts: 4,
         revise: hasEditorialModel ? async (revision) => {
           const lastSceneIndex = revision.sceneTexts.length - 1;
           const editableSceneIndexes = revision.sceneTexts
@@ -2716,16 +2716,27 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
             (payload as any).bankierArticle?.description,
             (payload as any).bankierArticle?.summary
           ].filter((value) => typeof value === 'string' && value.trim()).join('\\n').slice(0, 5000);
+          const maxNarrationSpeechUnits = Math.max(1, Math.floor(
+            (revision.targetDurationSeconds - revision.sceneTexts.length * 0.12) *
+            Math.min(1.2, Math.max(0.7, ttsSpeed)) / calibratedSecondsPerUnit
+          ));
+          const currentNarrationSpeechUnits = revision.sceneTexts.reduce(
+            (sum, text) => sum + countNarrationSpeechUnits(text), 0
+          );
+          const lockedCtaSpeechUnits = countNarrationSpeechUnits(revision.sceneTexts[lastSceneIndex]);
           const scenePayload = targetIndexes.map((sceneIndex) => ({
             sceneIndex,
             voiceover_text: revision.sceneTexts[sceneIndex],
+            speechUnits: countNarrationSpeechUnits(revision.sceneTexts[sceneIndex]),
             estimatedDurationSeconds: Number(revision.estimatedSceneDurations[sceneIndex].toFixed(2)),
             baseBudgetSeconds: baseSceneDurations[sceneIndex]
           }));
-          const prompt = `Poprawiasz polski lektor do finansowego Shorta. Szacowany łączny czas narracji wynosi ${revision.totalEstimatedDurationSeconds.toFixed(2)} s; cel to ${revision.targetDurationSeconds} s, absolutny limit to ${revision.maxTotalDurationSeconds} s. To próba redakcyjna ${revision.attemptNumber}/2.
+          const prompt = `Poprawiasz polski lektor do finansowego Shorta. Szacowany łączny czas narracji wynosi ${revision.totalEstimatedDurationSeconds.toFixed(2)} s; cel to ${revision.targetDurationSeconds} s, absolutny limit to ${revision.maxTotalDurationSeconds} s. To próba redakcyjna ${revision.attemptNumber}/4.
 
-Zadanie: skróć WYŁĄCZNIE przekazane kwestie lektora tak, aby zmniejszyć przewidywany czas. Zachowaj najważniejszy sens, kierunek zmian (wzrost/spadek), nazwy podmiotów i wszystkie liczby, daty oraz wartości występujące w tekście. Nie dodawaj faktów, ocen, obietnic ani nowych zależności. Nie dopisuj wypełniaczy. Używaj naturalnego, mówionego polskiego. Tekst każdej zmienionej sceny musi być krótszy od oryginału. Nie zmieniaj kolejności scen.
-CTA ostatniej sceny jest zablokowane i nie wolno go zmieniać. Nie zwracaj go w odpowiedzi.
+TWARDY WARUNEK: łączna liczba jednostek mowy po korekcie nie może przekroczyć ${maxNarrationSpeechUnits} (obecnie ${currentNarrationSpeechUnits}; CTA zablokowane zajmuje ${lockedCtaSpeechUnits}). Jednostka mowy to słowo plus niewielki koszt interpunkcji. Musisz skrócić tekst na tyle, by zmieścił się w tym budżecie — samo kosmetyczne skrócenie nie wystarczy.
+
+Zadanie: skróć WYŁĄCZNIE przekazane kwestie lektora tak, aby łączna estymacja weszła w cel. Zachowaj kluczowy sens, kierunek zmian (wzrost/spadek), nazwy podmiotów oraz wszystkie liczby, daty i wartości. Nie dodawaj faktów, ocen, obietnic ani nowych zależności. Usuń powtórzenia, wstępy i wypełniacze. Używaj naturalnego, mówionego polskiego. Każda zmieniona kwestia ma być wyraźnie krótsza. Nie zmieniaj kolejności scen.
+CTA ostatniej sceny jest zablokowane i nie wolno go zmieniać. Nie zwracaj go w odpowiedzi.`;
 
 Kontekst źródłowy (wyłącznie do kontroli faktów):
 ${sourceContext || '[brak dodatkowego kontekstu; nie dodawaj żadnych faktów]'}
@@ -2776,7 +2787,7 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"króts
             }
             return nextTexts;
           } catch (error) {
-            console.warn(`[Narration preflight] Redakcja ${revision.attemptNumber}/2 nie powiodła się: ${(error as Error).message}`);
+            console.warn(`[Narration preflight] Redakcja ${revision.attemptNumber}/4 nie powiodła się: ${(error as Error).message}`);
             return null;
           }
         } : undefined
@@ -2789,13 +2800,13 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"króts
           scenes[index].subtitles = sceneSpeechTexts[index];
         }
       }
-      console.info(`[Narration preflight] estimate=${fit.totalEstimatedDurationSeconds.toFixed(2)}s; target=${TARGET_SHORT_DURATION_SECONDS}s; hardCap=${MAX_SHORT_DURATION_SECONDS}s; revisions=${fit.revisionAttempts}/2; rejectedLongerEdits=${fit.rejectedLongerRevisionAttempts}; rejectedNumericEdits=${fit.rejectedNumericRevisionAttempts}; calibration=${calibratedSecondsPerUnit.toFixed(3)}s/unit; profileSamples=${calibrationStore.profiles[calibrationProfileKey]?.length || 0}.`);
+      console.info(`[Narration preflight] estimate=${fit.totalEstimatedDurationSeconds.toFixed(2)}s; target=${TARGET_SHORT_DURATION_SECONDS}s; hardCap=${MAX_SHORT_DURATION_SECONDS}s; revisions=${fit.revisionAttempts}/4; rejectedLongerEdits=${fit.rejectedLongerRevisionAttempts}; rejectedNumericEdits=${fit.rejectedNumericRevisionAttempts}; calibration=${calibratedSecondsPerUnit.toFixed(3)}s/unit; profileSamples=${calibrationStore.profiles[calibrationProfileKey]?.length || 0}.`);
       updateJobProgress(
         jobId,
         { step: 'Estymacja narracji przed TTS', progress: 11 },
         fit.reachedTargetDuration
-          ? `Szacowana narracja: ${fit.totalEstimatedDurationSeconds.toFixed(2)} s. CTA zachowane; korekty tekstu: ${fit.revisionAttempts}/2, odrzucone dłuższe: ${fit.rejectedLongerRevisionAttempts}, odrzucone zmieniające liczby: ${fit.rejectedNumericRevisionAttempts}. Dopiero teraz rozpocznie się TTS.`
-          : `Szacowana narracja: ${fit.totalEstimatedDurationSeconds.toFixed(2)} s. Używam awaryjnego zapasu do ${MAX_SHORT_DURATION_SECONDS} s po ${fit.revisionAttempts}/2 korektach; odrzucone dłuższe: ${fit.rejectedLongerRevisionAttempts}, odrzucone zmieniające liczby: ${fit.rejectedNumericRevisionAttempts}. Dopiero teraz rozpocznie się TTS.`
+          ? `Szacowana narracja: ${fit.totalEstimatedDurationSeconds.toFixed(2)} s. CTA zachowane; korekty tekstu: ${fit.revisionAttempts}/4, odrzucone dłuższe: ${fit.rejectedLongerRevisionAttempts}, odrzucone zmieniające liczby: ${fit.rejectedNumericRevisionAttempts}. Dopiero teraz rozpocznie się TTS.`
+          : `Szacowana narracja: ${fit.totalEstimatedDurationSeconds.toFixed(2)} s. Używam awaryjnego zapasu do ${MAX_SHORT_DURATION_SECONDS} s po ${fit.revisionAttempts}/4 korektach; odrzucone dłuższe: ${fit.rejectedLongerRevisionAttempts}, odrzucone zmieniające liczby: ${fit.rejectedNumericRevisionAttempts}. Dopiero teraz rozpocznie się TTS.`
       );
     }
 
