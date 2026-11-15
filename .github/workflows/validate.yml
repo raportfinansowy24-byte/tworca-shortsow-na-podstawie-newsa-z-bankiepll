@@ -58,6 +58,8 @@ jobs:
         run: npm run test:campaign-tracking
       - name: Creative Director tests
         run: npm run test:creative-director
+      - name: Emotional TTS direction tests
+        run: npm run test:emotional-direction
       - name: Gemini 4 Hydrogen key routing tests
         run: npm run test:model-routing
       - name: Visual QA provider fallback tests

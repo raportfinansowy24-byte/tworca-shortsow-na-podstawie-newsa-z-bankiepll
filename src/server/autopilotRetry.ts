@@ -123,7 +123,7 @@ export function isCompatibleNarrationRetryCache(
     !Array.isArray(metadata.wordTimings)
   ) return false;
 
-  const expectedWords = expected.text.trim().split(/\s+/u).filter(Boolean);
+  const expectedWords = expected.text.replace(/\[(?:[^\]]+)\]/gu, ' ').trim().split(/\s+/u).filter(Boolean);
   if (metadata.wordTimings.length !== expectedWords.length) return false;
   const normalizeWord = (word: string) => String(word || '').toLocaleLowerCase('pl-PL')
     .normalize('NFD')

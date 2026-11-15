@@ -62,6 +62,7 @@ import { buildShortsEditorQaRevisionInstruction, evaluateRenderedShort, evaluate
 import { buildVisualAnalysisUnavailableReport, buildVisualSemanticReport, parseCompleteVisualSemanticResponse, type VisualSemanticReport, type VisualSemanticSample } from './src/server/shortsVisualSemanticQa';
 import { applyQaRepairAssets, buildQaRepairFailureReport, executeQaRepairOnce, QaRepairCancelledError, resolveUniqueQaRepairAssets, selectQaRepairCandidates, validatedPexelsRepairMetadata } from './src/server/qaRepair';
 import { buildConcatArgs, FAST_H264_OPTIONS, isValidConcatenatedVideo } from './src/server/renderOptimizations';
+import { buildEmotionallyDirectedNarration } from './src/server/emotionalDirection';
 import { getDeploymentInfo } from './src/server/deploymentInfo';
 import { retryVisualQa, runVisualQaWithFallback } from './src/server/visualQaProviders';
 import { splitNarrationAlignmentByScenes } from './src/server/singleNarration';
@@ -2104,10 +2105,16 @@ async function generateElevenLabsAudio(
   const actualVoiceId = resolveElevenLabsVoiceId(voiceId);
   const safeSpeed = Math.max(0.7, Math.min(Number.isFinite(speed) ? speed : 1.0, 1.2));
   const modelId = process.env.ELEVENLABS_MODEL_ID?.trim() || 'eleven_multilingual_v2';
-  const voiceSettings = { stability: 0.75, similarity_boost: 0.8, style: 0, use_speaker_boost: true, speed: safeSpeed };
+  // Lower stability gives the existing voice more room for natural intonation without changing its identity.
+  // v3/v4 use audio tags for emotional direction and have different supported voice-setting fields.
+  const voiceSettings = /^eleven_v4(?:_turbo)?$/.test(modelId)
+    ? { stability: 0.52, similarity_boost: 0.8 }
+    : modelId === 'eleven_v3'
+      ? { stability: 0.52 }
+      : { stability: 0.58, similarity_boost: 0.8, style: 0, use_speaker_boost: true, speed: safeSpeed };
   if (text.length > 4500) throw new Error('Łączny tekst narracji przekracza limit bezpiecznej pojedynczej syntezy ElevenLabs (4500 znaków).');
   const cacheKey = createHash('sha256').update(JSON.stringify({
-    version: 2,
+    version: 3,
     text,
     voiceId: actualVoiceId,
     modelId,
@@ -2860,6 +2867,11 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
         throw new Error('Każda z ' + scenes.length + ' scen musi zawierać tekst lektora.');
       }
       const fullNarrationText = sceneSpeechTexts.join(' ').replace(/\s+/g, ' ').trim();
+      const configuredTtsModel = process.env.ELEVENLABS_MODEL_ID?.trim() || 'eleven_multilingual_v2';
+      const ttsInputText = buildEmotionallyDirectedNarration(
+        scenes.map((scene, index) => ({ ...scene, voiceover_text: sceneSpeechTexts[index] })),
+        configuredTtsModel
+      );
       const fullNarrationPath = path.join(jobTempDir, 'short_narration_full.mp3');
       const localNarrationMetadataPath = path.join(jobTempDir, 'short_narration_full.json');
       const fullWordTimings: CaptionWordTiming[] = [];
@@ -2870,7 +2882,7 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
       const durableNarrationPath = path.join(narrationRetryCacheDir, safeCacheOwnerId + '.mp3');
       const durableNarrationMetadataPath = path.join(narrationRetryCacheDir, safeCacheOwnerId + '.json');
       const expectedNarrationCache = {
-        text: fullNarrationText,
+        text: ttsInputText,
         language: ttsLanguage,
         voiceId: lockedTtsVoiceId,
         speed: ttsSpeed
@@ -2920,7 +2932,7 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
         fullWordTimings.push(...reusedNarrationCache.wordTimings);
       } else {
         wholeNarrationDuration = await generateTtsAudio(
-          fullNarrationText,
+          ttsInputText,
           ttsLanguage,
           fullNarrationPath,
           jobTempDir,
@@ -2954,7 +2966,7 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
       }
 
       const narrationCacheMetadata: NarrationRetryCacheMetadata = {
-        text: fullNarrationText,
+        text: ttsInputText,
         durationSeconds: wholeNarrationDuration,
         language: ttsLanguage,
         voiceId: lockedTtsVoiceId,
