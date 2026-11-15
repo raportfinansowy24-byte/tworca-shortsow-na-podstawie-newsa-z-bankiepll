@@ -13,6 +13,8 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onJobStarted
   const [loading, setLoading] = useState(false);
   const [runOnceLoading, setRunOnceLoading] = useState(false);
   const [retryLoading, setRetryLoading] = useState(false);
+  const [retryingArticleLink, setRetryingArticleLink] = useState<string | null>(null);
+  const [removingArticleLink, setRemovingArticleLink] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const lastNotifiedJobId = useRef<string | null>(null);
   const hasLoadedInitialState = useRef(false);
@@ -73,11 +75,16 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onJobStarted
     }
   };
 
-  const handleRetryFailed = async () => {
+  const handleRetryFailed = async (articleLink?: string) => {
     if (!schedulerState || retryLoading || runOnceLoading || schedulerState.lastRunStatus === 'running') return;
     setRetryLoading(true);
+    if (articleLink) setRetryingArticleLink(articleLink);
     try {
-      const response = await fetch('/api/autopilot/scheduler/retry-failed', { method: 'POST' });
+      const response = await fetch('/api/autopilot/scheduler/retry-failed', {
+        method: 'POST',
+        headers: articleLink ? { 'Content-Type': 'application/json' } : undefined,
+        body: articleLink ? JSON.stringify({ articleLink }) : undefined
+      });
       const data = await response.json();
       if (!response.ok || data.success !== true) {
         throw new Error(data.error || data.message || 'Nie udało się wznowić nieudanego shorta.');
@@ -98,6 +105,27 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onJobStarted
       await refreshSchedulerState();
     } finally {
       setRetryLoading(false);
+      setRetryingArticleLink(null);
+    }
+  };
+
+  const handleRemoveRetry = async (articleLink: string) => {
+    if (!articleLink || removingArticleLink || retryLoading || schedulerState?.lastRunStatus === 'running') return;
+    setRemovingArticleLink(articleLink);
+    try {
+      const response = await fetch('/api/autopilot/scheduler/retry-failed/remove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ articleLink })
+      });
+      const data = await response.json();
+      if (!response.ok || data.success !== true) throw new Error(data.error || 'Nie udało się usunąć wpisu.');
+      onToast?.('success', 'Usunięto z kolejki', 'Wpis nie będzie już automatycznie ponawiany.');
+      await refreshSchedulerState();
+    } catch (error) {
+      onToast?.('error', 'Nie udało się usunąć wpisu', (error as Error).message);
+    } finally {
+      setRemovingArticleLink(null);
     }
   };
 
@@ -138,7 +166,11 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onJobStarted
       onToggle={() => void handleToggle()}
       onRunOnce={() => void handleRunOnce()}
       onRetryFailed={() => void handleRetryFailed()}
+      onRetryArticle={(articleLink) => void handleRetryFailed(articleLink)}
+      onRemoveRetry={(articleLink) => void handleRemoveRetry(articleLink)}
       retryLoading={retryLoading}
+      retryingArticleLink={retryingArticleLink}
+      removingArticleLink={removingArticleLink}
     />
   );
 };

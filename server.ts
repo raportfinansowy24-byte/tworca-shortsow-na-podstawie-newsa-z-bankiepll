@@ -8492,7 +8492,7 @@ function getNextScheduledRun(dailySlots: string[]) {
   };
 }
 
-async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: string) {
+async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: string, requestedRetryArticleLink?: string) {
   const isOneOffTest = slotTrigger === 'test-render';
   if (schedulerState.lastRunStatus === 'running') {
     console.log('[Autopilot 4x/dobę] Cykl w toku — pomijam nakładające się wywołanie.');
@@ -8509,7 +8509,16 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
     console.log(`[Autopilot 4x/dobę] Uruchamianie autonomicznego startu (Slot: ${slotTrigger})...`);
 
     // 1. Retry queue ma priorytet nad nowymi newsami, aby nie gubić nieudanych shortów.
-    selectedRetryEntry = slotTrigger === 'test-render' ? null : getNextPendingAutopilotRetry(schedulerState.retryQueue || []);
+    selectedRetryEntry = slotTrigger === 'test-render'
+      ? null
+      : requestedRetryArticleLink
+        ? (schedulerState.retryQueue || []).find((entry) => entry.status === 'pending' && entry.article.link === requestedRetryArticleLink) || null
+        : getNextPendingAutopilotRetry(schedulerState.retryQueue || []);
+    if (requestedRetryArticleLink && !selectedRetryEntry) {
+      schedulerState.lastRunStatus = 'failed';
+      saveSchedulerStateToDisk();
+      return { success: false, message: 'Wybrany short nie oczekuje już na ponowienie. Odśwież listę i spróbuj ponownie.' };
+    }
     let candidate: any;
     let viralityScore: ViralityScore;
     let selectionSource: string;
@@ -8998,12 +9007,20 @@ router.post('/autopilot/scheduler/run-now', async (req, res) => {
 
 router.post('/autopilot/scheduler/retry-failed', async (req, res) => {
   await recoverLegacyFailedAutopilotArticle();
-  const pendingRetry = getNextPendingAutopilotRetry(schedulerState.retryQueue || []);
+  const requestedLink = typeof req.body?.articleLink === 'string' ? req.body.articleLink.trim() : '';
+  const pendingRetry = requestedLink
+    ? (schedulerState.retryQueue || []).find((entry) => entry.status === 'pending' && entry.article.link === requestedLink)
+    : getNextPendingAutopilotRetry(schedulerState.retryQueue || []);
   if (!pendingRetry) {
-    return res.status(409).json({ success: false, error: 'Brak nieudanych shortów oczekujących na ponowienie.' });
+    return res.status(409).json({ success: false, error: requestedLink
+      ? 'Wybrany short nie oczekuje już na ponowienie.'
+      : 'Brak nieudanych shortów oczekujących na ponowienie.' });
+  }
+  if (schedulerState.lastRunStatus === 'running') {
+    return res.status(409).json({ success: false, error: 'Inny short jest obecnie renderowany.' });
   }
   const baseUrl = getPublicBaseUrl(req);
-  const result = await executeAutonomousRun('retry-failed', baseUrl);
+  const result = await executeAutonomousRun('retry-failed', baseUrl, pendingRetry.article.link);
   if (!result.success) {
     return res.status(400).json({ ...result, retryArticle: pendingRetry.article });
   }
@@ -9012,6 +9029,17 @@ router.post('/autopilot/scheduler/retry-failed', async (req, res) => {
     retryArticle: pendingRetry.article,
     retriesRemaining: Math.max(0, MAX_AUTOPILOT_RETRY_ATTEMPTS + 1 - pendingRetry.failedAttempts)
   });
+});
+
+router.post('/autopilot/scheduler/retry-failed/remove', async (req, res) => {
+  const articleLink = typeof req.body?.articleLink === 'string' ? req.body.articleLink.trim() : '';
+  if (!articleLink) return res.status(400).json({ success: false, error: 'Brak adresu artykułu.' });
+  const entry = (schedulerState.retryQueue || []).find((item) => item.article.link === articleLink);
+  if (!entry) return res.status(404).json({ success: false, error: 'Nie znaleziono tego wpisu w kolejce.' });
+  schedulerState.retryQueue = resolveAutopilotRetry(schedulerState.retryQueue || [], articleLink);
+  await removeAutopilotRetryArtifacts([entry.lastFailedJobId, entry.retryPayloadJobId]);
+  saveSchedulerStateToDisk();
+  return res.json({ success: true, removedArticleLink: articleLink, retryQueue: schedulerState.retryQueue });
 });
 
 router.post('/autopilot/scheduler/toggle', (req, res) => {

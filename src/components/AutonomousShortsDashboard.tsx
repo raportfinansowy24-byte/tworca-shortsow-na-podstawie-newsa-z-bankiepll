@@ -10,7 +10,11 @@ interface AutonomousShortsDashboardProps {
   onRunOnce: () => void;
   runOnceLoading: boolean;
   onRetryFailed: () => void;
+  onRetryArticle: (articleLink: string) => void;
+  onRemoveRetry: (articleLink: string) => void;
   retryLoading: boolean;
+  retryingArticleLink?: string | null;
+  removingArticleLink?: string | null;
 }
 
 function formatDate(value?: string | null): string {
@@ -35,7 +39,7 @@ function statusLabel(status?: string): string {
   }
 }
 
-export const AutonomousShortsDashboard: React.FC<AutonomousShortsDashboardProps> = ({ state, loading, error, onToggle, onRunOnce, runOnceLoading, onRetryFailed, retryLoading }) => {
+export const AutonomousShortsDashboard: React.FC<AutonomousShortsDashboardProps> = ({ state, loading, error, onToggle, onRunOnce, runOnceLoading, onRetryFailed, onRetryArticle, onRemoveRetry, retryLoading, retryingArticleLink, removingArticleLink }) => {
   const enabled = Boolean(state?.enabled);
   const runOnceDisabled = !state || runOnceLoading || state.lastRunStatus === 'running';
   const history = state?.history || [];
@@ -161,7 +165,7 @@ export const AutonomousShortsDashboard: React.FC<AutonomousShortsDashboardProps>
               <div className="mb-4 flex flex-col gap-1">
                 <h2 className="font-bold text-white">Kolejka ponowień</h2>
                 <p className="text-xs text-slate-400">
-                  Nieudane artykuły są zachowane. Przy następnym cyklu zostaną wznowione przed nowymi newsami; można też użyć przycisku ponowienia. Po dwóch dodatkowych niepowodzeniach próba zostanie oznaczona jako wyczerpana.
+                  Każdy wpis możesz ponowić osobno przyciskiem „Popraw ten short” albo usunąć z kolejki. Globalny przycisk ponawia najstarszy oczekujący wpis. Po wyczerpaniu limitu wpis wymaga ręcznej decyzji.
                 </p>
               </div>
               <div className="space-y-3">
@@ -176,6 +180,27 @@ export const AutonomousShortsDashboard: React.FC<AutonomousShortsDashboardProps>
                     </div>
                     <p className="mt-1 text-sm font-semibold text-white">{entry.article.title}</p>
                     <p className="mt-1 line-clamp-3 text-xs text-rose-300">{entry.lastError}</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {entry.status === 'pending' && (
+                        <button
+                          type="button"
+                          onClick={() => onRetryArticle(entry.article.link)}
+                          disabled={runOnceDisabled || retryLoading || Boolean(retryingArticleLink) || Boolean(removingArticleLink)}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/50 bg-amber-700/70 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <RefreshCw className={retryingArticleLink === entry.article.link ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'} />
+                          {retryingArticleLink === entry.article.link ? 'Ponawiam…' : 'Popraw ten short'}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => onRemoveRetry(entry.article.link)}
+                        disabled={Boolean(retryingArticleLink) || Boolean(removingArticleLink) || retryLoading}
+                        className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-medium text-slate-300 hover:border-rose-500/60 hover:text-rose-200 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {removingArticleLink === entry.article.link ? 'Usuwam…' : 'Usuń z kolejki'}
+                      </button>
+                    </div>
                   </article>
                 ))}
                 {retryQueue.length > 6 && <p className="text-xs text-slate-500">Pozostałe wpisy: {retryQueue.length - 6}</p>}
