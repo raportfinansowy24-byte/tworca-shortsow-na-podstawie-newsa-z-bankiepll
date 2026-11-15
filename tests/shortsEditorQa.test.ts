@@ -266,8 +266,30 @@ const truncatedMedia = evaluateRenderedShort({
   maxDurationSeconds: 25,
   expectedDurationSeconds: 18
 });
-assert.equal(truncatedMedia.status, 'review', 'zbyt krótki film nadal wymaga kontroli');
+assert.equal(truncatedMedia.status, 'blocked', 'film krótszy niż 18 sekund musi zostać zablokowany');
+assert.ok(truncatedMedia.findings.some((finding) => finding.code === 'output_under_minimum_duration'));
 assert.ok(truncatedMedia.findings.some((finding) => finding.code === 'output_duration_off_target'));
+
+const justBelowMinimum = evaluateRenderedShort({
+  hasVideo: true, hasAudio: true, width: 720, height: 1280,
+  durationSeconds: 17.99, sizeBytes: 1_200_000, requireAudio: true, maxDurationSeconds: 25
+});
+assert.equal(justBelowMinimum.status, 'blocked', '17.99 s must fail the minimum duration gate');
+const exactlyMinimum = evaluateRenderedShort({
+  hasVideo: true, hasAudio: true, width: 720, height: 1280,
+  durationSeconds: 18, sizeBytes: 1_200_000, requireAudio: true, maxDurationSeconds: 25
+});
+assert.equal(exactlyMinimum.status, 'pass', '18.00 s is accepted');
+const exactlyMaximum = evaluateRenderedShort({
+  hasVideo: true, hasAudio: true, width: 720, height: 1280,
+  durationSeconds: 25, sizeBytes: 1_200_000, requireAudio: true, maxDurationSeconds: 25
+});
+assert.equal(exactlyMaximum.status, 'pass', '25.00 s is accepted');
+const beyondMaximum = evaluateRenderedShort({
+  hasVideo: true, hasAudio: true, width: 720, height: 1280,
+  durationSeconds: 25.26, sizeBytes: 1_200_000, requireAudio: true, maxDurationSeconds: 25
+});
+assert.equal(beyondMaximum.status, 'blocked', '25.26 s exceeds the hard duration cap');
 
 
 const brokenMedia = evaluateRenderedShort({

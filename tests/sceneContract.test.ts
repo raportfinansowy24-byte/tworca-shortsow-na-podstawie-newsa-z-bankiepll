@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { getSceneCountError, hasCompleteFinanceSceneVisualAssets, hasUniquePexelsSceneIds, isSafeFinanceDataVisualSvg, MAX_SHORT_DURATION_SECONDS, TARGET_SHORT_DURATION_SECONDS, sceneDurationsForCount, sceneDurationsWithNarration, sceneRequestMetadata } from '../src/server/sceneContract';
+import { getSceneCountError, hasCompleteFinanceSceneVisualAssets, hasUniquePexelsSceneIds, isSafeFinanceDataVisualSvg, MAX_SHORT_DURATION_SECONDS, MIN_SHORT_DURATION_SECONDS, TARGET_SHORT_DURATION_SECONDS, sceneDurationsForCount, sceneDurationsWithNarration, sceneRequestMetadata } from '../src/server/sceneContract';
 import { selectFinanceCta } from '../src/server/financeCtaStrategy';
 
 assert.equal(getSceneCountError(8, 8), null);
@@ -10,12 +10,13 @@ assert.match(getSceneCountError(undefined, 8) || '', /expectedSceneCount musi by
 assert.match(getSceneCountError(0, 0) || '', /expectedSceneCount musi być liczbą całkowitą/);
 assert.match(getSceneCountError(9, 9) || '', /expectedSceneCount musi być liczbą całkowitą/);
 
-assert.deepEqual(sceneDurationsForCount(8), Array(8).fill(25 / 8));
-assert.equal(TARGET_SHORT_DURATION_SECONDS, 25);
+assert.deepEqual(sceneDurationsForCount(8), Array(8).fill(18 / 8));
+assert.equal(MIN_SHORT_DURATION_SECONDS, 18);
+assert.equal(TARGET_SHORT_DURATION_SECONDS, 18);
 assert.equal(MAX_SHORT_DURATION_SECONDS, 25);
 const shortNarrationBudgets = sceneDurationsWithNarration(sceneDurationsForCount(8), Array(8).fill(1));
-assert.ok(Math.abs(shortNarrationBudgets.reduce((sum, duration) => sum + duration, 0) - 25) < 0.001, 'krótszy lektor zachowuje 25-sekundowy storyboard, bez przenoszenia całej ciszy na ostatnią scenę');
-assert.ok(Math.abs(shortNarrationBudgets[7] - 25 / 8) < 0.001, 'ostatnia scena CTA nie otrzymuje sztucznie długiego ogona ciszy');
+assert.ok(Math.abs(shortNarrationBudgets.reduce((sum, duration) => sum + duration, 0) - 8.96) < 0.001, 'krótki lektor nie jest rozciągany do 18 sekund ciszą');
+assert.ok(Math.abs(shortNarrationBudgets[7] - 1.12) < 0.001, 'ostatnia scena CTA dostaje wyłącznie krótki naturalny ogon');
 const durationAtHardCap = sceneDurationsWithNarration([2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5], [8.88, null, null, null, null, null, null, null]);
 assert.ok(Math.abs(durationAtHardCap.reduce((sum, duration) => sum + duration, 0) - 25) < 0.001, 'dopuszcza narrację do uzgodnionego twardego limitu 25 s');
 assert.throws(() => sceneDurationsWithNarration([2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5], [9.01, null, null, null, null, null, null, null]), /Maksymalny czas Shorta to 25 s/);
@@ -71,7 +72,7 @@ assert.throws(
   /Maksymalny czas Shorta to 25 s/
 );
 
-assert.deepEqual(sceneDurationsForCount(4), [6.25, 6.25, 6.25, 6.25]);
+assert.deepEqual(sceneDurationsForCount(4), [4.5, 4.5, 4.5, 4.5]);
 assert.throws(() => sceneDurationsForCount(0), /Liczba scen musi być/);
 const distinctPexels = Array.from({ length: 8 }, (_, i) => ({ source: 'pexels', pexelsId: i + 1 }));
 assert.equal(hasUniquePexelsSceneIds(distinctPexels), true);

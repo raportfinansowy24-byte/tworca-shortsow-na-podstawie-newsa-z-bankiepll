@@ -46,7 +46,16 @@ assert.ok(Math.abs(
 ) < 0.001, 'estymacja bez historii również ma 30% bezpiecznego marginesu');
 
 const base = [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5];
-const shortTexts = ['Raz dwa.', 'Trzy cztery.', 'Pięć sześć.', 'Siedem osiem.', 'Dziewięć.', 'Dziesięć.', 'Jedenaście.', 'Sprawdź raport-finansowy24.pl.'];
+const shortTexts = [
+  'To ważna zmiana dla klientów banków.',
+  'To ważna zmiana dla klientów banków.',
+  'To ważna zmiana dla klientów banków.',
+  'To ważna zmiana dla klientów banków.',
+  'To ważna zmiana dla klientów banków.',
+  'To ważna zmiana dla klientów banków.',
+  'To ważna zmiana dla klientów banków.',
+  'Sprawdź szczegóły na stronie raportu.'
+];
 const noEdit = await fitNarrationBeforeTts({
   sceneTexts: shortTexts,
   baseSceneDurations: base,
@@ -63,6 +72,50 @@ const longTexts = [
   Array.from({ length: 30 }, () => 'konkret').join(' ') + '.',
   ...shortTexts.slice(1)
 ];
+
+const tooShortTexts = [
+  'Krótki fakt.',
+  'Krótki fakt.',
+  'Krótki fakt.',
+  'Krótki fakt.',
+  'Krótki fakt.',
+  'Krótki fakt.',
+  'Krótki fakt.',
+  shortTexts[7]
+];
+let observedExpansionDirection = '';
+const expandedNarration = await fitNarrationBeforeTts({
+  sceneTexts: tooShortTexts,
+  baseSceneDurations: base,
+  secondsPerSpeechUnit: 0.4,
+  speed: 1,
+  targetDurationSeconds: 18,
+  maxTotalDurationSeconds: 25,
+  maxRevisionAttempts: 1,
+  revise: async ({ sceneTexts, direction }) => {
+    observedExpansionDirection = direction;
+    const candidate = [...sceneTexts];
+    for (let index = 0; index < candidate.length - 1; index++) {
+      candidate[index] += ' Ważny kontekst dla klientów.';
+    }
+    return candidate;
+  }
+});
+assert.equal(observedExpansionDirection, 'expand', 'short narration requests source-grounded expansion, not shortening');
+assert.ok(expandedNarration.minimumEstimatedDurationSeconds >= 18, 'expanded narration reaches the minimum using the lower duration estimate');
+assert.ok(expandedNarration.totalEstimatedDurationSeconds <= 25, 'expanded narration stays below the hard cap using the conservative estimate');
+assert.equal(expandedNarration.sceneTexts[7], tooShortTexts[7], 'expansion never changes the final CTA');
+
+await assert.rejects(() => fitNarrationBeforeTts({
+  sceneTexts: tooShortTexts,
+  baseSceneDurations: base,
+  secondsPerSpeechUnit: 0.4,
+  speed: 1,
+  targetDurationSeconds: 18,
+  maxTotalDurationSeconds: 25,
+  maxRevisionAttempts: 1,
+  revise: async () => null
+}), /TTS nie został uruchomiony/, 'an unexpandable source is rejected before TTS');
 let revisionCalls = 0;
 const revised = await fitNarrationBeforeTts({
   sceneTexts: longTexts,
@@ -77,7 +130,7 @@ const revised = await fitNarrationBeforeTts({
     const candidate = [...sceneTexts];
     candidate[0] = attemptNumber === 1
       ? Array.from({ length: 24 }, () => 'konkret').join(' ') + '.'
-      : Array.from({ length: 18 }, () => 'konkret').join(' ') + '.';
+      : Array.from({ length: 14 }, () => 'konkret').join(' ') + '.';
     return candidate;
   }
 });
@@ -94,7 +147,7 @@ let fourStepCalls = 0;
 const fourStepFit = await fitNarrationBeforeTts({
   sceneTexts: fourStepTexts,
   baseSceneDurations: base,
-  secondsPerSpeechUnit: 0.8,
+  secondsPerSpeechUnit: 0.43,
   speed: 1,
   targetDurationSeconds: 18,
   maxTotalDurationSeconds: 25,
@@ -138,6 +191,7 @@ assert.ok(sceneSevenFit.totalEstimatedDurationSeconds <= 25, 'the safe hard limi
 async function assertNumericRewriteIsRejected(originalText: string, revisedText: string, label: string): Promise<void> {
   let calls = 0;
   const sceneTexts = [originalText, ...shortTexts.slice(1)];
+  const safeShorterText = originalText.replace(/^(?:konkret\s+){8}/u, '');
   const result = await fitNarrationBeforeTts({
     sceneTexts,
     baseSceneDurations: base,
@@ -145,18 +199,18 @@ async function assertNumericRewriteIsRejected(originalText: string, revisedText:
     speed: 1,
     targetDurationSeconds: 18,
     maxTotalDurationSeconds: 25,
-    maxRevisionAttempts: 1,
-    revise: async ({ sceneTexts: current }) => {
+    maxRevisionAttempts: 2,
+    revise: async ({ sceneTexts: current, attemptNumber }) => {
       calls++;
       const candidate = [...current];
-      candidate[0] = revisedText;
+      candidate[0] = attemptNumber === 1 ? revisedText : safeShorterText;
       return candidate;
     }
   });
-  assert.equal(calls, 1, `${label}: numeric rewrite was checked`);
+  assert.equal(calls, 2, `${label}: invalid numeric rewrite is rejected before a safe rewrite`);
   assert.equal(result.rejectedNumericRevisionAttempts, 1, `${label}: unsafe candidate was counted as rejected`);
-  assert.equal(result.sceneTexts[0], originalText, `${label}: last verified narration was preserved`);
-  assert.ok(result.totalEstimatedDurationSeconds <= 25, `${label}: the existing narration remains below the hard limit`);
+  assert.equal(result.sceneTexts[0], safeShorterText, `${label}: valid shorter rewrite preserves the original numeric fact`);
+  assert.ok(result.totalEstimatedDurationSeconds <= 25, `${label}: verified rewrite remains below the hard limit`);
 }
 
 const longNumericOriginal = Array.from({ length: 18 }, () => 'konkret').join(' ') + ' Wartość wyniosła 5,2%.';
@@ -230,7 +284,7 @@ await assert.rejects(() => fitNarrationBeforeTts({
   }
 }), /nie może zmieniać końcowego CTA/);
 
-const modestNumberText = (claim: string) => Array.from({ length: 12 }, () => 'konkret').join(' ') + ' ' + claim;
+const modestNumberText = (claim: string) => Array.from({ length: 16 }, () => 'konkret').join(' ') + ' ' + claim;
 await assertNumericRewriteIsRejected(modestNumberText('Wartość wyniosła 5,2%.'), 'Konkretna zmiana bez liczby.', 'usunięcie liczby');
 
 const wordNumberLongTexts = [
