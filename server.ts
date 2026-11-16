@@ -2237,7 +2237,7 @@ async function extractNarrationSceneAudio(
   } catch (error) {
     const ffmpegError = error as { message?: string; stderr?: string };
     const diagnostic = String(ffmpegError.stderr || ffmpegError.message || 'brak szczegółów FFmpeg')
-      .replace(/[\\r\\n]+/g, ' ')
+      .replace(/[\r\n]+/g, ' ')
       .slice(0, 600);
     throw new Error(
       `FFmpeg nie wyciął ${path.basename(destPath)} (start=${startSeconds.toFixed(3)} s, ` +
