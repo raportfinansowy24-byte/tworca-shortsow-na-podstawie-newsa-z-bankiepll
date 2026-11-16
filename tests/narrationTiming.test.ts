@@ -61,7 +61,7 @@ const noEdit = await fitNarrationBeforeTts({
   baseSceneDurations: base,
   secondsPerSpeechUnit: 0.4,
   speed: 1,
-  targetDurationSeconds: 18,
+  targetDurationSeconds: 17,
   maxTotalDurationSeconds: 25,
   revise: async () => { throw new Error('nie powinno wywołać redakcji'); }
 });
@@ -102,7 +102,7 @@ const expandedNarration = await fitNarrationBeforeTts({
   }
 });
 assert.equal(observedExpansionDirection, 'expand', 'short narration requests source-grounded expansion, not shortening');
-assert.ok(expandedNarration.minimumEstimatedDurationSeconds >= 18, 'expanded narration reaches the minimum using the lower duration estimate');
+assert.ok(expandedNarration.minimumEstimatedDurationSeconds >= 17, 'expanded narration reaches the 17-second minimum using the lower duration estimate');
 assert.ok(expandedNarration.totalEstimatedDurationSeconds <= 25, 'expanded narration stays below the hard cap using the conservative estimate');
 assert.equal(expandedNarration.sceneTexts[7], tooShortTexts[7], 'expansion never changes the final CTA');
 

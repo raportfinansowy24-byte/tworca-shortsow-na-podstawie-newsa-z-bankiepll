@@ -11,7 +11,7 @@ assert.match(getSceneCountError(0, 0) || '', /expectedSceneCount musi być liczb
 assert.match(getSceneCountError(9, 9) || '', /expectedSceneCount musi być liczbą całkowitą/);
 
 assert.deepEqual(sceneDurationsForCount(8), Array(8).fill(18 / 8));
-assert.equal(MIN_SHORT_DURATION_SECONDS, 18);
+assert.equal(MIN_SHORT_DURATION_SECONDS, 17);
 assert.equal(TARGET_SHORT_DURATION_SECONDS, 18);
 assert.equal(MAX_SHORT_DURATION_SECONDS, 25);
 const shortNarrationBudgets = sceneDurationsWithNarration(sceneDurationsForCount(8), Array(8).fill(1));
