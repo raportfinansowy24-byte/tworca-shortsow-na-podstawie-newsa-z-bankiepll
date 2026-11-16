@@ -1,5 +1,6 @@
 export const MAX_STORYBOARD_QA_REPAIR_ATTEMPTS = 3;
-export const MAX_AUTOPILOT_RETRY_ATTEMPTS = 2;
+/** null means a failed article may be retried indefinitely across separate runs. */
+export const MAX_AUTOPILOT_RETRY_ATTEMPTS: number | null = null;
 export const MAX_AUTOPILOT_RETRY_QUEUE_SIZE = 50;
 
 export interface RetryableAutopilotArticle {
@@ -30,7 +31,7 @@ export function recordAutopilotFailure(
   error: string,
   jobId?: string,
   now = new Date().toISOString(),
-  maxRetries = MAX_AUTOPILOT_RETRY_ATTEMPTS
+  maxRetries: number | null = MAX_AUTOPILOT_RETRY_ATTEMPTS
 ): AutopilotRetryEntry[] {
   const key = String(article.link || article.title || '').trim();
   if (!key) return entries;
@@ -42,7 +43,7 @@ export function recordAutopilotFailure(
   const next: AutopilotRetryEntry = {
     article: { ...article },
     failedAttempts,
-    status: failedAttempts <= Math.max(0, maxRetries) ? 'pending' : 'exhausted',
+    status: maxRetries === null || failedAttempts <= Math.max(0, maxRetries) ? 'pending' : 'exhausted',
     lastError: String(error || 'Nieznany błąd').slice(0, 3000),
     firstFailedAt: previous?.firstFailedAt || now,
     lastFailedAt: now,
@@ -53,6 +54,22 @@ export function recordAutopilotFailure(
   return [next, ...entries.filter((entry) =>
     String(entry.article?.link || entry.article?.title || '').trim() !== key
   )].slice(0, MAX_AUTOPILOT_RETRY_QUEUE_SIZE);
+}
+
+/**
+ * Backfill entries exhausted by older retry limits.
+ * Keep all failure metadata and the saved payload pointer; only reopen status.
+ */
+export function reactivateExhaustedAutopilotRetries(
+  entries: AutopilotRetryEntry[]
+): { entries: AutopilotRetryEntry[]; reactivatedCount: number } {
+  let reactivatedCount = 0;
+  const restored = (Array.isArray(entries) ? entries : []).map((entry) => {
+    if (entry.status !== 'exhausted') return entry;
+    reactivatedCount += 1;
+    return { ...entry, status: 'pending' as const };
+  });
+  return { entries: restored, reactivatedCount };
 }
 
 export interface LegacyAutopilotFailureState {

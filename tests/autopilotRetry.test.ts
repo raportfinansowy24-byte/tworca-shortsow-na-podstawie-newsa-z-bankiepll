@@ -4,6 +4,7 @@ import {
   findLegacyFailedAutopilotArticleUrl,
   isCompatibleNarrationRetryCache,
   recordAutopilotFailure,
+  reactivateExhaustedAutopilotRetries,
   repairUntilPass,
   resolveAutopilotRetry
 } from '../src/server/autopilotRetry';
@@ -138,6 +139,37 @@ queue = recordAutopilotFailure(queue, article, 'Druga ponowna próba nie powiod�
 assert.equal(queue[0].failedAttempts, 3);
 assert.equal(queue[0].status, 'exhausted', 'po dwóch dodatkowych retry nie uruchamiaj nieskończonej pętli');
 assert.equal(getNextPendingAutopilotRetry(queue), null, 'wyczerpany wpis nie może być automatycznie wybierany ponownie');
+
+const legacyExhaustedQueue = [{
+  article,
+  failedAttempts: 9,
+  status: 'exhausted' as const,
+  lastError: 'Stary limit prób został osiągnięty.',
+  firstFailedAt: '2026-11-14T00:00:00.000Z',
+  lastFailedAt: '2026-11-14T01:00:00.000Z',
+  lastFailedJobId: 'job-legacy',
+  retryPayloadJobId: 'job-legacy'
+}];
+const backfill = reactivateExhaustedAutopilotRetries(legacyExhaustedQueue);
+assert.equal(backfill.reactivatedCount, 1, 'migracja przywraca każdy wpis oznaczony dawniej jako wyczerpany');
+assert.equal(backfill.entries[0].status, 'pending');
+assert.equal(backfill.entries[0].failedAttempts, 9, 'migracja nie resetuje historii nieudanych przebiegów');
+assert.equal(backfill.entries[0].retryPayloadJobId, 'job-legacy', 'migracja zachowuje zapisany payload');
+assert.equal(reactivateExhaustedAutopilotRetries(backfill.entries).reactivatedCount, 0, 'migracja jest idempotentna');
+
+let unlimitedQueue: typeof queue = [];
+for (let attempt = 1; attempt <= 25; attempt++) {
+  unlimitedQueue = recordAutopilotFailure(
+    unlimitedQueue,
+    article,
+    'Nieudany przebieg ' + attempt,
+    'unlimited-job-' + attempt,
+    new Date(Date.UTC(2026, 10, 15, 0, attempt)).toISOString()
+  );
+  assert.equal(unlimitedQueue[0].status, 'pending', 'próba ' + attempt + ' pozostaje ponawialna bez limitu');
+}
+assert.equal(unlimitedQueue[0].failedAttempts, 25);
+assert.equal(getNextPendingAutopilotRetry(unlimitedQueue)?.article.link, article.link, 'nawet po wielu nieudanych przebiegach wpis pozostaje dostępny do ręcznego ponowienia');
 
 queue = resolveAutopilotRetry(queue, article.link);
 assert.equal(queue.length, 0, 'udany render usuwa artykuł z kolejki ponowień');

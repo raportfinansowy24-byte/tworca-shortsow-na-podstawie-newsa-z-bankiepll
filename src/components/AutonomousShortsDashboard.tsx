@@ -165,7 +165,7 @@ export const AutonomousShortsDashboard: React.FC<AutonomousShortsDashboardProps>
               <div className="mb-4 flex flex-col gap-1">
                 <h2 className="font-bold text-white">Kolejka ponowień</h2>
                 <p className="text-xs text-slate-400">
-                  Każdy wpis możesz ponowić osobno przyciskiem „Popraw ten short” albo usunąć z kolejki. Globalny przycisk ponawia najstarszy oczekujący wpis. Po wyczerpaniu limitu wpis wymaga ręcznej decyzji.
+                  Nie ma limitu liczby ponowień. Każdy wpis możesz uruchamiać osobno przyciskiem „Popraw ten short” albo usunąć z kolejki. Globalny przycisk ponawia najstarszy oczekujący wpis; jedna próba kończy się po jednym render-jobie.
                 </p>
               </div>
               <div className="space-y-3">
@@ -173,9 +173,9 @@ export const AutonomousShortsDashboard: React.FC<AutonomousShortsDashboardProps>
                   <article key={entry.article.link} className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
                     <div className="flex flex-wrap items-center gap-2 text-xs">
                       <span className={entry.status === 'pending' ? 'font-semibold text-amber-200' : 'font-semibold text-slate-400'}>
-                        {entry.status === 'pending' ? 'Oczekuje na ponowienie' : 'Wyczerpano próby'}
+                        {entry.status === 'pending' ? 'Oczekuje — ponowienia bez limitu' : 'Do przywrócenia ze starego limitu'}
                       </span>
-                      <span className="text-slate-500">Nieudane przebiegi: {entry.failedAttempts}</span>
+                      <span className="text-slate-500">Nieudane przebiegi: {entry.failedAttempts} · kolejne próby: bez limitu</span>
                       <span className="text-slate-500">{formatDate(entry.lastFailedAt)}</span>
                     </div>
                     <p className="mt-1 text-sm font-semibold text-white">{entry.article.title}</p>
@@ -206,7 +206,7 @@ export const AutonomousShortsDashboard: React.FC<AutonomousShortsDashboardProps>
                 {retryQueue.length > 6 && <p className="text-xs text-slate-500">Pozostałe wpisy: {retryQueue.length - 6}</p>}
               </div>
               {exhaustedRetries.length > 0 && (
-                <p className="mt-3 text-xs text-slate-500">Wyczerpane próby: {exhaustedRetries.length}. Te artykuły pozostają w historii, ale nie uruchamiają się w nieskończonej pętli.</p>
+                <p className="mt-3 text-xs text-slate-500">Wpisy ze starego limitu zostaną automatycznie przywrócone przy uruchomieniu tej wersji serwera.</p>
               )}
             </section>
           )}

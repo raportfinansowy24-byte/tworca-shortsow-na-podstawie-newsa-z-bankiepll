@@ -73,7 +73,7 @@ import { cleanStockSearchQuery, scoreStockCandidateSoftAvoidance } from './src/s
 import { buildSourceEvidenceVisual, resolveStockWithEvidenceFallback, resolveStockWithVerifiedEvidenceFallback } from './src/server/sourceEvidenceVisual';
 import { buildPixabayFallbackQueries } from './src/server/pixabaySearchExpansion';
 import { buildFinancialNewsSearchAliases } from './src/server/stockSearchExpansion';
-import { findLegacyFailedAutopilotArticleUrl, getNextPendingAutopilotRetry, MAX_AUTOPILOT_RETRY_ATTEMPTS, MAX_STORYBOARD_QA_REPAIR_ATTEMPTS, recordAutopilotFailure, repairUntilPass, resolveAutopilotRetry, isCompatibleNarrationRetryCache, type AutopilotRetryEntry, type RetryableAutopilotArticle, type NarrationRetryCacheMetadata } from './src/server/autopilotRetry';
+import { findLegacyFailedAutopilotArticleUrl, getNextPendingAutopilotRetry, MAX_AUTOPILOT_RETRY_ATTEMPTS, MAX_STORYBOARD_QA_REPAIR_ATTEMPTS, recordAutopilotFailure, reactivateExhaustedAutopilotRetries, repairUntilPass, resolveAutopilotRetry, isCompatibleNarrationRetryCache, type AutopilotRetryEntry, type RetryableAutopilotArticle, type NarrationRetryCacheMetadata } from './src/server/autopilotRetry';
 import { GEMINI_PRIMARY_MODEL, getGeminiApiKeys, withGeminiKeyRotation } from './src/server/modelRouting';
 
 const execPromise = promisify(exec);
@@ -8274,16 +8274,22 @@ function loadSchedulerStateFromDisk() {
       const raw = fs.readFileSync(AUTOPILOT_SCHEDULER_PATH, 'utf-8');
       const parsed = JSON.parse(raw);
       const hasCurrentToggleVersion = parsed.schedulerControlVersion === SCHEDULER_CONTROL_VERSION;
+      const retryBackfill = reactivateExhaustedAutopilotRetries(
+        Array.isArray(parsed.retryQueue) ? parsed.retryQueue : []
+      );
       schedulerState = {
         ...DEFAULT_SCHEDULER_STATE,
         ...parsed,
         // Old persisted `enabled: true` values must not start a schedule during this migration.
         schedulerControlVersion: SCHEDULER_CONTROL_VERSION,
         enabled: hasCurrentToggleVersion && parsed.enabled === true,
-        retryQueue: Array.isArray(parsed.retryQueue) ? parsed.retryQueue : [],
+        retryQueue: retryBackfill.entries,
         lastRunStatus: parsed.lastRunStatus === 'running' ? 'idle' : (parsed.lastRunStatus || 'idle')
       };
-      if (!hasCurrentToggleVersion) saveSchedulerStateToDisk();
+      if (retryBackfill.reactivatedCount > 0) {
+        console.log('[Autopilot Retry] Przywrócono ' + retryBackfill.reactivatedCount + ' historycznych wpisów z limitem prób. Ponowienia nie mają już limitu.');
+      }
+      if (!hasCurrentToggleVersion || retryBackfill.reactivatedCount > 0) saveSchedulerStateToDisk();
       console.log(`✓ Wczytano stan harmonogramu 4x/dobę z dysku (Wykonań: ${schedulerState.runsCount}, Historia: ${schedulerState.history.length})`);
     }
   } catch (err) {
@@ -8387,10 +8393,11 @@ function queueFailedAutopilotArticle(
   };
   schedulerState.lastRunStatus = 'failed';
   if (entry?.status === 'exhausted') {
+    // A finite override is only used by explicit tests/legacy callers; production uses unlimited retries.
     schedulerState.processedUrls = [retryArticle.link, ...schedulerState.processedUrls.filter((url) => url !== retryArticle.link)].slice(0, 200);
-    console.warn('[Autopilot Retry] Wyczerpano ' + MAX_AUTOPILOT_RETRY_ATTEMPTS + ' dodatkowe próby dla: ' + retryArticle.title);
+    console.warn('[Autopilot Retry] Wpis osiągnął jawnie ustawiony limit prób: ' + retryArticle.title);
   } else {
-    console.warn('[Autopilot Retry] Zachowano nieudany artykuł do ponowienia (' + (entry?.failedAttempts || 1) + '/' + (MAX_AUTOPILOT_RETRY_ATTEMPTS + 1) + '): ' + retryArticle.title);
+    console.warn('[Autopilot Retry] Zachowano nieudany artykuł w kolejce bez limitu kolejnych prób. Nieudane przebiegi: ' + (entry?.failedAttempts || 1) + ': ' + retryArticle.title);
   }
   saveSchedulerStateToDisk();
 }
@@ -8522,7 +8529,7 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
       candidate = selectedRetryEntry.article;
       viralityScore = calculateViralityScore(candidate.title, candidate.description || candidate.summary || '', candidate.category || 'Wiadomości');
       selectionSource = 'retry_queue';
-      console.info('[Autopilot Retry] Wznawiam artykuł: ' + candidate.title + ' (' + selectedRetryEntry.failedAttempts + '/' + (MAX_AUTOPILOT_RETRY_ATTEMPTS + 1) + ' nieudanych przebiegów).');
+      console.info('[Autopilot Retry] Wznawiam artykuł: ' + candidate.title + ' (' + selectedRetryEntry.failedAttempts + ' nieudanych przebiegów; kolejne próby bez limitu).');
     } else {
       const articles = await fetchBankierArticlesInternal(schedulerState.category || 'wiadomosci', true);
       if (!articles || articles.length === 0) {
@@ -9003,6 +9010,12 @@ router.post('/autopilot/scheduler/run-now', async (req, res) => {
 
 router.post('/autopilot/scheduler/retry-failed', async (req, res) => {
   await recoverLegacyFailedAutopilotArticle();
+  const retryBackfill = reactivateExhaustedAutopilotRetries(schedulerState.retryQueue || []);
+  if (retryBackfill.reactivatedCount > 0) {
+    schedulerState.retryQueue = retryBackfill.entries;
+    console.log('[Autopilot Retry] Ręcznie przywrócono ' + retryBackfill.reactivatedCount + ' wpisów ze starego limitu prób.');
+    saveSchedulerStateToDisk();
+  }
   const requestedLink = typeof req.body?.articleLink === 'string' ? req.body.articleLink.trim() : '';
   const pendingRetry = requestedLink
     ? (schedulerState.retryQueue || []).find((entry) => entry.status === 'pending' && entry.article.link === requestedLink)
@@ -9023,7 +9036,10 @@ router.post('/autopilot/scheduler/retry-failed', async (req, res) => {
   return res.json({
     ...result,
     retryArticle: pendingRetry.article,
-    retriesRemaining: Math.max(0, MAX_AUTOPILOT_RETRY_ATTEMPTS + 1 - pendingRetry.failedAttempts)
+    unlimitedRetries: MAX_AUTOPILOT_RETRY_ATTEMPTS === null,
+    retriesRemaining: MAX_AUTOPILOT_RETRY_ATTEMPTS === null
+      ? null
+      : Math.max(0, MAX_AUTOPILOT_RETRY_ATTEMPTS + 1 - pendingRetry.failedAttempts)
   });
 });
 
