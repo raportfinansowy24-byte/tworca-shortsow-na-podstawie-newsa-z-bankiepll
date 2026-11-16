@@ -66,6 +66,7 @@ import { buildEmotionallyDirectedNarration } from './src/server/emotionalDirecti
 import { getDeploymentInfo } from './src/server/deploymentInfo';
 import { retryVisualQa, runVisualQaWithFallback } from './src/server/visualQaProviders';
 import { splitNarrationAlignmentByScenes } from './src/server/singleNarration';
+import { buildNarrationAudioSliceFilter, isNarrationAudioSliceValid } from './src/server/narrationAudioSlice';
 import { isTrustedStockPreviewUrl, selectVisuallyVerifiedPexelsCandidate } from './src/server/pexelsCandidateVisualQa';
 import { mapPixabayVideoCandidates } from './src/server/pixabayVideoProvider';
 import { cleanStockSearchQuery, scoreStockCandidateSoftAvoidance } from './src/server/stockCandidatePolicy';
@@ -2209,13 +2210,60 @@ async function extractNarrationSceneAudio(
     throw new Error('Nieprawidłowe parametry podziału ciągłej narracji na scenę.');
   }
   const paddingSeconds = Math.max(0, outputDurationSeconds - audioDurationSeconds);
-  const filter = `atrim=duration=${audioDurationSeconds.toFixed(4)},apad=pad_dur=${paddingSeconds.toFixed(4)}`;
-  await execPromise(
-    `ffmpeg -v error -y -i "${fullAudioPath}" -ss ${startSeconds.toFixed(4)} -t ${outputDurationSeconds.toFixed(4)} -vn -af "${filter}" -ac 2 -ar 44100 -c:a pcm_s16le "${destPath}"`
-  );
-  if (!fs.existsSync(destPath) || fs.statSync(destPath).size < 1000) {
-    throw new Error(`Nie udało się wyciąć audio sceny do pliku ${path.basename(destPath)}.`);
+  const sourceDurationSeconds = await getAudioDuration(fullAudioPath);
+  if (!sourceDurationSeconds || startSeconds + audioDurationSeconds > sourceDurationSeconds + 0.15) {
+    throw new Error(
+      `Zakres audio sceny ${path.basename(destPath)} wykracza poza źródło: start=${startSeconds.toFixed(3)} s, ` +
+      `mowa=${audioDurationSeconds.toFixed(3)} s, źródło=${sourceDurationSeconds.toFixed(3)} s.`
+    );
   }
+
+  const filter = buildNarrationAudioSliceFilter({
+    startSeconds,
+    audioDurationSeconds,
+    outputDurationSeconds
+  });
+  console.info(
+    `[Narration slice] ${path.basename(destPath)}: start=${startSeconds.toFixed(3)} s, ` +
+    `mowa=${audioDurationSeconds.toFixed(3)} s, padding=${paddingSeconds.toFixed(3)} s, ` +
+    `wyjście=${outputDurationSeconds.toFixed(3)} s, źródło=${sourceDurationSeconds.toFixed(3)} s.`
+  );
+
+  await fs.promises.rm(destPath, { force: true });
+  try {
+    await execPromise(
+      `ffmpeg -v error -y -i "${fullAudioPath}" -map 0:a:0 -vn -af "${filter}" -ac 2 -ar 44100 -c:a pcm_s16le "${destPath}"`
+    );
+  } catch (error) {
+    const ffmpegError = error as { message?: string; stderr?: string };
+    const diagnostic = String(ffmpegError.stderr || ffmpegError.message || 'brak szczegółów FFmpeg')
+      .replace(/[\\r\\n]+/g, ' ')
+      .slice(0, 600);
+    throw new Error(
+      `FFmpeg nie wyciął ${path.basename(destPath)} (start=${startSeconds.toFixed(3)} s, ` +
+      `mowa=${audioDurationSeconds.toFixed(3)} s, wyjście=${outputDurationSeconds.toFixed(3)} s): ${diagnostic}`
+    );
+  }
+
+  const outputExists = fs.existsSync(destPath);
+  const outputBytes = outputExists ? (await fs.promises.stat(destPath)).size : 0;
+  const measuredOutputDuration = outputExists ? await getAudioDuration(destPath) : 0;
+  if (!isNarrationAudioSliceValid({
+    exists: outputExists,
+    sizeBytes: outputBytes,
+    measuredDurationSeconds: measuredOutputDuration,
+    expectedDurationSeconds: outputDurationSeconds
+  })) {
+    throw new Error(
+      `Nieprawidłowy WAV ${path.basename(destPath)}: ${outputBytes} B, ` +
+      `ffprobe=${measuredOutputDuration.toFixed(3)} s, oczekiwano=${outputDurationSeconds.toFixed(3)} s; ` +
+      `fragment źródła start=${startSeconds.toFixed(3)} s, mowa=${audioDurationSeconds.toFixed(3)} s, ` +
+      `źródło=${sourceDurationSeconds.toFixed(3)} s.`
+    );
+  }
+  console.info(
+    `[Narration slice] ${path.basename(destPath)} OK: ${outputBytes} B, ${measuredOutputDuration.toFixed(3)} s.`
+  );
 }
 
 async function getAudioDuration(audioPath: string): Promise<number> {
