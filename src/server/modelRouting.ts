@@ -1,17 +1,27 @@
 export const GEMINI_PRIMARY_MODEL = 'gemini-4-hydrogen';
 
+export type GeminiApiKeyName =
+  | 'GEMINI_API_KEY'
+  | `GEMINI_API_KEY_${1 | 2 | 3 | 4 | 5 | 6 | 7}`;
+
 export interface GeminiApiKey {
-  name: 'GEMINI_API_KEY' | 'GEMINI_API_KEY_2' | 'GEMINI_API_KEY_3';
+  name: GeminiApiKeyName;
   apiKey: string;
 }
 
 type GeminiEnvironment = Record<string, string | undefined>;
 
 export function getGeminiApiKeys(env: GeminiEnvironment = process.env): GeminiApiKey[] {
-  const names: GeminiApiKey['name'][] = [
-    'GEMINI_API_KEY',
+  // Prefer the explicitly numbered pool; retain the old unnumbered secret as a legacy fallback.
+  const names: GeminiApiKeyName[] = [
+    'GEMINI_API_KEY_1',
     'GEMINI_API_KEY_2',
-    'GEMINI_API_KEY_3'
+    'GEMINI_API_KEY_3',
+    'GEMINI_API_KEY_4',
+    'GEMINI_API_KEY_5',
+    'GEMINI_API_KEY_6',
+    'GEMINI_API_KEY_7',
+    'GEMINI_API_KEY'
   ];
   const seen = new Set<string>();
   return names.flatMap((name) => {
@@ -43,7 +53,7 @@ export async function withGeminiKeyRotation<T>(params: {
   onKeyFailure?: (keyName: GeminiApiKey['name'], error: Error) => void;
 }): Promise<{ result: T; keyName: GeminiApiKey['name'] }> {
   if (params.keys.length === 0) {
-    throw new Error('Brak kluczy Gemini. Ustaw GEMINI_API_KEY, GEMINI_API_KEY_2 lub GEMINI_API_KEY_3.');
+    throw new Error('Brak kluczy Gemini. Ustaw co najmniej jeden sekret GEMINI_API_KEY_1–GEMINI_API_KEY_7 (lub starszy GEMINI_API_KEY).');
   }
 
   const failures: string[] = [];
