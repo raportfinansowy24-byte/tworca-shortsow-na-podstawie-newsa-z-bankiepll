@@ -207,9 +207,8 @@ Skonfiguruj plik `.env` w oparciu o `.env.example`. Na Fly.io wartości ustawiaj
 | `APP_LOGIN_PASSWORD` | Tak | Hasło dostępowe do panelu webowego |
 | `APP_AUTH_SECRET` | Tak | Losowy ciąg min. 32 znaków do podpisywania sesji |
 | `BANKIER_SHORTS_API_TOKEN` | Tak dla automatyzacji | Token autoryzacyjny Bearer dla webhooków i skryptów |
-| `GEMINI_API_KEY` | Tak dla AI | Główny klucz Gemini 4 Hydrogen (`gemini-4-hydrogen`) |
-| `GEMINI_API_KEY_2` | Nie | Drugi klucz zapasowy Gemini 4 Hydrogen; najlepiej z osobnego projektu Google |
-| `GEMINI_API_KEY_3` | Nie | Trzeci klucz zapasowy Gemini 4 Hydrogen; najlepiej z osobnego projektu Google |
+| `GEMINI_API_KEY_1`–`GEMINI_API_KEY_7` | Co najmniej jeden wymagany dla AI | Siedem kolejnych kluczy Gemini 4 Hydrogen; przy błędzie limitu/autoryzacji/tymczasowym następuje failover do następnego skonfigurowanego klucza. Najlepiej używać kluczy z oddzielnych projektów Google. |
+| `GEMINI_API_KEY` | Nie | Starsza nazwa pojedynczego klucza; pozostaje obsługiwana jako ostatni fallback. |
 | `ELEVENLABS_API_KEY` | Tak dla TTS | Klucz ElevenLabs API dla syntezy głosu lektora |
 | `ELEVENLABS_VOICE_ID` | Nie | Domyślnie `onwK4e9ZLuTAKqWW03F9` (Daniel) |
 | `PEXELS_API_KEY` | Opcjonalnie, podstawowy dostawca | Klucz Pexels API do wyszukiwania klipów stockowych |
