@@ -1,6 +1,6 @@
 export type SpeechWordTiming = { word: string; start: number; end: number };
 
-export interface SceneNarrationSegment {
+export interface SceneNarrationTiming {
   start: number;
   end: number;
   duration: number;
@@ -14,15 +14,15 @@ function normalizeSpeechWord(value: string): string {
 }
 
 /**
- * Map one continuous ElevenLabs alignment back onto the storyboard's scene texts.
- * Text and word order must match exactly; silently guessing a boundary would
- * produce captions or cuts that drift away from the spoken narration.
+ * Map one continuous ElevenLabs alignment onto storyboard scenes for captions only.
+ * This function does not create, cut, or modify audio files. Every returned
+ * timing is relative to the corresponding scene's start in the original take.
  */
-export function splitNarrationAlignmentByScenes(
+export function mapNarrationAlignmentToScenes(
   sceneTexts: string[],
   alignedWords: SpeechWordTiming[],
   totalDurationSeconds: number
-): SceneNarrationSegment[] {
+): SceneNarrationTiming[] {
   if (!Array.isArray(sceneTexts) || sceneTexts.length === 0 || sceneTexts.some((text) => !String(text || '').trim())) {
     throw new Error('Jedna narracja musi zawierać tekst dla każdej sceny.');
   }

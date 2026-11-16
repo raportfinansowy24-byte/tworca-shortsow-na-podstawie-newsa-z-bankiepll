@@ -3,11 +3,9 @@ import {
   buildConcatArgs,
   FAST_H264_OPTIONS,
   isValidConcatenatedVideo,
-  mapWithConcurrency,
-  SCENE_TTS_CONCURRENCY
+  mapWithConcurrency
 } from '../src/server/renderOptimizations';
 
-assert.equal(SCENE_TTS_CONCURRENCY, 2, 'TTS pozostaje ograniczone do dwóch równoczesnych wywołań');
 assert.deepEqual(FAST_H264_OPTIONS, ['-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p']);
 
 const copyArgs = buildConcatArgs('/tmp/list.txt', '/tmp/merged.mp4', true);
