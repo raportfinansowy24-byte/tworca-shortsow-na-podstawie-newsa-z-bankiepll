@@ -25,10 +25,10 @@ const nearCapNarration = sceneDurationsWithNarration(
   Array(8).fill(27.91 / 8),
   MAX_SHORT_DURATION_SECONDS
 );
-assert.ok(nearCapNarration.every((duration) => duration >= 24.91 / 8), 'żadna scena nie ucina naturalnego lektora przy narracji bliskiej limitowi');
+assert.ok(nearCapNarration.every((duration) => duration >= 27.91 / 8), 'żadna scena nie ucina naturalnego lektora przy narracji bliskiej limitowi');
 assert.ok(nearCapNarration.reduce((sum, duration) => sum + duration, 0) <= MAX_SHORT_DURATION_SECONDS + 0.000001, 'zapas scen jest automatycznie ograniczany do wolnego budżetu 28 s');
 assert.throws(
-  () => sceneDurationsWithNarration(Array(8).fill(25 / 8), Array(8).fill(28.01 / 8), MAX_SHORT_DURATION_SECONDS),
+  () => sceneDurationsWithNarration(Array(8).fill(28 / 8), Array(8).fill(28.01 / 8), MAX_SHORT_DURATION_SECONDS),
   /bez dodatkowego zapasu scen/
 );
 assert.equal(selectFinanceCta({ title: 'RPP obniża stopy, co z ratą kredytu?' }).destinationPath, '/loan');
