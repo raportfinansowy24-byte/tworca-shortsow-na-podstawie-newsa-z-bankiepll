@@ -316,7 +316,7 @@ export function buildShortsEditorQaRevisionInstruction(
   return [
     'SHORTS EDITOR QA — POPRAWKA PLANU ' + attemptNumber + '/' + maxAttempts,
     'Zachowaj ten sam artykuł i wyłącznie potwierdzone fakty. Nie twórz nowego tematu ani nie wymyślaj liczb.',
-    'Zwróć dokładnie 8 scen na około 18 sekund (maksymalnie 25 sekund). Pierwsze ujęcie ma zatrzymać uwagę od razu; ostatnie ma zawierać zatwierdzone CTA.',
+    `Zwróć dokładnie 8 scen na około 18 sekund (maksymalnie ${MAX_SHORT_DURATION_SECONDS} sekund). Pierwsze ujęcie ma zatrzymać uwagę od razu; ostatnie ma zawierać zatwierdzone CTA.`,
     'Każda scena ma mieć krótką narrację, identyczną treść napisów i konkretne zapytanie wizualne odnoszące się do tej kwestii.',
     'Każda scena faktograficzna musi zawierać sourceEvidence: krótki, dosłowny cytat z przekazanego artykułu. Cytat musi zawierać wykorzystane liczby i nie może być parafrazowany ani wymyślony.',
     'Usuń powtórzone zdania, ogólniki i niepotrzebne słowa. Nie czytaj URL-i lektorem. Nie zmieniaj polityki CTA.',

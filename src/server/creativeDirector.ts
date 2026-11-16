@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { motionSoundSpecForBeat, type MotionSoundSpec } from './motionSoundRenderer';
+import { MAX_SHORT_DURATION_SECONDS } from './sceneContract';
 
 export interface CreativeDirectorArticle {
   title: string;
@@ -170,7 +171,7 @@ CTA wymagane przez politykę redakcyjną: ${ctaText || 'Wejdź na raport-finanso
 PARAMETRY:
 Platforma: ${platform}
 Język: ${language}
-Długość docelowa: ${duration} sekund; limit bezwzględny 25 sekund
+Długość docelowa: ${duration} sekund; limit bezwzględny ${MAX_SHORT_DURATION_SECONDS} sekund
 Liczba beatów/scen: ${sceneCount}
 
 WYMAGANY JSON:
@@ -372,15 +373,15 @@ export function mapCreativeDirectorPlanToRenderScenes(
     throw new Error('Storyboard do renderu musi zawierać dokładnie 8 scen.');
   }
   const targetDuration = Number(plan.duration) || 18;
-  if (Math.abs(targetDuration - 18) > 0.01 || targetDuration > 25) {
-    throw new Error('Storyboard do renderu musi celować w 18 sekund i nie może przekraczać 25 sekund.');
+  if (Math.abs(targetDuration - 18) > 0.01 || targetDuration > MAX_SHORT_DURATION_SECONDS) {
+    throw new Error(`Storyboard do renderu musi celować w 18 sekund i nie może przekraczać ${MAX_SHORT_DURATION_SECONDS} sekund.`);
   }
 
   let previousEnd = 0;
   const sourceDurations = plan.scenes.map((scene, index) => {
     const start = Number(scene.start);
     const end = Number(scene.end);
-    if (!Number.isFinite(start) || !Number.isFinite(end) || start < -0.1 || end <= start || end > 25.1) {
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start < -0.1 || end <= start || end > MAX_SHORT_DURATION_SECONDS + 0.1) {
       throw new Error(`Storyboard zawiera nieprawidłowy zakres czasu w scenie ${index + 1}.`);
     }
     if (start < previousEnd - 0.1) {
