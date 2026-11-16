@@ -236,7 +236,7 @@ assert.equal(numericRetryFit.rejectedNumericRevisionAttempts, 1);
 assert.equal(numericRetryFit.sceneTexts[0], 'Wartość wyniosła 5,2%.', 'the valid shorter rewrite keeps the original numeric fact');
 assert.ok(numericRetryFit.totalEstimatedDurationSeconds <= 28);
 
-const longNumericOverLimit = Array.from({ length: 30 }, () => 'konkret').join(' ') + ' Wartość wyniosła 5,2%.';
+const longNumericOverLimit = Array.from({ length: 40 }, () => 'konkret').join(' ') + ' Wartość wyniosła 5,2%.';
 let invalidNumericHardCapCalls = 0;
 await assert.rejects(() => fitNarrationBeforeTts({
   sceneTexts: [longNumericOverLimit, ...shortTexts.slice(1)],
