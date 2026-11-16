@@ -355,7 +355,7 @@ export function evaluateRenderedShort(metrics: RenderedShortMetrics): ShortsEdit
   if (!Number.isFinite(metrics.durationSeconds) || Number(metrics.durationSeconds) <= 0) {
     addFinding({ code: 'invalid_output_duration', severity: 'blocker', message: 'Nie udało się odczytać długości gotowego pliku.' });
   } else {
-    if (Number(metrics.durationSeconds) > maxDurationSeconds + 0.25) {
+    if (Number(metrics.durationSeconds) > maxDurationSeconds + 0.001) {
       addFinding({ code: 'output_over_duration_limit', severity: 'blocker', message: `Gotowy film trwa ${Number(metrics.durationSeconds).toFixed(2)} s; limit wynosi ${maxDurationSeconds} s.` });
     }
     if (Number(metrics.durationSeconds) < MIN_SHORT_DURATION_SECONDS - 0.001) {

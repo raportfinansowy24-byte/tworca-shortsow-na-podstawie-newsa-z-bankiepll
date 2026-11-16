@@ -292,9 +292,9 @@ const exactlyMaximum = evaluateRenderedShort({
 assert.equal(exactlyMaximum.status, 'pass', '28.00 s is accepted');
 const beyondMaximum = evaluateRenderedShort({
   hasVideo: true, hasAudio: true, width: 720, height: 1280,
-  durationSeconds: 28.26, sizeBytes: 1_200_000, requireAudio: true, maxDurationSeconds: 28
+  durationSeconds: 28.01, sizeBytes: 1_200_000, requireAudio: true, maxDurationSeconds: 28
 });
-assert.equal(beyondMaximum.status, 'blocked', '28.26 s exceeds the hard duration cap');
+assert.equal(beyondMaximum.status, 'blocked', '28.01 s exceeds the strict 28-second hard duration cap');
 
 
 const brokenMedia = evaluateRenderedShort({
