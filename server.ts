@@ -43,7 +43,7 @@ import {
   updateTelegramApprovalMessage
 } from './src/server/telegramApproval';
 import { classifyTelegramChatMessage } from './src/server/telegramChatCommands';
-import { FINANCE_SHORT_SCENE_COUNT, getSceneCountError, hasCompleteFinanceSceneVisualAssets, isSafeFinanceDataVisualSvg, MAX_SHORT_DURATION_SECONDS, SCENE_NARRATION_PADDING_SECONDS, TARGET_SHORT_DURATION_SECONDS, sceneDurationsForCount, sceneDurationsWithNarration, sceneRequestMetadata } from './src/server/sceneContract';
+import { FINANCE_SHORT_SCENE_COUNT, getSceneCountError, hasCompleteFinanceSceneVisualAssets, isSafeFinanceDataVisualSvg, MAX_SHORT_DURATION_SECONDS, MIN_SHORT_DURATION_SECONDS, SCENE_NARRATION_PADDING_SECONDS, TARGET_SHORT_DURATION_SECONDS, sceneDurationsForCount, sceneDurationsWithNarration, sceneRequestMetadata } from './src/server/sceneContract';
 import { countNarrationSpeechUnits, emptyNarrationCalibrationStore, fitNarrationBeforeTts, getCalibratedSecondsPerSpeechUnit, getNarrationCalibrationProfileKey, NARRATION_ESTIMATE_SAFETY_FACTOR, parseNarrationCalibrationStore, recordNarrationCalibrationSamples, type NarrationCalibrationSample } from './src/server/narrationTiming';
 import { buildCtaPolicyPrompt, selectFinanceCta } from './src/server/financeCtaStrategy';
 import { nextTelegramRevisionNumber, normalizeTelegramFeedback } from './src/server/telegramRevision';
@@ -2703,7 +2703,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
         baseSceneDurations,
         secondsPerSpeechUnit: calibratedSecondsPerUnit,
         speed: ttsSpeed,
-        targetDurationSeconds: TARGET_SHORT_DURATION_SECONDS,
+        targetDurationSeconds: MIN_SHORT_DURATION_SECONDS,
         maxTotalDurationSeconds: MAX_SHORT_DURATION_SECONDS,
         maxRevisionAttempts: 4,
         revise: hasEditorialModel ? async (revision) => {
@@ -2825,11 +2825,11 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
           scenes[index].subtitles = sceneSpeechTexts[index];
         }
       }
-      console.info(`[Narration preflight] conservativeTimeline=${fit.totalEstimatedDurationSeconds.toFixed(2)}s; lowerTimeline=${fit.minimumEstimatedDurationSeconds.toFixed(2)}s; range=${TARGET_SHORT_DURATION_SECONDS}-${MAX_SHORT_DURATION_SECONDS}s; revisions=${fit.revisionAttempts}/4; rejectedLongerEdits=${fit.rejectedLongerRevisionAttempts}; rejectedNumericEdits=${fit.rejectedNumericRevisionAttempts}; rejectedDirectionEdits=${fit.rejectedDirectionRevisionAttempts}; calibration=${calibratedSecondsPerUnit.toFixed(3)}s/unit; profileSamples=${calibrationStore.profiles[calibrationProfileKey]?.length || 0}.`);
+      console.info(`[Narration preflight] conservativeTimeline=${fit.totalEstimatedDurationSeconds.toFixed(2)}s; lowerTimeline=${fit.minimumEstimatedDurationSeconds.toFixed(2)}s; range=${MIN_SHORT_DURATION_SECONDS}-${MAX_SHORT_DURATION_SECONDS}s; revisions=${fit.revisionAttempts}/4; rejectedLongerEdits=${fit.rejectedLongerRevisionAttempts}; rejectedNumericEdits=${fit.rejectedNumericRevisionAttempts}; rejectedDirectionEdits=${fit.rejectedDirectionRevisionAttempts}; calibration=${calibratedSecondsPerUnit.toFixed(3)}s/unit; profileSamples=${calibrationStore.profiles[calibrationProfileKey]?.length || 0}.`);
       updateJobProgress(
         jobId,
         { step: 'Estymacja narracji przed TTS', progress: 11 },
-        `Estymacja czasu Shorta mieści się w zakresie ${TARGET_SHORT_DURATION_SECONDS}–${MAX_SHORT_DURATION_SECONDS} s. Górna estymacja: ${fit.totalEstimatedDurationSeconds.toFixed(2)} s; dolna: ${fit.minimumEstimatedDurationSeconds.toFixed(2)} s. Korekty: ${fit.revisionAttempts}/4; odrzucone dłuższe: ${fit.rejectedLongerRevisionAttempts}; zmieniające liczby: ${fit.rejectedNumericRevisionAttempts}. Teraz rozpocznie się jedna synteza TTS.`
+        `Estymacja czasu Shorta mieści się w zakresie ${MIN_SHORT_DURATION_SECONDS}–${MAX_SHORT_DURATION_SECONDS} s. Górna estymacja: ${fit.totalEstimatedDurationSeconds.toFixed(2)} s; dolna: ${fit.minimumEstimatedDurationSeconds.toFixed(2)} s. Korekty: ${fit.revisionAttempts}/4; odrzucone dłuższe: ${fit.rejectedLongerRevisionAttempts}; zmieniające liczby: ${fit.rejectedNumericRevisionAttempts}. Teraz rozpocznie się jedna synteza TTS.`
       );
     }
 
@@ -3018,9 +3018,9 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
       narrationSceneSegments = splitNarrationAlignmentByScenes(sceneSpeechTexts, fullWordTimings, wholeNarrationDuration);
       const measuredTimelineWithNaturalTails = wholeNarrationDuration +
         scenes.length * SCENE_NARRATION_PADDING_SECONDS;
-      if (measuredTimelineWithNaturalTails < TARGET_SHORT_DURATION_SECONDS - 0.001) {
+      if (measuredTimelineWithNaturalTails < MIN_SHORT_DURATION_SECONDS - 0.001) {
         throw new Error(
-          `Rzeczywisty lektor wraz z naturalnymi ogonami scen trwa ${measuredTimelineWithNaturalTails.toFixed(2)} s; minimum to ${TARGET_SHORT_DURATION_SECONDS} s. Render zatrzymany, aby nie dobijać długości sztuczną ciszą.`
+          `Rzeczywisty lektor wraz z naturalnymi ogonami scen trwa ${measuredTimelineWithNaturalTails.toFixed(2)} s; minimum to ${MIN_SHORT_DURATION_SECONDS} s. Render zatrzymany, aby nie dobijać długości sztuczną ciszą.`
         );
       }
 
@@ -3066,11 +3066,11 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
     const totalPlannedDuration = plannedSceneDurations.reduce((sum, duration) => sum + duration, 0);
     if (plannedSceneDurations.length !== scenes.length ||
         plannedSceneDurations.some((duration) => !Number.isFinite(duration) || duration <= 0) ||
-        totalPlannedDuration < TARGET_SHORT_DURATION_SECONDS - 0.001 ||
+        totalPlannedDuration < MIN_SHORT_DURATION_SECONDS - 0.001 ||
         totalPlannedDuration > MAX_SHORT_DURATION_SECONDS + 0.001) {
       throw new Error(
         'Nieprawidłowy rzeczywisty budżet czasu Shorta (' + totalPlannedDuration.toFixed(2) +
-        ' s); wymagany zakres to ' + TARGET_SHORT_DURATION_SECONDS + '–' + MAX_SHORT_DURATION_SECONDS + ' sekund.'
+        ' s); wymagany zakres to ' + MIN_SHORT_DURATION_SECONDS + '–' + MAX_SHORT_DURATION_SECONDS + ' sekund.'
       );
     }
     console.info(

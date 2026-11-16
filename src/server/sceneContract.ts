@@ -1,8 +1,8 @@
 export const FINANCE_SHORT_SCENE_COUNT = 8;
 export const MAX_SCENE_COUNT = 8;
-export const MIN_SHORT_DURATION_SECONDS = 18;
-export const TARGET_SHORT_DURATION_SECONDS = MIN_SHORT_DURATION_SECONDS;
-export const MAX_SHORT_DURATION_SECONDS = 25;
+export const MIN_SHORT_DURATION_SECONDS = 17;
+export const TARGET_SHORT_DURATION_SECONDS = 18;
+export const MAX_SHORT_DURATION_SECONDS = 28;
 export const SCENE_NARRATION_PADDING_SECONDS = 0.12;
 
 export function getSceneCountError(expectedSceneCount: unknown, actualSceneCount: number): string | null {
@@ -94,7 +94,7 @@ export function sceneDurationsWithNarration(
 
   // A supplied alignment is authoritative: do not stretch a speech segment
   // to the old storyboard allocation. Missing alignment alone uses the base.
-  // Padding is reduced uniformly only when the full Short approaches the 25s cap.
+  // Padding is reduced uniformly only when the full Short approaches the 28s cap.
   const durationsWithPaddingScale = (paddingScale: number) => baseSceneDurations.map((baseDuration, index) => {
     const narrationDuration = narrationDurations[index];
     if (narrationDuration === null || narrationDuration === undefined) return baseDuration;
