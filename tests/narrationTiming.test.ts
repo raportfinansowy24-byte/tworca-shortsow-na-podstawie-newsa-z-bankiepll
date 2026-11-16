@@ -213,7 +213,7 @@ async function assertNumericRewriteIsRejected(originalText: string, revisedText:
   assert.ok(result.totalEstimatedDurationSeconds <= 28, `${label}: verified rewrite remains below the hard limit`);
 }
 
-const longNumericOriginal = Array.from({ length: 18 }, () => 'konkret').join(' ') + ' Wartość wyniosła 5,2%.';
+const longNumericOriginal = Array.from({ length: 25 }, () => 'konkret').join(' ') + ' Wartość wyniosła 5,2%.';
 let numericRetryCalls = 0;
 const numericRetryFit = await fitNarrationBeforeTts({
   sceneTexts: [longNumericOriginal, ...shortTexts.slice(1)],
@@ -284,7 +284,7 @@ await assert.rejects(() => fitNarrationBeforeTts({
   }
 }), /nie może zmieniać końcowego CTA/);
 
-const modestNumberText = (claim: string) => Array.from({ length: 16 }, () => 'konkret').join(' ') + ' ' + claim;
+const modestNumberText = (claim: string) => Array.from({ length: 22 }, () => 'konkret').join(' ') + ' ' + claim;
 await assertNumericRewriteIsRejected(modestNumberText('Wartość wyniosła 5,2%.'), 'Konkretna zmiana bez liczby.', 'usunięcie liczby');
 
 const wordNumberLongTexts = [
