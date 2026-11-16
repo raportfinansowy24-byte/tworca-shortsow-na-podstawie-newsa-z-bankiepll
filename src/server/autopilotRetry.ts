@@ -1,5 +1,4 @@
-export const MAX_STORYBOARD_QA_REPAIR_ATTEMPTS = 3;
-export const MAX_AUTOPILOT_RETRY_ATTEMPTS = 2;
+export const MAX_STORYBOARD_QA_REPAIR_ATTEMPTS = Number.POSITIVE_INFINITY;
 export const MAX_AUTOPILOT_RETRY_QUEUE_SIZE = 50;
 
 export interface RetryableAutopilotArticle {
@@ -29,8 +28,7 @@ export function recordAutopilotFailure(
   article: RetryableAutopilotArticle,
   error: string,
   jobId?: string,
-  now = new Date().toISOString(),
-  maxRetries = MAX_AUTOPILOT_RETRY_ATTEMPTS
+  now = new Date().toISOString()
 ): AutopilotRetryEntry[] {
   const key = String(article.link || article.title || '').trim();
   if (!key) return entries;
@@ -42,7 +40,7 @@ export function recordAutopilotFailure(
   const next: AutopilotRetryEntry = {
     article: { ...article },
     failedAttempts,
-    status: failedAttempts <= Math.max(0, maxRetries) ? 'pending' : 'exhausted',
+    status: 'pending',
     lastError: String(error || 'Nieznany błąd').slice(0, 3000),
     firstFailedAt: previous?.firstFailedAt || now,
     lastFailedAt: now,
@@ -80,6 +78,18 @@ export function findLegacyFailedAutopilotArticleUrl(
     entry.articleLink === candidateLink && entry.status === 'completed'
   );
   return alreadyCompleted ? null : candidateLink;
+}
+
+/**
+ * Reactivate queue entries persisted by the former finite retry policy.
+ * Preserve failure counters and diagnostics; only clear the exhausted state.
+ */
+export function reactivateExhaustedAutopilotRetries(
+  entries: AutopilotRetryEntry[]
+): AutopilotRetryEntry[] {
+  return entries.map((entry) => entry.status === 'exhausted'
+    ? { ...entry, status: 'pending' as const }
+    : entry);
 }
 
 export function getNextPendingAutopilotRetry(
@@ -149,9 +159,9 @@ export interface QaRepairLoopResult<T, R extends { status: string }> {
 }
 
 /**
- * Run bounded storyboard repairs until QA passes. A failed model/repair call
- * does not discard the candidate: the loop proceeds with the same findings
- * and exposes the previous error to the next repair attempt.
+ * Keep repairing a storyboard until QA passes. Production uses an unlimited
+ * attempt count; an explicit finite maxAttempts remains available to tests and
+ * controlled callers. Failed provider calls never discard the current candidate.
  */
 export async function repairUntilPass<T, R extends { status: string }>(options: {
   initialValue: T;
@@ -160,8 +170,18 @@ export async function repairUntilPass<T, R extends { status: string }>(options: 
   revise: (report: R, attempt: number, previousError?: string) => Promise<T>;
   evaluate: (value: T) => R;
   onAttempt?: (attempt: number, report: R, previousError?: string) => void;
+  sleep?: (delayMs: number) => Promise<void>;
+  retryDelayMs?: number;
+  maxRetryDelayMs?: number;
 }): Promise<QaRepairLoopResult<T, R>> {
-  const maxAttempts = Math.max(0, Math.min(5, Math.floor(options.maxAttempts ?? MAX_STORYBOARD_QA_REPAIR_ATTEMPTS)));
+  const requestedMaxAttempts = options.maxAttempts ?? MAX_STORYBOARD_QA_REPAIR_ATTEMPTS;
+  const maxAttempts = requestedMaxAttempts === Number.POSITIVE_INFINITY
+    ? Number.POSITIVE_INFINITY
+    : Math.max(0, Math.floor(requestedMaxAttempts));
+  const retryDelayMs = Math.max(0, options.retryDelayMs ?? 1000);
+  const maxRetryDelayMs = Math.max(retryDelayMs, options.maxRetryDelayMs ?? 15_000);
+  const sleep = options.sleep ?? ((delayMs: number) => new Promise<void>((resolve) => setTimeout(resolve, delayMs)));
+  let consecutiveUnresolvedAttempts = 0;
   let value = options.initialValue;
   let report = options.initialReport;
   let attempts = 0;
@@ -179,7 +199,15 @@ export async function repairUntilPass<T, R extends { status: string }>(options: 
       previousError = undefined;
     } catch (error) {
       previousError = error instanceof Error ? error.message : String(error);
+      if (errors.length >= 50) errors.shift();
       errors.push(previousError.slice(0, 1200));
+    }
+
+    if (report.status !== 'pass') {
+      const exponent = Math.min(consecutiveUnresolvedAttempts, 8);
+      const delayMs = Math.min(maxRetryDelayMs, retryDelayMs * (2 ** exponent));
+      consecutiveUnresolvedAttempts += 1;
+      if (delayMs > 0) await sleep(delayMs);
     }
   }
 

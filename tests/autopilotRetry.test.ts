@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   getNextPendingAutopilotRetry,
+  reactivateExhaustedAutopilotRetries,
   findLegacyFailedAutopilotArticleUrl,
   isCompatibleNarrationRetryCache,
   recordAutopilotFailure,
@@ -22,12 +23,30 @@ const repaired = await repairUntilPass<string, QaReport>({
   },
   evaluate: (value) => value === 'unique-storyboard'
     ? { status: 'pass', message: 'Unikalne ujęcia.' }
-    : { status: 'review', message: 'Zapytanie nadal jest powtórzone.' }
+    : { status: 'review', message: 'Zapytanie nadal jest powtórzone.' },
+  sleep: async () => {}
 });
 assert.equal(repaired.passed, true, 'pętla ma kontynuować poprawki aż do uzyskania PASS');
 assert.equal(repaired.attempts, 2);
 assert.equal(reviseCalls, 2);
 assert.equal(repaired.value, 'unique-storyboard');
+
+let unlimitedRepairCalls = 0;
+const repairedWithoutAttemptLimit = await repairUntilPass<string, QaReport>({
+  initialValue: 'requires-many-revisions',
+  initialReport,
+  revise: async (_report, attempt) => {
+    unlimitedRepairCalls += 1;
+    return attempt < 7 ? 'still-invalid-' + attempt : 'fixed-after-seven';
+  },
+  evaluate: (value) => value === 'fixed-after-seven'
+    ? { status: 'pass', message: 'PASS after seven revisions' }
+    : initialReport,
+  sleep: async () => {}
+});
+assert.equal(repairedWithoutAttemptLimit.passed, true, 'domyślna pętla QA nie kończy się po pięciu poprawkach');
+assert.equal(repairedWithoutAttemptLimit.attempts, 7, 'domyślna pętla kontynuuje aż do QA PASS');
+assert.equal(unlimitedRepairCalls, 7);
 
 let previousErrorObserved = false;
 const repairedAfterTransientError = await repairUntilPass<string, QaReport>({
@@ -41,7 +60,8 @@ const repairedAfterTransientError = await repairUntilPass<string, QaReport>({
   },
   evaluate: (value) => value === 'fixed'
     ? { status: 'pass', message: 'PASS' }
-    : initialReport
+    : initialReport,
+  sleep: async () => {}
 });
 assert.equal(repairedAfterTransientError.passed, true, 'błąd techniczny poprawki nie może zakończyć całej próby');
 assert.equal(repairedAfterTransientError.attempts, 2);
@@ -53,10 +73,11 @@ const exhausted = await repairUntilPass<string, QaReport>({
   initialReport,
   maxAttempts: 3,
   revise: async () => 'still-invalid',
-  evaluate: () => initialReport
+  evaluate: () => initialReport,
+  sleep: async () => {}
 });
 assert.equal(exhausted.passed, false);
-assert.equal(exhausted.attempts, 3, 'liczba prób musi być ograniczona');
+assert.equal(exhausted.attempts, 3, 'jawny limit jest dostępny wyłącznie dla kontrolowanych wywołań/testów');
 assert.equal(exhausted.value, 'still-invalid');
 
 
@@ -124,20 +145,30 @@ const article = {
   description: 'Opis źródłowego artykułu.',
   category: 'Wiadomości'
 };
-let queue = recordAutopilotFailure([], article, 'QA odrzuciło storyboard', 'job-1', '2026-11-14T00:00:00.000Z', 2);
+let queue = recordAutopilotFailure([], article, 'QA odrzuciło storyboard', 'job-1', '2026-11-14T00:00:00.000Z');
 assert.equal(queue.length, 1);
 assert.equal(queue[0].failedAttempts, 1);
 assert.equal(queue[0].status, 'pending');
 assert.equal(getNextPendingAutopilotRetry(queue)?.article.link, article.link);
 
-queue = recordAutopilotFailure(queue, article, 'Pierwsza ponowna próba nadal nie przeszła QA', 'job-2', '2026-11-14T00:10:00.000Z', 2);
-assert.equal(queue[0].failedAttempts, 2);
-assert.equal(queue[0].status, 'pending', 'po pierwszym retry musi pozostać jeszcze jedna dodatkowa próba');
+for (let attempt = 2; attempt <= 12; attempt += 1) {
+  queue = recordAutopilotFailure(
+    queue,
+    article,
+    'Nieudany przebieg numer ' + attempt,
+    'job-' + attempt,
+    '2026-11-14T00:' + String(attempt).padStart(2, '0') + ':00.000Z'
+  );
+}
+assert.equal(queue[0].failedAttempts, 12);
+assert.equal(queue[0].status, 'pending', 'kolejne nieudane przebiegi pozostają możliwe bez limitu');
+assert.equal(getNextPendingAutopilotRetry(queue)?.article.link, article.link);
 
-queue = recordAutopilotFailure(queue, article, 'Druga ponowna próba nie powiodła się', 'job-3', '2026-11-14T00:20:00.000Z', 2);
-assert.equal(queue[0].failedAttempts, 3);
-assert.equal(queue[0].status, 'exhausted', 'po dwóch dodatkowych retry nie uruchamiaj nieskończonej pętli');
-assert.equal(getNextPendingAutopilotRetry(queue), null, 'wyczerpany wpis nie może być automatycznie wybierany ponownie');
+const legacyExhaustedEntry = { ...queue[0], status: 'exhausted' as const, failedAttempts: 27 };
+const migratedLegacyQueue = reactivateExhaustedAutopilotRetries([legacyExhaustedEntry]);
+assert.equal(migratedLegacyQueue[0].status, 'pending', 'historyczny wpis exhausted jest reaktywowany w migracji');
+assert.equal(migratedLegacyQueue[0].failedAttempts, 27, 'migracja zachowuje licznik prób');
+assert.equal(getNextPendingAutopilotRetry(migratedLegacyQueue)?.article.link, article.link);
 
 queue = resolveAutopilotRetry(queue, article.link);
 assert.equal(queue.length, 0, 'udany render usuwa artykuł z kolejki ponowień');
