@@ -43,7 +43,7 @@ import {
   updateTelegramApprovalMessage
 } from './src/server/telegramApproval';
 import { classifyTelegramChatMessage } from './src/server/telegramChatCommands';
-import { FINANCE_SHORT_SCENE_COUNT, getSceneCountError, hasCompleteFinanceSceneVisualAssets, isSafeFinanceDataVisualSvg, MAX_SHORT_DURATION_SECONDS, MIN_SHORT_DURATION_SECONDS, SCENE_NARRATION_PADDING_SECONDS, TARGET_SHORT_DURATION_SECONDS, sceneDurationsForCount, sceneDurationsWithNarration, sceneRequestMetadata } from './src/server/sceneContract';
+import { FINANCE_SHORT_SCENE_COUNT, getSceneCountError, hasCompleteFinanceSceneVisualAssets, isSafeFinanceDataVisualSvg, MAX_SHORT_DURATION_SECONDS, MIN_SHORT_DURATION_SECONDS, TARGET_SHORT_DURATION_SECONDS, sceneDurationsForCount, sceneDurationsWithNarration, sceneRequestMetadata } from './src/server/sceneContract';
 import { countNarrationSpeechUnits, emptyNarrationCalibrationStore, fitNarrationBeforeTts, getCalibratedSecondsPerSpeechUnit, getNarrationCalibrationProfileKey, NARRATION_ESTIMATE_SAFETY_FACTOR, parseNarrationCalibrationStore, recordNarrationCalibrationSamples, type NarrationCalibrationSample } from './src/server/narrationTiming';
 import { buildCtaPolicyPrompt, selectFinanceCta } from './src/server/financeCtaStrategy';
 import { nextTelegramRevisionNumber, normalizeTelegramFeedback } from './src/server/telegramRevision';
@@ -65,8 +65,8 @@ import { buildConcatArgs, FAST_H264_OPTIONS, isValidConcatenatedVideo } from './
 import { buildEmotionallyDirectedNarration } from './src/server/emotionalDirection';
 import { getDeploymentInfo } from './src/server/deploymentInfo';
 import { retryVisualQa, runVisualQaWithFallback } from './src/server/visualQaProviders';
-import { splitNarrationAlignmentByScenes } from './src/server/singleNarration';
-import { buildNarrationAudioSliceFilter, isNarrationAudioSliceValid } from './src/server/narrationAudioSlice';
+import { mapNarrationAlignmentToScenes } from './src/server/singleNarration';
+import { buildContinuousNarrationMuxArgs } from './src/server/finalNarrationMix';
 import { isTrustedStockPreviewUrl, selectVisuallyVerifiedPexelsCandidate } from './src/server/pexelsCandidateVisualQa';
 import { mapPixabayVideoCandidates } from './src/server/pixabayVideoProvider';
 import { cleanStockSearchQuery, scoreStockCandidateSoftAvoidance } from './src/server/stockCandidatePolicy';
@@ -2197,75 +2197,6 @@ async function generateElevenLabsAudio(
 
 type CaptionWordTiming = { word: string; start: number; end: number };
 
-async function extractNarrationSceneAudio(
-  fullAudioPath: string,
-  startSeconds: number,
-  audioDurationSeconds: number,
-  outputDurationSeconds: number,
-  destPath: string
-): Promise<void> {
-  if (!fs.existsSync(fullAudioPath) || !Number.isFinite(startSeconds) || startSeconds < 0 ||
-      !Number.isFinite(audioDurationSeconds) || audioDurationSeconds <= 0 ||
-      !Number.isFinite(outputDurationSeconds) || outputDurationSeconds < audioDurationSeconds) {
-    throw new Error('Nieprawidłowe parametry podziału ciągłej narracji na scenę.');
-  }
-  const paddingSeconds = Math.max(0, outputDurationSeconds - audioDurationSeconds);
-  const sourceDurationSeconds = await getAudioDuration(fullAudioPath);
-  if (!sourceDurationSeconds || startSeconds + audioDurationSeconds > sourceDurationSeconds + 0.15) {
-    throw new Error(
-      `Zakres audio sceny ${path.basename(destPath)} wykracza poza źródło: start=${startSeconds.toFixed(3)} s, ` +
-      `mowa=${audioDurationSeconds.toFixed(3)} s, źródło=${sourceDurationSeconds.toFixed(3)} s.`
-    );
-  }
-
-  const filter = buildNarrationAudioSliceFilter({
-    startSeconds,
-    audioDurationSeconds,
-    outputDurationSeconds
-  });
-  console.info(
-    `[Narration slice] ${path.basename(destPath)}: start=${startSeconds.toFixed(3)} s, ` +
-    `mowa=${audioDurationSeconds.toFixed(3)} s, padding=${paddingSeconds.toFixed(3)} s, ` +
-    `wyjście=${outputDurationSeconds.toFixed(3)} s, źródło=${sourceDurationSeconds.toFixed(3)} s.`
-  );
-
-  await fs.promises.rm(destPath, { force: true });
-  try {
-    await execPromise(
-      `ffmpeg -v error -y -i "${fullAudioPath}" -map 0:a:0 -vn -af "${filter}" -ac 2 -ar 44100 -c:a pcm_s16le "${destPath}"`
-    );
-  } catch (error) {
-    const ffmpegError = error as { message?: string; stderr?: string };
-    const diagnostic = String(ffmpegError.stderr || ffmpegError.message || 'brak szczegółów FFmpeg')
-      .replace(/[\r\n]+/g, ' ')
-      .slice(0, 600);
-    throw new Error(
-      `FFmpeg nie wyciął ${path.basename(destPath)} (start=${startSeconds.toFixed(3)} s, ` +
-      `mowa=${audioDurationSeconds.toFixed(3)} s, wyjście=${outputDurationSeconds.toFixed(3)} s): ${diagnostic}`
-    );
-  }
-
-  const outputExists = fs.existsSync(destPath);
-  const outputBytes = outputExists ? (await fs.promises.stat(destPath)).size : 0;
-  const measuredOutputDuration = outputExists ? await getAudioDuration(destPath) : 0;
-  if (!isNarrationAudioSliceValid({
-    exists: outputExists,
-    sizeBytes: outputBytes,
-    measuredDurationSeconds: measuredOutputDuration,
-    expectedDurationSeconds: outputDurationSeconds
-  })) {
-    throw new Error(
-      `Nieprawidłowy WAV ${path.basename(destPath)}: ${outputBytes} B, ` +
-      `ffprobe=${measuredOutputDuration.toFixed(3)} s, oczekiwano=${outputDurationSeconds.toFixed(3)} s; ` +
-      `fragment źródła start=${startSeconds.toFixed(3)} s, mowa=${audioDurationSeconds.toFixed(3)} s, ` +
-      `źródło=${sourceDurationSeconds.toFixed(3)} s.`
-    );
-  }
-  console.info(
-    `[Narration slice] ${path.basename(destPath)} OK: ${outputBytes} B, ${measuredOutputDuration.toFixed(3)} s.`
-  );
-}
-
 async function getAudioDuration(audioPath: string): Promise<number> {
   if (!fs.existsSync(audioPath)) return 0;
   try {
@@ -2728,8 +2659,6 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
       (scene as any).voiceover ||
       ''
     ).trim());
-    type PreparedSceneTts = { path: string; duration: number; wordTimings: CaptionWordTiming[] };
-    const preparedSceneTts: Array<PreparedSceneTts | null> = new Array(scenes.length).fill(null);
 
     // Estimate narration before spending ElevenLabs credits. Calibration is persisted on the Fly volume.
     const ttsModelId = process.env.ELEVENLABS_MODEL_ID?.trim() || 'eleven_multilingual_v2';
@@ -2754,6 +2683,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
         targetDurationSeconds: MIN_SHORT_DURATION_SECONDS,
         maxTotalDurationSeconds: MAX_SHORT_DURATION_SECONDS,
         maxRevisionAttempts: 4,
+        narrationPaddingSeconds: 0,
         revise: hasEditorialModel ? async (revision) => {
           const lastSceneIndex = revision.sceneTexts.length - 1;
           const allEditableIndexes = revision.sceneTexts.map((_text, index) => index).filter((index) => index < lastSceneIndex);
@@ -2906,10 +2836,12 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
     }
 
 
-    // Synthesize the complete short ONCE, then split this one continuous audio track.
+    // Synthesize the complete short ONCE and keep that original audio file intact throughout rendering.
+    // Only word timings are mapped to scenes for captions; the untouched take is muxed after video concat.
     // A failed render retry must reuse the durable full-take cache instead of spending TTS credits again.
-    let narrationSceneSegments: ReturnType<typeof splitNarrationAlignmentByScenes> = [];
+    let narrationSceneTimings: ReturnType<typeof mapNarrationAlignmentToScenes> = [];
     let wholeNarrationDuration = 0;
+    const fullNarrationPath = path.join(jobTempDir, 'short_narration_full.mp3');
     if (ttsEnabled) {
       if (sceneSpeechTexts.some((text) => !text)) {
         throw new Error('Każda z ' + scenes.length + ' scen musi zawierać tekst lektora.');
@@ -2920,7 +2852,6 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
         scenes.map((scene, index) => ({ ...scene, voiceover_text: sceneSpeechTexts[index] })),
         configuredTtsModel
       );
-      const fullNarrationPath = path.join(jobTempDir, 'short_narration_full.mp3');
       const localNarrationMetadataPath = path.join(jobTempDir, 'short_narration_full.json');
       const fullWordTimings: CaptionWordTiming[] = [];
       const allowAutopilotRetryCache = ['scheduler', 'test-render'].includes(String(payload.source || '')) || Boolean(payload.reuseNarrationCacheJobId || payload.retrySourcePayloadJobId);
@@ -3063,52 +2994,28 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
         console.info('[Narration retry cache] Reused existing TTS timing; no duplicate calibration sample recorded.');
       }
 
-      narrationSceneSegments = splitNarrationAlignmentByScenes(sceneSpeechTexts, fullWordTimings, wholeNarrationDuration);
-      const measuredTimelineWithNaturalTails = wholeNarrationDuration +
-        scenes.length * SCENE_NARRATION_PADDING_SECONDS;
-      if (measuredTimelineWithNaturalTails < MIN_SHORT_DURATION_SECONDS - 0.001) {
+      narrationSceneTimings = mapNarrationAlignmentToScenes(sceneSpeechTexts, fullWordTimings, wholeNarrationDuration);
+      if (wholeNarrationDuration < MIN_SHORT_DURATION_SECONDS - 0.001) {
         throw new Error(
-          `Rzeczywisty lektor wraz z naturalnymi ogonami scen trwa ${measuredTimelineWithNaturalTails.toFixed(2)} s; minimum to ${MIN_SHORT_DURATION_SECONDS} s. Render zatrzymany, aby nie dobijać długości sztuczną ciszą.`
+          `Oryginalny lektor trwa ${wholeNarrationDuration.toFixed(2)} s; minimum to ${MIN_SHORT_DURATION_SECONDS} s. Render zatrzymany przed montażem.`
         );
       }
-
-      // Each scene follows the measured audio segment plus a short natural tail.
-      // The speech itself remains one continuous TTS take.
-      const plannedSceneDurations = sceneDurationsWithNarration(
-        baseSceneDurations,
-        narrationSceneSegments.map((segment) => segment.duration),
-        MAX_SHORT_DURATION_SECONDS
+      console.info(
+        `[Narration alignment] One untouched TTS file mapped to ${narrationSceneTimings.length} caption timelines; duration=${wholeNarrationDuration.toFixed(3)}s. No scene audio files are created.`
       );
-      for (let index = 0; index < scenes.length; index++) {
-        if (abortController.signal.aborted) throw new Error('Zadanie zostało anulowane przez użytkownika.');
-        const segment = narrationSceneSegments[index];
-        const sceneAudioPath = path.join(jobTempDir, 'scene_tts_' + (index + 1) + '.wav');
-        const sceneOutputDuration = plannedSceneDurations[index];
-        await extractNarrationSceneAudio(
-          fullNarrationPath,
-          segment.start,
-          segment.duration,
-          sceneOutputDuration,
-          sceneAudioPath
-        );
-        preparedSceneTts[index] = {
-          path: sceneAudioPath,
-          duration: segment.duration,
-          wordTimings: segment.wordTimings
-        };
-        updateJobProgress(
-          jobId,
-          { progress: 12 + Math.floor(((index + 1) / scenes.length) * 3) },
-          'Podzielono jedną ścieżkę lektora na scenę ' + (index + 1) + '/' + scenes.length + '; bez ponownej syntezy.'
-        );
-      }
+      updateJobProgress(
+        jobId,
+        { progress: 15 },
+        `Jedna oryginalna ścieżka lektora pozostaje niepocięta. Przygotowano wyłącznie znaczniki czasu napisów dla ${narrationSceneTimings.length} scen.`
+      );
     }
 
     const plannedSceneDurations = ttsEnabled
       ? sceneDurationsWithNarration(
         baseSceneDurations,
-        narrationSceneSegments.map((segment) => segment.duration),
-        MAX_SHORT_DURATION_SECONDS
+        narrationSceneTimings.map((segment) => segment.duration),
+        MAX_SHORT_DURATION_SECONDS,
+        0
       )
       : sceneDurationsWithNarration(baseSceneDurations, scenes.map(() => null), MAX_SHORT_DURATION_SECONDS);
     const totalPlannedDuration = plannedSceneDurations.reduce((sum, duration) => sum + duration, 0);
@@ -3135,10 +3042,10 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
       updateJobProgress(
         jobId,
         {
-          step: `Przetwarzanie Sceny ${sceneNum}/${scenes.length} (Lektor TTS + animowane napisy)`,
+          step: `Przetwarzanie Sceny ${sceneNum}/${scenes.length} (napisy i obraz)`,
           progress: sceneStartProgress
         },
-        `Przygotowywanie lektora TTS i napisów word-by-word dla sceny ${sceneNum}...`
+        `Przygotowywanie obrazu i znaczników czasu napisów dla sceny ${sceneNum}...`
       );
 
       if (abortController.signal.aborted) {
@@ -3218,15 +3125,11 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
       // Każda scena trwa co najmniej tyle, ile wymaga pełny lektor; łączny limit Shorta wynosi 23 sekundy.
       let sceneDuration = plannedSceneDurations[index];
       let captionDuration = sceneDuration;
-      const ttsAsset = preparedSceneTts[index];
-      const sceneWordTimings = ttsAsset?.wordTimings || [];
-
-      const hasTtsAudio = ttsEnabled && !!ttsAsset && fs.existsSync(ttsAsset.path);
-      const sceneTtsPath = ttsAsset?.path || path.join(jobTempDir, `scene_tts_${sceneNum}.wav`);
+      const sceneTiming = ttsEnabled ? narrationSceneTimings[index] : null;
+      const sceneWordTimings = sceneTiming?.wordTimings || [];
       if (ttsEnabled && speechText.length > 0) {
-        if (!hasTtsAudio || !ttsAsset) throw new Error(`Brakuje przygotowanego audio ElevenLabs dla sceny ${sceneNum}.`);
-        // The planned duration includes the full natural narration plus a short audio tail.
-        captionDuration = ttsAsset.duration;
+        if (!sceneTiming) throw new Error(`Brakuje znaczników czasu pełnego lektora dla sceny ${sceneNum}.`);
+        captionDuration = sceneTiming.duration;
       }
 
       totalEstimatedDuration += sceneDuration;
@@ -3302,42 +3205,26 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
       let ffmpegArgs: string[] = [];
 
       if (isImage) {
-        if (hasTtsAudio) {
-          const audioMix = hasSceneSfx ? buildAudioMixFilter(true, true) : buildAudioMixFilter(true, false);
-          ffmpegArgs = [
-            '-y',
-            '-loop', '1',
-            '-i', downloadedAssetPath,
-            '-i', sceneTtsPath,
-            ...(hasSceneSfx ? ['-i', sfxPath] : []),
-            '-filter_complex', hasSceneSfx ? `[0:v]${videoFilterWithAss}[v];${audioMix.filter}` : `[0:v]${videoFilterWithAss}[v];${audioMix.filter}`,
-            '-map', '[v]',
-            '-map', audioMix.map,
-            '-t', sceneDuration.toString(),
-            ...FAST_H264_OPTIONS,
-            '-c:a', 'aac',
-            '-b:a', '192k',
-            '-movflags', '+faststart',
-            '-shortest',
-            normalizedScenePath
-          ];
-        } else {
-          const audioMix = hasSceneSfx ? buildAudioMixFilter(false, true) : buildAudioMixFilter(false, false);
-          ffmpegArgs = [
-            '-y',
-            '-loop', '1',
-            '-i', downloadedAssetPath,
-            '-f', 'lavfi',
-            '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',
-            ...(hasSceneSfx ? ['-i', sfxPath, '-filter_complex', `[0:v]${videoFilterWithAss}[v];${audioMix.filter}`, '-map', '[v]', '-map', audioMix.map] : ['-vf', videoFilterWithAss]),
-            '-t', sceneDuration.toString(),
-            ...FAST_H264_OPTIONS,
-            '-c:a', 'aac',
-            '-movflags', '+faststart',
-            '-shortest',
-            normalizedScenePath
-          ];
-        }
+        const sceneAudioInput = hasSceneSfx
+          ? ['-i', sfxPath]
+          : ['-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100'];
+        const sceneAudioVolume = hasSceneSfx ? 'volume=0.38,' : '';
+        ffmpegArgs = [
+          '-y',
+          '-loop', '1',
+          '-i', downloadedAssetPath,
+          ...sceneAudioInput,
+          '-filter_complex', `[0:v]${videoFilterWithAss}[v];[1:a]${sceneAudioVolume}aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[a]`,
+          '-map', '[v]',
+          '-map', '[a]',
+          '-t', sceneDuration.toString(),
+          ...FAST_H264_OPTIONS,
+          '-c:a', 'aac',
+          '-b:a', '192k',
+          '-movflags', '+faststart',
+          '-shortest',
+          normalizedScenePath
+        ];
       } else {
         let trimOpts: string[] = [];
         if (typeof scene.trimStart === 'number' && scene.trimStart >= 0) {
@@ -3345,17 +3232,19 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
         }
         trimOpts.push('-t', sceneDuration.toString());
 
-        if (hasTtsAudio) {
-          // Use synthesized TTS voice narration as audio track with seamless video loop
-          const audioMix = hasSceneSfx ? buildAudioMixFilter(true, true) : buildAudioMixFilter(true, false);
+        if (ttsEnabled) {
+          // Keep only local sound effects (or silence); the original voice is muxed once after concat.
+          const sceneAudioInput = hasSceneSfx
+            ? ['-i', sfxPath]
+            : ['-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100'];
+          const sceneAudioVolume = hasSceneSfx ? 'volume=0.38,' : '';
           ffmpegArgs = [
             '-y',
             '-stream_loop', '-1',
             ...trimOpts,
             '-i', downloadedAssetPath,
-            '-i', sceneTtsPath,
-            ...(hasSceneSfx ? ['-i', sfxPath] : []),
-            '-filter_complex', hasSceneSfx ? `[0:v]${videoFilterWithAss}[v];${audioMix.filter}` : `[0:v]${videoFilterWithAss}[v];[1:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[a]`,
+            ...sceneAudioInput,
+            '-filter_complex', `[0:v]${videoFilterWithAss}[v];[1:a]${sceneAudioVolume}aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[a]`,
             '-map', '[v]',
             '-map', '[a]',
             '-t', sceneDuration.toString(),
@@ -3363,10 +3252,11 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
             '-c:a', 'aac',
             '-b:a', '192k',
             '-movflags', '+faststart',
+            '-shortest',
             normalizedScenePath
           ];
         } else {
-          // Use original video audio with seamless video loop
+          // When TTS is disabled, preserve the original stock-video audio.
           ffmpegArgs = [
             '-y',
             '-stream_loop', '-1',
@@ -3379,6 +3269,7 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
             ...FAST_H264_OPTIONS,
             '-c:a', 'aac',
             '-movflags', '+faststart',
+            '-shortest',
             normalizedScenePath
           ];
         }
@@ -3387,7 +3278,7 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
       updateJobProgress(
         jobId,
         { step: `Renderowanie Sceny ${sceneNum}/${scenes.length} (${animMode})` },
-        `FFmpeg nakłada napisy ${animMode} (${highlightCol}) i synchronizuje audio lektora...`
+        `FFmpeg nakłada napisy ${animMode} (${highlightCol}); oryginalny lektor zostanie dodany raz po połączeniu scen...`
       );
 
       try {
@@ -3402,12 +3293,16 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
         }
         trimOptsFallback.push('-t', sceneDuration.toString());
 
+        const fallbackAudioInput = hasSceneSfx
+          ? ['-i', sfxPath]
+          : ['-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100'];
+        const fallbackAudioVolume = hasSceneSfx ? 'volume=0.38,' : '';
         const fallbackArgs = [
           '-y',
           ...trimOptsFallback,
           '-i', downloadedAssetPath,
-          ...(hasTtsAudio ? ['-i', sceneTtsPath] : ['-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100']),
-          '-filter_complex', `[0:v]${scaleFilter}[v];[1:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[a]`,
+          ...fallbackAudioInput,
+          '-filter_complex', `[0:v]${scaleFilter}[v];[1:a]${fallbackAudioVolume}aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[a]`,
           '-map', '[v]',
           '-map', '[a]',
           '-t', sceneDuration.toString(),
@@ -3479,7 +3374,23 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
     const outputFilename = `combined_video_${jobId}.mp4`;
     const finalOutputPath = path.join(EXPORTS_DIR, outputFilename);
 
-    if (audioDownloadedSuccessfully && fs.existsSync(bgAudioPath)) {
+    if (ttsEnabled) {
+      if (!fs.existsSync(fullNarrationPath)) {
+        throw new Error('Brakuje oryginalnego, niepociętego pliku TTS przed końcowym miksowaniem.');
+      }
+      const muxArgs = buildContinuousNarrationMuxArgs({
+        mergedVideoPath,
+        fullNarrationPath,
+        backgroundMusicPath: audioDownloadedSuccessfully && fs.existsSync(bgAudioPath) ? bgAudioPath : null,
+        backgroundMusicVolume: audioVol,
+        durationSeconds: totalPlannedDuration,
+        outputPath: finalOutputPath
+      });
+      await runFfmpegWithProgress(muxArgs, jobId, 85, 95, totalEstimatedDuration || 10);
+      console.info(
+        `[Final audio mix] Added the original full TTS file once after concat; ${audioDownloadedSuccessfully ? 'background music included' : 'without background music'}; no scene TTS files were generated.`
+      );
+    } else if (audioDownloadedSuccessfully && fs.existsSync(bgAudioPath)) {
       const mixArgs = [
         '-y',
         '-i', mergedVideoPath,
@@ -3496,7 +3407,6 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
         await runFfmpegWithProgress(mixArgs, jobId, 85, 95, totalEstimatedDuration || 10);
       } catch {
         try {
-          // Alternative if merged video has no audio track
           const replaceAudioArgs = [
             '-y',
             '-i', mergedVideoPath,
