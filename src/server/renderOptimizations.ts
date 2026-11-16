@@ -1,5 +1,3 @@
-export const SCENE_TTS_CONCURRENCY = 2;
-
 export const FAST_H264_OPTIONS = ['-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p'] as const;
 
 export type FfmpegProbe = {

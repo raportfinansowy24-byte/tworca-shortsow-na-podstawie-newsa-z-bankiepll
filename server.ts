@@ -56,7 +56,7 @@ import { buildBrandedCtaSvg } from './src/server/brandEndCard';
 import { buildFinancialChartSvg } from './src/server/financeChartVisual';
 import { selectAdaptiveBackgroundMusic } from './src/server/adaptiveMusicStrategy';
 import { generateHighlightBoardAss, type HighlightBoardOptions } from './src/server/highlightBoards';
-import { buildAudioMixFilter, buildMotionFilter, generateSceneSoundEffect, motionSoundSpecForBeat } from './src/server/motionSoundRenderer';
+import { buildMotionFilter, generateSceneSoundEffect, motionSoundSpecForBeat } from './src/server/motionSoundRenderer';
 import { getLearningSignals, recordHookVariants, recordPipelineEvent, recordPipelineRun, recordAutopilotPipelineRun, recordRetentionMetric, updatePipelineRunStatus } from './src/server/pipelineTelemetry';
 import { buildShortsEditorQaRevisionInstruction, evaluateRenderedShort, evaluateShortStoryboard, hasNarrationWithinWordRanges, shouldBlockQa } from './src/server/shortsEditorQa';
 import { buildVisualAnalysisUnavailableReport, buildVisualSemanticReport, parseCompleteVisualSemanticResponse, type VisualSemanticReport, type VisualSemanticSample } from './src/server/shortsVisualSemanticQa';
@@ -2733,7 +2733,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
           const taskRules = revision.direction === 'expand'
             ? 'Rozwiń WYŁĄCZNIE przekazane kwestie, korzystając tylko z konkretnych informacji obecnych w kontekście źródłowym. Dodaj użyteczny kontekst opisowy, ale nie dopisuj żadnych nowych liczb, dat, wartości, przyczyn ani zależności. Każde nowe zdanie musi dać się uzasadnić artykułem. Jeżeli źródło nie zawiera wystarczających informacji, nie zgaduj — zwróć pusty revisions.'
             : 'Skróć WYŁĄCZNIE przekazane kwestie. Zachowaj kluczowy sens, kierunek zmian, nazwy podmiotów oraz wszystkie liczby, daty i wartości. Nie usuwaj istotnych faktów. Usuń powtórzenia, wstępy i wypełniacze.';
-          const prompt = `Poprawiasz polski lektor do finansowego Shorta. Szacowany czas samej mowy (konserwatywnie) wynosi ${revision.totalEstimatedNarrationDurationSeconds.toFixed(2)} s, a jej estymacja dolna wraz z ogonami scen ${revision.minimumEstimatedDurationSeconds.toFixed(2)} s. Konserwatywny czas renderu wynosi ${revision.totalEstimatedDurationSeconds.toFixed(2)} s. Wymagany zakres gotowego Shorta to ${revision.targetDurationSeconds}–${revision.maxTotalDurationSeconds} s. Kierunek: ${revision.direction === 'expand' ? 'ROZBUDOWA' : 'SKRACANIE'}. Próba ${revision.attemptNumber}/4.
+          const prompt = `Poprawiasz polski lektor do finansowego Shorta. Szacowany czas samej mowy (konserwatywnie) wynosi ${revision.totalEstimatedNarrationDurationSeconds.toFixed(2)} s, a jej estymacja dolna wynosi ${revision.minimumEstimatedDurationSeconds.toFixed(2)} s. Konserwatywny czas lektora wynosi ${revision.totalEstimatedDurationSeconds.toFixed(2)} s. Wymagany zakres gotowego Shorta to ${revision.targetDurationSeconds}–${revision.maxTotalDurationSeconds} s. Kierunek: ${revision.direction === 'expand' ? 'ROZBUDOWA' : 'SKRACANIE'}. Próba ${revision.attemptNumber}/4.
 
 TWARDY WARUNEK: ${directionRules} Jednostka mowy to słowo plus niewielki koszt interpunkcji. Nie zmieniaj CTA ostatniej sceny (zajmuje ${lockedCtaSpeechUnits} jednostek).
 
@@ -3122,7 +3122,7 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
       // Extract speech text for TTS and captions
       const speechText = sceneSpeechTexts[index];
 
-      // Każda scena trwa co najmniej tyle, ile wymaga pełny lektor; łączny limit Shorta wynosi 23 sekundy.
+      // Czas sceny jest dokładną częścią osi czasu oryginalnego lektora; audio nie jest wycinane.
       let sceneDuration = plannedSceneDurations[index];
       let captionDuration = sceneDuration;
       const sceneTiming = ttsEnabled ? narrationSceneTimings[index] : null;
@@ -5278,7 +5278,7 @@ WIARYGODNOŚĆ:
 - Bez gwarantowanych zysków, fałszywej pilności i indywidualnych rekomendacji inwestycyjnych.
 - Dobieraj ujęcia do konkretnego tematu newsa; nie stosuj ogólnego finansowego B-rollu, gdy nie pasuje do faktu.
 
-DOKŁADNIE 8 SCEN. STANDARDOWY UKŁAD TO 18 SEKUND; SCENY MOGĄ ZOSTAĆ WYDŁUŻONE PRZEZ RENDERER, ALE CAŁY FILM NIE MOŻE PRZEKROCZYĆ 23 SEKUND:
+DOKŁADNIE 8 SCEN. STANDARDOWY UKŁAD TO 18 SEKUND; RENDERER MOŻE WYDŁUŻYĆ SCENY, ALE CAŁY FILM NIE MOŻE PRZEKROCZYĆ 28 SEKUND:
 1. HOOK: jeden konkretny fakt ze źródła.
 2. KONTEKST: temat newsa.
 3. PROBLEM: co jest stawką.
