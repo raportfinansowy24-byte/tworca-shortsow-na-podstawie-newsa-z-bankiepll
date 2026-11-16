@@ -40,6 +40,8 @@ jobs:
         run: npm run test:short-pipeline
       - name: Narration timing, pre-TTS fit and calibration tests
         run: npm run test:narration-timing
+      - name: Continuous narration audio slicing tests
+        run: npm run test:narration-audio-slice
       - name: Render optimization tests
         run: npm run test:render-optimizations
       - name: Dynamic highlight board tests

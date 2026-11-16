@@ -44,7 +44,8 @@
     "test:pixabay-video-provider": "tsx tests/pixabayVideoProvider.test.ts",
     "test:stock-candidate-policy": "tsx tests/stockCandidatePolicy.test.ts",
     "test:source-evidence-visual": "tsx tests/sourceEvidenceVisual.test.ts",
-    "test:autopilot-retry": "tsx tests/autopilotRetry.test.ts"
+    "test:autopilot-retry": "tsx tests/autopilotRetry.test.ts",
+    "test:narration-audio-slice": "tsx tests/narrationAudioSlice.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.32.0",
