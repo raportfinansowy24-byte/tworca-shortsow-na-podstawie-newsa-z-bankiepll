@@ -89,7 +89,7 @@ const expandedNarration = await fitNarrationBeforeTts({
   baseSceneDurations: base,
   secondsPerSpeechUnit: 0.4,
   speed: 1,
-  targetDurationSeconds: 18,
+  targetDurationSeconds: 17,
   maxTotalDurationSeconds: 25,
   maxRevisionAttempts: 1,
   revise: async ({ sceneTexts, direction }) => {
@@ -111,7 +111,7 @@ await assert.rejects(() => fitNarrationBeforeTts({
   baseSceneDurations: base,
   secondsPerSpeechUnit: 0.4,
   speed: 1,
-  targetDurationSeconds: 18,
+  targetDurationSeconds: 17,
   maxTotalDurationSeconds: 25,
   maxRevisionAttempts: 1,
   revise: async () => null
@@ -122,7 +122,7 @@ const revised = await fitNarrationBeforeTts({
   baseSceneDurations: base,
   secondsPerSpeechUnit: 0.4,
   speed: 1,
-  targetDurationSeconds: 18,
+  targetDurationSeconds: 17,
   maxTotalDurationSeconds: 25,
   maxRevisionAttempts: 2,
   revise: async ({ sceneTexts, attemptNumber }) => {
@@ -149,7 +149,7 @@ const fourStepFit = await fitNarrationBeforeTts({
   baseSceneDurations: base,
   secondsPerSpeechUnit: 0.43,
   speed: 1,
-  targetDurationSeconds: 18,
+  targetDurationSeconds: 17,
   maxTotalDurationSeconds: 25,
   maxRevisionAttempts: 4,
   revise: async ({ sceneTexts, attemptNumber }) => {
@@ -172,7 +172,7 @@ const sceneSevenFit = await fitNarrationBeforeTts({
   baseSceneDurations: base,
   secondsPerSpeechUnit: 0.4,
   speed: 1,
-  targetDurationSeconds: 18,
+  targetDurationSeconds: 17,
   maxTotalDurationSeconds: 25,
   maxRevisionAttempts: 2,
   revise: async ({ sceneTexts, attemptNumber }) => {
@@ -197,7 +197,7 @@ async function assertNumericRewriteIsRejected(originalText: string, revisedText:
     baseSceneDurations: base,
     secondsPerSpeechUnit: 0.4,
     speed: 1,
-    targetDurationSeconds: 18,
+    targetDurationSeconds: 17,
     maxTotalDurationSeconds: 25,
     maxRevisionAttempts: 2,
     revise: async ({ sceneTexts: current, attemptNumber }) => {
@@ -220,7 +220,7 @@ const numericRetryFit = await fitNarrationBeforeTts({
   baseSceneDurations: base,
   secondsPerSpeechUnit: 0.4,
   speed: 1,
-  targetDurationSeconds: 18,
+  targetDurationSeconds: 17,
   maxTotalDurationSeconds: 25,
   maxRevisionAttempts: 2,
   revise: async ({ sceneTexts, attemptNumber }) => {
@@ -243,7 +243,7 @@ await assert.rejects(() => fitNarrationBeforeTts({
   baseSceneDurations: base,
   secondsPerSpeechUnit: 0.4,
   speed: 1,
-  targetDurationSeconds: 18,
+  targetDurationSeconds: 17,
   maxTotalDurationSeconds: 25,
   maxRevisionAttempts: 2,
   revise: async ({ sceneTexts }) => {
@@ -261,7 +261,7 @@ await assert.rejects(() => fitNarrationBeforeTts({
   baseSceneDurations: base,
   secondsPerSpeechUnit: 0.6,
   speed: 1,
-  targetDurationSeconds: 18,
+  targetDurationSeconds: 17,
   maxTotalDurationSeconds: 25,
   revise: async () => {
     revisionAttemptsForHardFail++;
@@ -275,7 +275,7 @@ await assert.rejects(() => fitNarrationBeforeTts({
   baseSceneDurations: base,
   secondsPerSpeechUnit: 0.4,
   speed: 1,
-  targetDurationSeconds: 18,
+  targetDurationSeconds: 17,
   maxTotalDurationSeconds: 25,
   revise: async ({ sceneTexts }) => {
     const candidate = [...sceneTexts];
@@ -297,7 +297,7 @@ const inflectedWordNumber = await fitNarrationBeforeTts({
   baseSceneDurations: base,
   secondsPerSpeechUnit: 0.4,
   speed: 1,
-  targetDurationSeconds: 18,
+  targetDurationSeconds: 17,
   maxTotalDurationSeconds: 25,
   revise: async ({ sceneTexts }) => {
     const candidate = [...sceneTexts];
