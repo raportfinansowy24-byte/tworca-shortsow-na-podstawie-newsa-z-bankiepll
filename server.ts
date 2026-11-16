@@ -2705,7 +2705,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
             (payload as any).bankierArticle?.content,
             (payload as any).bankierArticle?.fullText
           ].filter((value) => typeof value === 'string' && value.trim()).join('\\n').slice(0, 9000);
-          const paddingBudgetSeconds = revision.sceneTexts.length * SCENE_NARRATION_PADDING_SECONDS;
+          const paddingBudgetSeconds = 0; // One full narration track; no per-scene audio padding is added.
           const minimumSpeechUnitSeconds = (calibratedSecondsPerUnit / NARRATION_ESTIMATE_SAFETY_FACTOR) /
             Math.min(1.2, Math.max(0.7, ttsSpeed));
           const conservativeSpeechUnitSeconds = calibratedSecondsPerUnit /
