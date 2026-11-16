@@ -295,9 +295,12 @@ export function evaluateShortStoryboard(rawScenes: unknown, options: ShortsEdito
 export function buildShortsEditorQaRevisionInstruction(
   report: ShortsEditorQaReport,
   attemptNumber = 1,
-  maxAttempts = 3,
+  maxAttempts = Number.POSITIVE_INFINITY,
   previousError?: string
 ): string {
+  const attemptLabel = Number.isFinite(maxAttempts)
+    ? attemptNumber + '/' + maxAttempts
+    : attemptNumber + ' (bez limitu prób)';
   const issues = report.findings.slice(0, 12).map((finding) => '- ' + finding.message);
   const repeatedVisualScenes = [...new Set(
     report.findings
@@ -314,7 +317,7 @@ export function buildShortsEditorQaRevisionInstruction(
     : [];
 
   return [
-    'SHORTS EDITOR QA — POPRAWKA PLANU ' + attemptNumber + '/' + maxAttempts,
+    'SHORTS EDITOR QA — POPRAWKA PLANU ' + attemptLabel,
     'Zachowaj ten sam artykuł i wyłącznie potwierdzone fakty. Nie twórz nowego tematu ani nie wymyślaj liczb.',
     `Zwróć dokładnie 8 scen na około 18 sekund (maksymalnie ${MAX_SHORT_DURATION_SECONDS} sekund). Pierwsze ujęcie ma zatrzymać uwagę od razu; ostatnie ma zawierać zatwierdzone CTA.`,
     'Każda scena ma mieć krótką narrację, identyczną treść napisów i konkretne zapytanie wizualne odnoszące się do tej kwestii.',

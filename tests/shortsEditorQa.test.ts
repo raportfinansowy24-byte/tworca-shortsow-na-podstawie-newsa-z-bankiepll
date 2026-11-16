@@ -43,8 +43,8 @@ const repeatedVisualReport = evaluateShortStoryboard(repeatedVisualQueries, {
 });
 assert.equal(repeatedVisualReport.status, 'review', 'powtórzone zapytanie wizualne blokuje automatyczny storyboard wymagający PASS');
 assert.deepEqual(repeatedVisualReport.findings.filter((finding) => finding.code === 'repeated_visual_query').map((finding) => finding.scene), [2, 7]);
-const repeatedVisualRepair = buildShortsEditorQaRevisionInstruction(repeatedVisualReport, 2, 3, 'timeout dostawcy modelu');
-assert.match(repeatedVisualRepair, /POPRAWKA PLANU 2\/3/);
+const repeatedVisualRepair = buildShortsEditorQaRevisionInstruction(repeatedVisualReport, 2, Number.POSITIVE_INFINITY, 'timeout dostawcy modelu');
+assert.match(repeatedVisualRepair, /POPRAWKA PLANU 2 \(bez limitu prób\)/);
 assert.match(repeatedVisualRepair, /scenach 2, 7/);
 assert.match(repeatedVisualRepair, /nie mogą być identyczne/);
 assert.match(repeatedVisualRepair, /timeout dostawcy modelu/);

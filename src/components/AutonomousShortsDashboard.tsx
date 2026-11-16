@@ -44,8 +44,8 @@ export const AutonomousShortsDashboard: React.FC<AutonomousShortsDashboardProps>
   const runOnceDisabled = !state || runOnceLoading || state.lastRunStatus === 'running';
   const history = state?.history || [];
   const retryQueue = state?.retryQueue || [];
-  const pendingRetries = retryQueue.filter((entry) => entry.status === 'pending');
-  const exhaustedRetries = retryQueue.filter((entry) => entry.status === 'exhausted');
+  // Legacy exhausted entries are reactivated on server startup; all retained entries are retryable.
+  const pendingRetries = retryQueue;
   const slots = state?.dailySlots?.length ? state.dailySlots : ['06:00', '11:00', '16:00', '21:00'];
 
   return (
@@ -165,15 +165,15 @@ export const AutonomousShortsDashboard: React.FC<AutonomousShortsDashboardProps>
               <div className="mb-4 flex flex-col gap-1">
                 <h2 className="font-bold text-white">Kolejka ponowień</h2>
                 <p className="text-xs text-slate-400">
-                  Każdy wpis możesz ponowić osobno przyciskiem „Popraw ten short” albo usunąć z kolejki. Globalny przycisk ponawia najstarszy oczekujący wpis. Po wyczerpaniu limitu wpis wymaga ręcznej decyzji.
+                  Liczba poprawek jest bez limitu. Każdy wpis możesz ponowić osobno przyciskiem „Popraw ten short”; globalny przycisk ponawia najstarszy wpis. Udany render automatycznie usuwa wpis z kolejki.
                 </p>
               </div>
               <div className="space-y-3">
                 {retryQueue.slice(0, 6).map((entry) => (
                   <article key={entry.article.link} className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
                     <div className="flex flex-wrap items-center gap-2 text-xs">
-                      <span className={entry.status === 'pending' ? 'font-semibold text-amber-200' : 'font-semibold text-slate-400'}>
-                        {entry.status === 'pending' ? 'Oczekuje na ponowienie' : 'Wyczerpano próby'}
+                      <span className="font-semibold text-amber-200">
+                        Oczekuje na ponowienie — bez limitu prób
                       </span>
                       <span className="text-slate-500">Nieudane przebiegi: {entry.failedAttempts}</span>
                       <span className="text-slate-500">{formatDate(entry.lastFailedAt)}</span>
@@ -181,17 +181,15 @@ export const AutonomousShortsDashboard: React.FC<AutonomousShortsDashboardProps>
                     <p className="mt-1 text-sm font-semibold text-white">{entry.article.title}</p>
                     <p className="mt-1 line-clamp-3 text-xs text-rose-300">{entry.lastError}</p>
                     <div className="mt-3 flex flex-wrap gap-2">
-                      {entry.status === 'pending' && (
-                        <button
-                          type="button"
-                          onClick={() => onRetryArticle(entry.article.link)}
-                          disabled={runOnceDisabled || retryLoading || Boolean(retryingArticleLink) || Boolean(removingArticleLink)}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/50 bg-amber-700/70 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          <RefreshCw className={retryingArticleLink === entry.article.link ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'} />
-                          {retryingArticleLink === entry.article.link ? 'Ponawiam…' : 'Popraw ten short'}
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => onRetryArticle(entry.article.link)}
+                        disabled={runOnceDisabled || retryLoading || Boolean(retryingArticleLink) || Boolean(removingArticleLink)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/50 bg-amber-700/70 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <RefreshCw className={retryingArticleLink === entry.article.link ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'} />
+                        {retryingArticleLink === entry.article.link ? 'Ponawiam…' : 'Popraw ten short'}
+                      </button>
                       <button
                         type="button"
                         onClick={() => onRemoveRetry(entry.article.link)}
@@ -205,9 +203,6 @@ export const AutonomousShortsDashboard: React.FC<AutonomousShortsDashboardProps>
                 ))}
                 {retryQueue.length > 6 && <p className="text-xs text-slate-500">Pozostałe wpisy: {retryQueue.length - 6}</p>}
               </div>
-              {exhaustedRetries.length > 0 && (
-                <p className="mt-3 text-xs text-slate-500">Wyczerpane próby: {exhaustedRetries.length}. Te artykuły pozostają w historii, ale nie uruchamiają się w nieskończonej pętli.</p>
-              )}
             </section>
           )}
 

@@ -73,7 +73,7 @@ import { cleanStockSearchQuery, scoreStockCandidateSoftAvoidance } from './src/s
 import { buildSourceEvidenceVisual, resolveStockWithEvidenceFallback, resolveStockWithVerifiedEvidenceFallback } from './src/server/sourceEvidenceVisual';
 import { buildPixabayFallbackQueries } from './src/server/pixabaySearchExpansion';
 import { buildFinancialNewsSearchAliases } from './src/server/stockSearchExpansion';
-import { findLegacyFailedAutopilotArticleUrl, getNextPendingAutopilotRetry, MAX_AUTOPILOT_RETRY_ATTEMPTS, MAX_STORYBOARD_QA_REPAIR_ATTEMPTS, recordAutopilotFailure, repairUntilPass, resolveAutopilotRetry, isCompatibleNarrationRetryCache, type AutopilotRetryEntry, type RetryableAutopilotArticle, type NarrationRetryCacheMetadata } from './src/server/autopilotRetry';
+import { findLegacyFailedAutopilotArticleUrl, getNextPendingAutopilotRetry, MAX_STORYBOARD_QA_REPAIR_ATTEMPTS, recordAutopilotFailure, reactivateExhaustedAutopilotRetries, repairUntilPass, resolveAutopilotRetry, isCompatibleNarrationRetryCache, type AutopilotRetryEntry, type RetryableAutopilotArticle, type NarrationRetryCacheMetadata } from './src/server/autopilotRetry';
 import { GEMINI_PRIMARY_MODEL, getGeminiApiKeys, withGeminiKeyRotation } from './src/server/modelRouting';
 
 const execPromise = promisify(exec);
@@ -8274,16 +8274,27 @@ function loadSchedulerStateFromDisk() {
       const raw = fs.readFileSync(AUTOPILOT_SCHEDULER_PATH, 'utf-8');
       const parsed = JSON.parse(raw);
       const hasCurrentToggleVersion = parsed.schedulerControlVersion === SCHEDULER_CONTROL_VERSION;
+      const storedRetryQueue: AutopilotRetryEntry[] = Array.isArray(parsed.retryQueue) ? parsed.retryQueue : [];
+      const reactivatedRetryLinks = storedRetryQueue
+        .filter((entry) => entry.status === 'exhausted')
+        .map((entry) => String(entry.article?.link || '').trim())
+        .filter(Boolean);
       schedulerState = {
         ...DEFAULT_SCHEDULER_STATE,
         ...parsed,
         // Old persisted `enabled: true` values must not start a schedule during this migration.
         schedulerControlVersion: SCHEDULER_CONTROL_VERSION,
         enabled: hasCurrentToggleVersion && parsed.enabled === true,
-        retryQueue: Array.isArray(parsed.retryQueue) ? parsed.retryQueue : [],
+        retryQueue: reactivateExhaustedAutopilotRetries(storedRetryQueue),
         lastRunStatus: parsed.lastRunStatus === 'running' ? 'idle' : (parsed.lastRunStatus || 'idle')
       };
-      if (!hasCurrentToggleVersion) saveSchedulerStateToDisk();
+      if (reactivatedRetryLinks.length > 0) {
+        const reactivated = new Set(reactivatedRetryLinks);
+        schedulerState.processedUrls = (Array.isArray(schedulerState.processedUrls) ? schedulerState.processedUrls : [])
+          .filter((url) => !reactivated.has(url));
+        console.warn('[Autopilot Retry] Migracja bezlimitowych poprawek: przywrócono ' + reactivatedRetryLinks.length + ' wcześniej wyczerpanych wpisów do kolejki.');
+      }
+      if (!hasCurrentToggleVersion || reactivatedRetryLinks.length > 0) saveSchedulerStateToDisk();
       console.log(`✓ Wczytano stan harmonogramu 4x/dobę z dysku (Wykonań: ${schedulerState.runsCount}, Historia: ${schedulerState.history.length})`);
     }
   } catch (err) {
@@ -8375,8 +8386,7 @@ function queueFailedAutopilotArticle(
     retryArticle,
     error,
     retryPayloadJobId,
-    now,
-    MAX_AUTOPILOT_RETRY_ATTEMPTS
+    now
   );
   const entry = schedulerState.retryQueue.find((item) => item.article.link === retryArticle.link);
   schedulerState.lastRunTime = now;
@@ -8386,12 +8396,8 @@ function queueFailedAutopilotArticle(
     category: retryArticle.category
   };
   schedulerState.lastRunStatus = 'failed';
-  if (entry?.status === 'exhausted') {
-    schedulerState.processedUrls = [retryArticle.link, ...schedulerState.processedUrls.filter((url) => url !== retryArticle.link)].slice(0, 200);
-    console.warn('[Autopilot Retry] Wyczerpano ' + MAX_AUTOPILOT_RETRY_ATTEMPTS + ' dodatkowe próby dla: ' + retryArticle.title);
-  } else {
-    console.warn('[Autopilot Retry] Zachowano nieudany artykuł do ponowienia (' + (entry?.failedAttempts || 1) + '/' + (MAX_AUTOPILOT_RETRY_ATTEMPTS + 1) + '): ' + retryArticle.title);
-  }
+  console.warn('[Autopilot Retry] Zachowano nieudany artykuł do ponowienia bez limitu prób: ' +
+    retryArticle.title + '; dotychczasowe nieudane przebiegi: ' + (entry?.failedAttempts || 1) + '.');
   saveSchedulerStateToDisk();
 }
 
@@ -8522,7 +8528,7 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
       candidate = selectedRetryEntry.article;
       viralityScore = calculateViralityScore(candidate.title, candidate.description || candidate.summary || '', candidate.category || 'Wiadomości');
       selectionSource = 'retry_queue';
-      console.info('[Autopilot Retry] Wznawiam artykuł: ' + candidate.title + ' (' + selectedRetryEntry.failedAttempts + '/' + (MAX_AUTOPILOT_RETRY_ATTEMPTS + 1) + ' nieudanych przebiegów).');
+      console.info('[Autopilot Retry] Wznawiam artykuł: ' + candidate.title + ' (bez limitu; dotychczasowe nieudane przebiegi: ' + selectedRetryEntry.failedAttempts + ').');
     } else {
       const articles = await fetchBankierArticlesInternal(schedulerState.category || 'wiadomosci', true);
       if (!articles || articles.length === 0) {
@@ -8637,7 +8643,7 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
           initialReport: initialEditorQa,
           maxAttempts: MAX_STORYBOARD_QA_REPAIR_ATTEMPTS,
           revise: async (currentReport, attempt, previousError) => {
-            console.warn('[Shorts Editor QA] Poprawka storyboardu ' + attempt + '/' + MAX_STORYBOARD_QA_REPAIR_ATTEMPTS + '. Problemy: ' + currentReport.findings.map((finding) => finding.message).join(' | '));
+            console.warn('[Shorts Editor QA] Poprawka storyboardu nr ' + attempt + ' (bez limitu prób). Problemy: ' + currentReport.findings.map((finding) => finding.message).join(' | '));
             return generateSmartOrGeminiViralScript({
               ...scriptRequest,
               revisionInstruction: buildShortsEditorQaRevisionInstruction(
@@ -8651,7 +8657,7 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
           evaluate: (revisedScript) => evaluateShortStoryboard(revisedScript.scenes, qaOptions),
           onAttempt: (attempt, currentReport, previousError) => {
             if (previousError) {
-              console.warn('[Shorts Editor QA] Poprzednia poprawka nie powiodła się; kontynuuję próbę ' + attempt + '/' + MAX_STORYBOARD_QA_REPAIR_ATTEMPTS + ': ' + previousError);
+              console.warn('[Shorts Editor QA] Poprzednia poprawka nie powiodła się; kontynuuję próbę nr ' + attempt + ' (bez limitu): ' + previousError);
             }
           }
         });
@@ -8664,9 +8670,8 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
         ? ' Błędy techniczne poprawek: ' + qaRepairResult.errors.join(' | ')
         : '';
       throw new Error(
-        'Shorts Editor QA wymaga statusu pass i zablokowało utworzenie render-jobu po ' +
-        qaRepairResult.attempts + '/' + MAX_STORYBOARD_QA_REPAIR_ATTEMPTS +
-        ' poprawkach (' + editorQa.status + '): ' + issues.join(' | ') + repairErrors + (retrySnapshot ? ' Zapisany lektor nie został zmieniony.' : '')
+        'Shorts Editor QA nie uzyskało statusu pass po ' +
+        qaRepairResult.attempts + ' poprawkach (tryb bez limitu): ' + issues.join(' | ') + repairErrors + (retrySnapshot ? ' Zapisany lektor nie został zmieniony.' : '')
       );
     }
 
@@ -9023,7 +9028,8 @@ router.post('/autopilot/scheduler/retry-failed', async (req, res) => {
   return res.json({
     ...result,
     retryArticle: pendingRetry.article,
-    retriesRemaining: Math.max(0, MAX_AUTOPILOT_RETRY_ATTEMPTS + 1 - pendingRetry.failedAttempts)
+    retriesRemaining: null,
+    retryLimit: 'unlimited'
   });
 });
 
