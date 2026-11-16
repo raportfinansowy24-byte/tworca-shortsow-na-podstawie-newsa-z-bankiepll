@@ -129,7 +129,7 @@ const revised = await fitNarrationBeforeTts({
     revisionCalls++;
     const candidate = [...sceneTexts];
     candidate[0] = attemptNumber === 1
-      ? Array.from({ length: 24 }, () => 'konkret').join(' ') + '.'
+      ? Array.from({ length: 25 }, () => 'konkret').join(' ') + '.'
       : Array.from({ length: 14 }, () => 'konkret').join(' ') + '.';
     return candidate;
   }
