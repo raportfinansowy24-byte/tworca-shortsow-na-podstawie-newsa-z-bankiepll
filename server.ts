@@ -8560,7 +8560,7 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
       ? retrySnapshot.scriptData
       : await generateSmartOrGeminiViralScript(scriptRequest);
     if (retrySnapshot) {
-      console.info('[Autopilot Retry] Wznawiam zapisany storyboard jobu ' + selectedRetryEntry?.retryPayloadJobId + '; narracja, napisy i czasy pozostają bez zmian.');
+      console.info('[Autopilot Retry] Wznawiam zapisany storyboard jobu ' + selectedRetryEntry?.retryPayloadJobId + '; cache TTS zostanie użyte tylko wtedy, gdy tekst narracji pozostanie identyczny.');
       const previousFailure = String(selectedRetryEntry?.lastError || '');
       const retryNeedsVisualRefresh = /qa|visual|wizual|obraz|klip|stock|pexels|pixabay|duplikat|dopasowan|download|http\s*403|cdn|materiał/i.test(previousFailure);
       if (retryNeedsVisualRefresh) {
@@ -8630,37 +8630,29 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
       maxWordsPerScene: (index: number) => index < 4 ? 5 : index < 7 ? 6 : 9
     };
     const initialEditorQa = evaluateShortStoryboard(scriptData.scenes, qaOptions);
-    const qaRepairResult = retrySnapshot
-      ? {
-          value: scriptData,
-          report: initialEditorQa,
-          attempts: 0,
-          errors: [] as string[],
-          passed: initialEditorQa.status === 'pass'
-        }
-      : await repairUntilPass({
-          initialValue: scriptData,
-          initialReport: initialEditorQa,
-          maxAttempts: MAX_STORYBOARD_QA_REPAIR_ATTEMPTS,
-          revise: async (currentReport, attempt, previousError) => {
-            console.warn('[Shorts Editor QA] Poprawka storyboardu nr ' + attempt + ' (bez limitu prób). Problemy: ' + currentReport.findings.map((finding) => finding.message).join(' | '));
-            return generateSmartOrGeminiViralScript({
-              ...scriptRequest,
-              revisionInstruction: buildShortsEditorQaRevisionInstruction(
-                currentReport,
-                attempt,
-                MAX_STORYBOARD_QA_REPAIR_ATTEMPTS,
-                previousError
-              )
-            });
-          },
-          evaluate: (revisedScript) => evaluateShortStoryboard(revisedScript.scenes, qaOptions),
-          onAttempt: (attempt, currentReport, previousError) => {
-            if (previousError) {
-              console.warn('[Shorts Editor QA] Poprzednia poprawka nie powiodła się; kontynuuję próbę nr ' + attempt + ' (bez limitu): ' + previousError);
-            }
-          }
+    const qaRepairResult = await repairUntilPass({
+      initialValue: scriptData,
+      initialReport: initialEditorQa,
+      maxAttempts: MAX_STORYBOARD_QA_REPAIR_ATTEMPTS,
+      revise: async (currentReport, attempt, previousError) => {
+        console.warn('[Shorts Editor QA] Poprawka storyboardu nr ' + attempt + ' (bez limitu prób). Problemy: ' + currentReport.findings.map((finding) => finding.message).join(' | '));
+        return generateSmartOrGeminiViralScript({
+          ...scriptRequest,
+          revisionInstruction: buildShortsEditorQaRevisionInstruction(
+            currentReport,
+            attempt,
+            MAX_STORYBOARD_QA_REPAIR_ATTEMPTS,
+            previousError
+          )
         });
+      },
+      evaluate: (revisedScript) => evaluateShortStoryboard(revisedScript.scenes, qaOptions),
+      onAttempt: (attempt, currentReport, previousError) => {
+        if (previousError) {
+          console.warn('[Shorts Editor QA] Poprzednia poprawka nie powiodła się; kontynuuję próbę nr ' + attempt + ' (bez limitu): ' + previousError);
+        }
+      }
+    });
     scriptData = qaRepairResult.value;
     const editorQa = qaRepairResult.report;
     const qaRepairAttempted = qaRepairResult.attempts > 0;
@@ -8671,7 +8663,7 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
         : '';
       throw new Error(
         'Shorts Editor QA nie uzyskało statusu pass po ' +
-        qaRepairResult.attempts + ' poprawkach (tryb bez limitu): ' + issues.join(' | ') + repairErrors + (retrySnapshot ? ' Zapisany lektor nie został zmieniony.' : '')
+        qaRepairResult.attempts + ' poprawkach (tryb bez limitu): ' + issues.join(' | ') + repairErrors
       );
     }
 
@@ -8689,6 +8681,7 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
     const payload: CombineScenesPayload = retrySnapshot
       ? {
           ...retrySnapshot.payload,
+          scenes: scriptData.scenes,
           requestId: jobId,
           source: isOneOffTest ? 'test-render' : 'scheduler',
           telegramApproval: !isOneOffTest,
