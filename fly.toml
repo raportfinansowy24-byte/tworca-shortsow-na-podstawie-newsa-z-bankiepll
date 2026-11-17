@@ -1,9 +1,12 @@
-# Existing Fly app is reused to avoid creating a duplicate application.
-# Use an independent fork on a separate host; preserve the original shorts_data volume for rollback.
+# fly.toml app configuration file generated for tworca-shortsow-na-podstawie-newsa-z-bankiepll on 2026-11-17T01:37:58Z
+#
+# See https://docs.fly.io/reference/configuration for information about how to use this file.
+#
+
 app = "tworca-shortsow-na-podstawie-newsa-z-bankiepll"
-primary_region = "fra"
-kill_signal = "SIGINT"
-kill_timeout = "30s"
+primary_region = 'fra'
+kill_signal = 'SIGINT'
+kill_timeout = '30s'
 
 [build]
   dockerfile = "Dockerfile"
@@ -24,16 +27,13 @@ kill_timeout = "30s"
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = "off"
+  auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 1
-
-  [[http_service.checks]]
-    grace_period = "30s"
-    interval = "30s"
-    method = "GET"
-    timeout = "5s"
-    path = "/api/healthz"
+  checks = [{ grace_period = '30s', interval = '30s', method = 'GET', path = '/api/healthz', timeout = '5s' }]
 
 [[vm]]
-  size = "shared-cpu-8x"
+  size = 'shared-cpu-8x'
+
+[deploy]
+  strategy = 'immediate'
