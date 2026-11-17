@@ -279,8 +279,14 @@ jobs:
         if: steps.guard.outputs.is_current == 'true'
         run: |
           set -euo pipefail
-          grep -q 'source = "shorts_data_recovered"' fly.toml
-          grep -q 'size = "shared-cpu-8x"' fly.toml
+          grep -Eq "source[[:space:]]*=[[:space:]]*['\"]shorts_data_recovered['\"]" fly.toml || {
+            echo "::error::fly.toml must mount shorts_data_recovered."
+            exit 1
+          }
+          grep -Eq "size[[:space:]]*=[[:space:]]*['\"]shared-cpu-8x['\"]" fly.toml || {
+            echo "::error::fly.toml must use shared-cpu-8x."
+            exit 1
+          }
 
       - name: Deploy to Fly.io with recovered volume
         if: steps.guard.outputs.is_current == 'true'
