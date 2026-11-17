@@ -5,7 +5,7 @@
 - Docelowa aplikacja Fly `tworca-shortsow-na-podstawie-newsa-z-bankiepll` istnieje i działa w regionie Frankfurt (`fra`).
 - Konfiguracja używa jednej maszyny `shared-cpu-8x` (2 GB) oraz jednego trwałego wolumenu 10 GB pod `/app/exports`; cache Pexels jest przechowywany w Supabase.
 - Szacunkowy koszt z konfiguracji: około **17,06 USD/miesiąc** przy 730 godzinach pracy (maszyna i wolumen), plus transfer i ewentualne podatki. Maszyna jest skonfigurowana jako stale uruchomiona, aby render i webhook nie zależały od wybudzania.
-- Sekrety `BANKIER_SHORTS_API_TOKEN`, `ELEVENLABS_API_KEY`, `GEMINI_API_KEY` i pozostałe wcześniej przygotowane sekrety są w Fly jako **staged**; zostaną udostępnione maszynie podczas deployu. Nie zapisuj ich w repozytorium, `fly.toml`, promptach ani czacie.
+- Sekrety `BANKIER_SHORTS_API_TOKEN`, `ELEVENLABS_API_KEY`, `GEMINI_API_KEY_1`–`GEMINI_API_KEY_7` (oraz opcjonalny starszy `GEMINI_API_KEY`) i pozostałe wcześniej przygotowane sekrety są w Fly jako **staged**; zostaną udostępnione maszynie podczas deployu. Nie zapisuj ich w repozytorium, `fly.toml`, promptach ani czacie.
 
 ## Zabezpieczenia i funkcje
 

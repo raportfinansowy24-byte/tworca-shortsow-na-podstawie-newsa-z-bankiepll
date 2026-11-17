@@ -136,7 +136,7 @@ async function analyzeRenderedVisualFit(
   const expectedScenes = scenes.length;
   const geminiApiKeys = getGeminiApiKeys();
   if (geminiApiKeys.length === 0) {
-    return buildVisualAnalysisUnavailableReport(expectedScenes, 'Nie skonfigurowano żadnego klucza Gemini (GEMINI_API_KEY, GEMINI_API_KEY_2, GEMINI_API_KEY_3).', 'unavailable');
+    return buildVisualAnalysisUnavailableReport(expectedScenes, 'Nie skonfigurowano żadnego klucza Gemini (GEMINI_API_KEY_1–GEMINI_API_KEY_7).', 'unavailable');
   }
 
   const samples: VisualSemanticSample[] = [];
@@ -183,7 +183,7 @@ async function analyzeRenderedVisualFit(
         if (!response.text?.trim()) throw new Error('Gemini 4 Hydrogen zwrócił pustą odpowiedź.');
         return parseCompleteVisualSemanticResponse(response.text, samples.length);
       }, {
-        // The three-key router already performs provider failover; avoid repeating the same full key cycle.
+        // The shared Gemini key pool already performs provider failover; avoid repeating the full key cycle.
         maxAttempts: 1
       })
     }];
@@ -4093,7 +4093,7 @@ router.get('/supervisor/status', async (_req, res) => {
   const missingRequired = [
     !envReady.appAuth ? 'APP_AUTH_SECRET (minimum 32 characters)' : null,
     !envReady.machineToken ? 'BANKIER_SHORTS_API_TOKEN' : null,
-    !envReady.gemini ? 'GEMINI_API_KEY, GEMINI_API_KEY_2 or GEMINI_API_KEY_3' : null,
+    !envReady.gemini ? 'GEMINI_API_KEY_1 through GEMINI_API_KEY_7 (or legacy GEMINI_API_KEY)' : null,
     !envReady.pexels && !envReady.pixabay ? 'PEXELS_API_KEY or PIXABAY_API_KEY' : null,
     !envReady.elevenLabs ? 'ELEVENLABS_API_KEY' : null
   ].filter(Boolean);

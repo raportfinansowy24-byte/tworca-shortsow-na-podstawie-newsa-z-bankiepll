@@ -85,8 +85,8 @@ for secret in "${REQUIRED_SECRETS[@]}"; do
   fi
 done
 
-if ! grep -Eq '(^|[[:space:]])(GEMINI_API_KEY|GEMINI_API_KEY_2|GEMINI_API_KEY_3)([[:space:]]|$)' <<<"$SECRET_LIST"; then
-  MISSING+=("GEMINI_API_KEY or GEMINI_API_KEY_2 or GEMINI_API_KEY_3 (at least one model key is required)")
+if ! grep -Eq '(^|[[:space:]])(GEMINI_API_KEY|GEMINI_API_KEY_[1-7])([[:space:]]|$)' <<<"$SECRET_LIST"; then
+  MISSING+=("one of GEMINI_API_KEY_1 through GEMINI_API_KEY_7 (or legacy GEMINI_API_KEY) is required")
 fi
 
 if ! grep -Eq '(^|[[:space:]])(PEXELS_API_KEY|PIXABAY_API_KEY)([[:space:]]|$)' <<<"$SECRET_LIST"; then
