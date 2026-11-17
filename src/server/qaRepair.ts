@@ -1,4 +1,5 @@
-import { buildArticleVisualQuery, type CreativeDirectorArticle } from './creativeDirector';
+import { type CreativeDirectorArticle } from './creativeDirector';
+import { buildStockSceneSearchQueries } from './stockSceneSelection';
 
 export interface QaRepairScene {
   source?: string;
@@ -103,7 +104,7 @@ export async function executeQaRepairOnce<Candidate, Asset>(
   }
 }
 
-/** Only high-confidence semantic blockers on Pexels clips qualify; approved scenes remain untouched. */
+/** Only explicit semantic blockers on stock clips qualify; approved scenes remain untouched. */
 export function selectQaRepairCandidates(
   scenes: QaRepairScene[],
   report: QaRepairReport,
@@ -124,10 +125,19 @@ export function selectQaRepairCandidates(
     if (!scene || !['pexels', 'pixabay'].includes(String(scene.source)) || scene.visualMode === 'data_visual' || !scene.videoUrl || !qaResult || qaResult.match) continue;
     const narration = String(scene.voiceover_text || scene.subtitles || scene.caption || '').trim();
     if (!narration) continue;
-    const repairQuery = buildArticleVisualQuery(article, narration, (sceneIndex + 1) % 8);
-    if (!repairQuery || repairQuery.toLowerCase() === String(scene.visualQuery || '').trim().toLowerCase()) continue;
+    const originalQuery = String(scene.searchKeyword || scene.visualQuery || '').trim();
     const detailedReason = [reason, qaResult.reason].map((value) => String(value || '').trim()).filter(Boolean).join(' ');
-    candidates.push({ sceneIndex, narration, originalQuery: String(scene.visualQuery || ''), reason: detailedReason, repairQuery });
+    const repairQueries = buildStockSceneSearchQueries({
+      query: originalQuery || narration,
+      narration,
+      context: [article.title, article.description || article.summary || ''].filter(Boolean).join(' '),
+      reasonToAvoid: detailedReason,
+      maxQueries: 4
+    });
+    const repairQuery = repairQueries.find((value) => value.toLowerCase() !== originalQuery.toLowerCase())
+      || repairQueries[0];
+    if (!repairQuery || repairQuery.toLowerCase() === originalQuery.toLowerCase()) continue;
+    candidates.push({ sceneIndex, narration, originalQuery, reason: detailedReason, repairQuery });
   }
   return candidates;
 }

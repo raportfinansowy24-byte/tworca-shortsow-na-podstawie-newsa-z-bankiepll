@@ -69,10 +69,10 @@ import { mapNarrationAlignmentToScenes } from './src/server/singleNarration';
 import { buildContinuousNarrationMuxArgs } from './src/server/finalNarrationMix';
 import { isTrustedStockPreviewUrl, selectVisuallyVerifiedPexelsCandidate } from './src/server/pexelsCandidateVisualQa';
 import { mapPixabayVideoCandidates } from './src/server/pixabayVideoProvider';
+import { buildStockSceneSearchQueries, selectDiverseStockCandidates, selectStockPreviewFrameUrls } from './src/server/stockSceneSelection';
+import { buildStockClipSamplingFilter, isTrustedStockVideoDownloadUrl, stockClipSamplingFrameCountIsSufficient } from './src/server/stockClipSampling';
 import { cleanStockSearchQuery, scoreStockCandidateSoftAvoidance } from './src/server/stockCandidatePolicy';
 import { buildSourceEvidenceVisual, resolveStockWithEvidenceFallback, resolveStockWithVerifiedEvidenceFallback } from './src/server/sourceEvidenceVisual';
-import { buildPixabayFallbackQueries } from './src/server/pixabaySearchExpansion';
-import { buildFinancialNewsSearchAliases } from './src/server/stockSearchExpansion';
 import { findLegacyFailedAutopilotArticleUrl, getNextPendingAutopilotRetry, MAX_STORYBOARD_QA_REPAIR_ATTEMPTS, recordAutopilotFailure, reactivateExhaustedAutopilotRetries, repairUntilPass, resolveAutopilotRetry, isCompatibleNarrationRetryCache, type AutopilotRetryEntry, type RetryableAutopilotArticle, type NarrationRetryCacheMetadata } from './src/server/autopilotRetry';
 import { GEMINI_PRIMARY_MODEL, getGeminiApiKeys, withGeminiKeyRotation } from './src/server/modelRouting';
 
@@ -388,10 +388,10 @@ async function fetchPixabayVideoSearchData(query: string): Promise<any> {
   if (!apiKey) throw new Error('Brak PIXABAY_API_KEY.');
   const normalizedQuery = String(query || '').trim().slice(0, 100);
   if (!normalizedQuery) throw new Error('Puste zapytanie Pixabay.');
-  const params = new URLSearchParams({ key: apiKey, q: normalizedQuery, video_type: 'film', safesearch: 'true', per_page: '30', lang: 'en' });
+  const params = new URLSearchParams({ key: apiKey, q: normalizedQuery, video_type: 'film', safesearch: 'true', per_page: '100', lang: 'en' });
   const requestUrl = 'https://pixabay.com/api/videos/?' + params.toString();
   // Keep the API key out of cache keys, persisted metadata, and logs.
-  const cacheKey = 'pixabay:' + createHash('sha256').update('videos|' + normalizedQuery + '|film|true|30|en').digest('hex');
+  const cacheKey = 'pixabay:' + createHash('sha256').update('videos|' + normalizedQuery + '|film|true|100|en').digest('hex');
   const now = Date.now();
   const cached = pixabaySearchCache.get(cacheKey);
   if (cached && cached.expiresAt > now) return cached.data;
@@ -443,7 +443,7 @@ async function searchPixabayVideoCandidates(query: string, options: {
       targetDurationSeconds: options.targetDurationSeconds
     });
     console.log('[Pixabay Search] Scena ' + (options.sceneIndex + 1) + ': query="' + query + '", kandydaci=' + candidates.length + '.');
-    return candidates.slice(0, 5);
+    return candidates.slice(0, 8);
   } catch (error) {
     console.warn('[Pixabay API] Wyszukiwanie nieudane dla "' + query + '": ' + (error as Error).message);
     return [];
@@ -637,7 +637,7 @@ function translateAndEnrichViralKeyword(
 // Dynamically search vertical portrait (9:16) stock video from Pexels API with viral candidate scoring & deduplication
 async function searchPexelsVideoDetailed(
   query: string,
-  options?: { sceneIndex?: number; avoidVideoIds?: number[]; avoidUrls?: string[]; context?: string; requireTopicMatch?: boolean; targetDurationSeconds?: number; candidateCollector?: ResolvedStockVideo[] }
+  options?: { sceneIndex?: number; avoidVideoIds?: number[]; avoidUrls?: string[]; context?: string; requireTopicMatch?: boolean; targetDurationSeconds?: number; candidateCollector?: ResolvedStockVideo[]; queryAlreadyExpanded?: boolean }
 ): Promise<ResolvedStockVideo | null> {
   const pexelsKey = process.env.PEXELS_API_KEY;
   if (!pexelsKey || !pexelsKey.trim()) return null;
@@ -645,10 +645,12 @@ async function searchPexelsVideoDetailed(
   const sceneIndex = options?.sceneIndex ?? 0;
   const avoidIds = options?.avoidVideoIds ?? [];
   const avoidUrls = options?.avoidUrls ?? [];
-  const enrichedQuery = translateAndEnrichViralKeyword(query, sceneIndex, 2, options?.context);
+  const enrichedQuery = options?.queryAlreadyExpanded
+    ? cleanStockSearchQuery(query).slice(0, 100)
+    : translateAndEnrichViralKeyword(query, sceneIndex, 2, options?.context);
 
   try {
-    const searchUrl = `https://api.pexels.com/v1/videos/search?query=${encodeURIComponent(enrichedQuery)}&orientation=portrait&per_page=25`;
+    const searchUrl = `https://api.pexels.com/v1/videos/search?query=${encodeURIComponent(enrichedQuery)}&orientation=portrait&per_page=80`;
     console.log(`[Pexels API] Szukanie ultra-dynamicznego ujęcia 9:16 dla hasła: "${enrichedQuery}" (Scena #${sceneIndex + 1})...`);
 
     let data: any;
@@ -711,9 +713,10 @@ async function searchPexelsVideoDetailed(
         const pictures = Array.isArray(video.video_pictures)
           ? video.video_pictures.map((item: any) => String(item?.picture || '').trim()).filter((url: string) => /^https:\/\//i.test(url))
           : [];
-        const previewImageUrls = pictures.length
-          ? [...new Set([pictures[0], pictures[Math.floor(pictures.length / 2)]])].slice(0, 2)
-          : (typeof video.image === 'string' && /^https:\/\//i.test(video.image) ? [video.image] : []);
+        const previewImageUrls = selectStockPreviewFrameUrls(
+          pictures.length ? pictures : (typeof video.image === 'string' && /^https:\/\//i.test(video.image) ? [video.image] : []),
+          4
+        );
         return {
           videoUrl: verticalMp4.link,
           thumbnailUrl: video.image || previewImageUrls[0] || '',
@@ -730,7 +733,7 @@ async function searchPexelsVideoDetailed(
         };
       };
       if (options?.candidateCollector) {
-        for (const candidate of candidates.slice(0, 4)) {
+        for (const candidate of candidates.slice(0, 8)) {
           const resolved = toResolved(candidate);
           if (!options.candidateCollector.some((item) => item.pexelsId === resolved.pexelsId)) options.candidateCollector.push(resolved);
         }
@@ -747,22 +750,83 @@ async function searchPexelsVideoDetailed(
   return null;
 }
 
+function quoteStockShellArgument(value: string): string {
+  return "'" + value.replace(/'/g, "'\\''") + "'";
+}
+
+async function sampleStockVideoFrames(
+  candidate: ResolvedStockVideo,
+  sceneIndex: number
+): Promise<Array<{ mimeType: string; data: string }>> {
+  if (!isTrustedStockVideoDownloadUrl(candidate.videoUrl)) {
+    console.warn('[Stock clip QA] Scena ' + (sceneIndex + 1) + ': odrzucono niedozwolony host URL klipu ' + (candidate.stockId || candidate.pexelsId) + '.');
+    return [];
+  }
+  const duration = Number(candidate.duration);
+  let filter: string;
+  try {
+    filter = buildStockClipSamplingFilter(duration);
+  } catch (error) {
+    console.warn('[Stock clip QA] Scena ' + (sceneIndex + 1) + ': nieprawidłowa długość klipu: ' + (error as Error).message);
+    return [];
+  }
+
+  const samplingDir = await fs.promises.mkdtemp(path.join(TEMP_DIR, 'stock-visual-qa-'));
+  try {
+    const outputPattern = path.join(samplingDir, 'frame_%02d.jpg');
+    const command = [
+      'ffmpeg -hide_banner -loglevel error -y -rw_timeout 15000000',
+      '-protocol_whitelist file,https,tls,tcp,crypto',
+      '-i ' + quoteStockShellArgument(candidate.videoUrl),
+      '-vf ' + quoteStockShellArgument(filter),
+      '-an -sn -dn -vsync 0 -frames:v 3 -q:v 6 ',
+      quoteStockShellArgument(outputPattern)
+    ].join(' ');
+    await execPromise(command, { timeout: 20000, maxBuffer: 1024 * 1024 });
+    const filenames = (await fs.promises.readdir(samplingDir))
+      .filter((name) => /^frame_\d+\.jpg$/.test(name))
+      .sort()
+      .slice(0, 3);
+    const frames: Array<{ mimeType: string; data: string }> = [];
+    for (const filename of filenames) {
+      const bytes = await fs.promises.readFile(path.join(samplingDir, filename));
+      if (bytes.length === 0 || bytes.length > 4 * 1024 * 1024) continue;
+      frames.push({ mimeType: 'image/jpeg', data: bytes.toString('base64') });
+    }
+    if (!stockClipSamplingFrameCountIsSufficient(frames.length)) {
+      console.warn('[Stock clip QA] Scena ' + (sceneIndex + 1) + ': klip ' + (candidate.stockId || candidate.pexelsId) + ' zwrócił tylko ' + frames.length + '/3 klatek z rzeczywistego filmu.');
+      return [];
+    }
+    console.info('[Stock clip QA] Scena ' + (sceneIndex + 1) + ': pobrano 3 klatki bezpośrednio z klipu ' + (candidate.stockId || candidate.pexelsId) + '.');
+    return frames;
+  } catch (error) {
+    console.warn('[Stock clip QA] Scena ' + (sceneIndex + 1) + ': nie udało się pobrać klatek z rzeczywistego klipu ' + (candidate.stockId || candidate.pexelsId) + ': ' + (error as Error).message);
+    return [];
+  } finally {
+    await fs.promises.rm(samplingDir, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
 async function verifyStockVisualCandidates(
   candidates: ResolvedStockVideo[],
   context: string,
   sceneQuery: string,
-  sceneIndex: number
+  sceneIndex: number,
+  sceneNarration = ''
 ): Promise<ResolvedStockVideo | null> {
   const geminiApiKeys = getGeminiApiKeys();
   if (geminiApiKeys.length === 0) {
     throw new Error('Pre-renderowa kontrola obrazu stock wymaga co najmniej jednego klucza Gemini.');
   }
-  const shortlist = [...candidates]
-    .filter((item) => Number.isSafeInteger(item.pexelsId) && (item.previewImageUrls?.length || 0) > 0)
-    .sort((a, b) => (b.selectionScore ?? -Infinity) - (a.selectionScore ?? -Infinity))
-    .slice(0, 8);
+  const shortlist = selectDiverseStockCandidates(
+    [...candidates]
+      .filter((item) => Number.isSafeInteger(item.pexelsId) && (item.previewImageUrls?.length || 0) > 0)
+      .sort((a, b) => (b.selectionScore ?? -Infinity) - (a.selectionScore ?? -Infinity)),
+    4,
+    2
+  );
   const downloaded = await Promise.all(shortlist.map(async (candidate) => {
-    const frames = await Promise.all((candidate.previewImageUrls || []).slice(0, 2).map(async (imageUrl) => {
+    const previewFrames = await Promise.all(selectStockPreviewFrameUrls(candidate.previewImageUrls || [], 3).map(async (imageUrl) => {
       try {
         if (!isTrustedStockPreviewUrl(imageUrl)) return null;
         const response = await fetch(imageUrl, { signal: AbortSignal.timeout(10000), redirect: 'error' });
@@ -773,11 +837,22 @@ async function verifyStockVisualCandidates(
         if (bytes.length === 0 || bytes.length > 4 * 1024 * 1024) return null;
         return { mimeType, data: bytes.toString('base64') };
       } catch (error) {
-        console.warn('[Stock visual precheck] Klatka ' + candidate.source + ':' + candidate.pexelsId + ' niedostępna: ' + (error as Error).message);
+        console.warn('[Stock visual precheck] Podgląd ' + candidate.source + ':' + candidate.pexelsId + ' niedostępny: ' + (error as Error).message);
         return null;
       }
     }));
-    return { candidate, frames: frames.filter((frame): frame is { mimeType: string; data: string } => Boolean(frame)) };
+    const usablePreviews = previewFrames.filter((frame): frame is { mimeType: string; data: string } => Boolean(frame));
+    // Pixabay's API normally returns one thumbnail, not a timeline of video
+    // frames. Never judge a Pixabay clip from that one still: sample the real
+    // MP4. Pexels is sampled too whenever it exposes fewer than 3 previews.
+    const needsActualClipSampling = candidate.source === 'pixabay' || usablePreviews.length < 3;
+    const actualFrames = needsActualClipSampling
+      ? await sampleStockVideoFrames(candidate, sceneIndex)
+      : [];
+    const frames = needsActualClipSampling
+      ? (stockClipSamplingFrameCountIsSufficient(actualFrames.length) ? actualFrames : [])
+      : usablePreviews;
+    return { candidate, frames };
   }));
   downloaded.filter((item) => item.frames.length === 0).forEach(({ candidate }) => {
     console.warn('[Stock visual precheck] Scena ' + (sceneIndex + 1) + ': ' + (candidate.stockId || candidate.pexelsId) + ' odrzucono przed QA — brak użytecznej klatki podglądu.');
@@ -789,15 +864,16 @@ async function verifyStockVisualCandidates(
   const imageParts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [];
   usable.forEach((item, index) => item.frames.forEach((frame, frameIndex) => {
     const candidate = item.candidate;
-    imageParts.push({ text: 'KANDYDAT ' + (index + 1) + ', ŹRÓDŁO ' + candidate.source + ', STOCK ID ' + (candidate.stockId || candidate.pexelsId) + ', kadr ' + (candidate.width || '?') + 'x' + (candidate.height || '?') + ', klatka ' + (frameIndex + 1) + '.' });
+    imageParts.push({ text: 'KANDYDAT ' + (index + 1) + ', ŹRÓDŁO ' + candidate.source + ', STOCK ID ' + (candidate.stockId || candidate.pexelsId) + ', zapytanie=' + String(candidate.searchKeyword || '') + ', kadr ' + (candidate.width || '?') + 'x' + (candidate.height || '?') + ', próbka klatki ' + (frameIndex + 1) + '/' + item.frames.length + '.' });
     imageParts.push({ inlineData: frame });
   }));
   const instructions = [
-    'Porównaj rzeczywiste klatki podglądowe kandydatów stockowych (Pexels lub Pixabay) z dokładną sceną filmu finansowo-informacyjnego, a nie tylko z ogólną kategorią artykułu.',
-    'Kontekst artykułu i narracji: ' + context.slice(0, 1800),
-    'Docelowy obraz sceny: ' + sceneQuery,
-    'Wymagaj widocznego obiektu lub czynności odpowiadających konkretnemu ujęciu. Sam wykres, banknoty, biurowy ekran ani podobny nastrój nie wystarczają, chyba że dokładna scena mówi właśnie o tym.',
-    'Odrzuć obrazy sprzeczne z narracją i dopasowania oparte wyłącznie na ogólnym skojarzeniu „finanse”. Nie wymagaj niewidocznej nazwy firmy, miasta, kwoty ani urzędu. Dla poziomego klipu oceń, czy główny obiekt pozostanie widoczny po centralnym przycięciu do 9:16.',
+    'Porównaj kilka klatek z różnych momentów KAŻDEGO kandydata Pexels/Pixabay z dokładną sceną i wypowiadanym zdaniem. Nie wybieraj kandydata na podstawie samej miniatury, nazwy pliku ani kategorii artykułu.',
+    'Kontekst artykułu: ' + context.slice(0, 1800),
+    'Dokładna wypowiedź lektora w tej scenie: ' + (sceneNarration || '[brak osobnej wypowiedzi]'),
+    'Docelowy obraz sceny i zapytanie wyszukiwania: ' + sceneQuery,
+    'Wymagaj widocznego obiektu LUB czynności odpowiadających dokładnie tej wypowiedzi. Obejrzyj wszystkie klatki kandydata; jeśli choć jedna pokazuje inny temat (np. krypto zamiast oprocentowania kredytu), odrzuć kandydata. Laptop, biuro, kalkulator i banknoty same w sobie nie są dopasowaniem.',
+    'Odrzuć sprzeczne ujęcia i dopasowania oparte wyłącznie na ogólnym skojarzeniu „finanse”. Nie przypisuj anonimowego biurowca, ekranu ani aplikacji konkretnej marce/bankowi, jeśli nie widać jej oznaczeń. Nie wymagaj niewidocznej kwoty lub nazwy miasta. Dla poziomego klipu oceń centralne przycięcie 9:16.',
     'Jeżeli kontekst zawiera powód wcześniejszego odrzucenia ujęcia, unikaj podobnego motywu i wymagaj widocznego odpowiednika oczekiwanej czynności.',
     'Otrzymujesz ' + verified.length + ' kandydatów. Zwróć dokładnie jeden wynik dla każdego, pole scene to numer kandydata.',
     'Zwróć wyłącznie JSON: {"results":[{"scene":1,"match":true,"confidence":0.0,"reason":"krótkie uzasadnienie po polsku"}]}. match=true tylko dla sensownej ilustracji sceny.'
@@ -839,27 +915,21 @@ async function verifyStockVisualCandidates(
 // ShortGPT generates several search phrases per timed segment and only then
 // chooses the strongest result. Keep that idea while retaining our
 // finance-specific relevance and forbidden-topic filters.
-function getShortGptSearchQueries(query: string, sceneIndex: number, context?: string): string[] {
+function getShortGptSearchQueries(query: string, sceneIndex: number, context?: string, narration?: string, reasonToAvoid?: string): string[] {
   const alternatives = context ? getCategorySceneAlternatives(context, sceneIndex % 4) : [];
-  const enriched = translateAndEnrichViralKeyword(query, sceneIndex, 8, context);
-  const generalFinanceAlternatives = [
-    'person reviewing company earnings report documents',
-    'business analyst comparing company performance reports',
-    'person checking financial news on smartphone',
-    'accountant reviewing company financial paperwork'
-  ];
-  const focusedSearchAliases = buildFinancialNewsSearchAliases(query);
-  const specificAlternatives = alternatives.filter((candidate) => !isGenericFinanceVisualQuery(candidate));
-  const genericFallbacks = specificAlternatives.length > 0
-    ? specificAlternatives
-    : generalFinanceAlternatives;
-  const raw = isGenericFinanceVisualQuery(query)
-    ? [...genericFallbacks, ...focusedSearchAliases, enriched, query]
-    : [enriched, query, ...focusedSearchAliases, ...alternatives];
-  const unique = raw
-    .map((value) => value.trim())
-    .filter(Boolean);
-  return [...new Set(unique)].slice(0, 5);
+  const rawQueries = buildStockSceneSearchQueries({
+    query,
+    context,
+    narration,
+    reasonToAvoid,
+    categoryAlternatives: alternatives,
+    maxQueries: 3
+  });
+  // Normalize/translate before sending so Pexels and Pixabay receive the same
+  // actual search strings, rather than provider-specific query rewrites.
+  return [...new Set(rawQueries.map((candidate) =>
+    translateAndEnrichViralKeyword(candidate, sceneIndex, 8, context)
+  ))].filter(Boolean).slice(0, 3);
 }
 
 // Refresh Pexels video-file links by video ID after a CDN denies an older link.
@@ -992,67 +1062,78 @@ async function searchPexelsVideo(query: string): Promise<string | null> {
   return detailed ? detailed.videoUrl : null;
 }
 
-// Resolve stock footage exclusively from Pexels. Missing key or no matching clip is a hard error.
+// Resolve stock footage from Pexels and Pixabay. Missing keys or no visually matched clip is a hard error.
 async function resolveStockOrPexelsVideoDetailed(
   query: string,
   index: number = 0,
   avoidVideoIds?: number[],
-  options?: { context?: string; requirePexels?: boolean; targetDurationSeconds?: number }
+  options?: { context?: string; requirePexels?: boolean; targetDurationSeconds?: number; sceneNarration?: string; reasonToAvoid?: string }
 ): Promise<ResolvedStockVideo> {
   const pexelsKey = process.env.PEXELS_API_KEY?.trim();
   const pixabayKey = process.env.PIXABAY_API_KEY?.trim();
   if (!pexelsKey && !pixabayKey) throw new Error('Brak PEXELS_API_KEY i PIXABAY_API_KEY. Skonfiguruj przynajmniej jednego dostawcę stocków.');
   const avoidIds = avoidVideoIds ?? [];
   const targetDurationSeconds = options?.targetDurationSeconds ?? (index < 4 ? 8 : 12);
-  const searchQueries = getShortGptSearchQueries(query, index, options?.context);
+  const searchQueries = getShortGptSearchQueries(query, index, options?.context, options?.sceneNarration, options?.reasonToAvoid);
   const strictSemantic = Boolean(options?.context?.trim() || options?.requirePexels);
   const visualContext = options?.context?.trim() || query;
 
-  if (pexelsKey) {
-    const candidates: ResolvedStockVideo[] = [];
-    const candidateCollector: ResolvedStockVideo[] = [];
-    for (const candidateQuery of searchQueries) {
-      console.log('[Pexels Search] Zapytanie: "' + candidateQuery + '" dla sceny #' + (index + 1) + '...');
-      const result = await searchPexelsVideoDetailed(candidateQuery, {
-        sceneIndex: index, avoidVideoIds: avoidIds, context: options?.context,
-        requireTopicMatch: options?.requirePexels, targetDurationSeconds, candidateCollector
-      });
-      if (result) candidates.push(result);
-    }
-    const uniquePexels = [...new Map([...candidateCollector, ...candidates]
-      .filter((item) => item.source === 'pexels' && Number.isSafeInteger(item.pexelsId))
-      .map((item) => [item.pexelsId!, item])).values()]
-      .sort((a, b) => (b.selectionScore ?? -Infinity) - (a.selectionScore ?? -Infinity));
-    if (uniquePexels.length > 0) {
-      if (!strictSemantic) return uniquePexels[0];
-      const verifiedPexels = await verifyStockVisualCandidates(uniquePexels, visualContext, query, index);
-      if (verifiedPexels) return verifiedPexels;
-      console.warn('[Stock fallback] Pexels nie dostarczył zaakceptowanego obrazu dla sceny ' + (index + 1) + '; próbuję Pixabay.');
-    } else console.warn('[Stock fallback] Pexels nie znalazł kandydatów dla sceny ' + (index + 1) + '; próbuję Pixabay.');
-  } else console.warn('[Stock fallback] Brak PEXELS_API_KEY; scena ' + (index + 1) + ' będzie wyszukiwana w Pixabay.');
+  // The same scene-specific variants go to both providers; provider-specific
+  // generic category aliases must not overwrite the exact scene intent.
+  const pixabayQueries = searchQueries;
+  const requireTopicMatch = options?.requirePexels === true || Boolean(options?.context?.trim());
+  const candidateCollector: ResolvedStockVideo[] = [];
 
-  if (pixabayKey) {
-    const pixabayQueries = buildPixabayFallbackQueries(
-      query,
-      options?.context || '',
-      searchQueries.filter((value) => value.trim().toLowerCase() !== query.trim().toLowerCase()),
-      5
-    );
-    console.info('[Pixabay Fallback] Scena ' + (index + 1) + ': rozszerzone zapytania=' + pixabayQueries.map((value) => '"' + value + '"').join(' | '));
-    const requireTopicMatch = options?.requirePexels === true || Boolean(options?.context?.trim());
-    const pixabayCandidates = (await Promise.all(pixabayQueries.map((candidateQuery) => searchPixabayVideoCandidates(candidateQuery, {
-      context: options?.context, sceneIndex: index, avoidVideoIds: avoidIds,
-      requireTopicMatch, allowBroadSceneMatch: requireTopicMatch, targetDurationSeconds
-    })))).flat();
-    const uniquePixabay = [...new Map(pixabayCandidates
-      .filter((item) => item.source === 'pixabay' && Number.isSafeInteger(item.pexelsId))
-      .map((item) => [item.pexelsId!, item])).values()]
-      .sort((a, b) => (b.selectionScore ?? -Infinity) - (a.selectionScore ?? -Infinity));
-    if (uniquePixabay.length > 0) {
-      if (!strictSemantic) return uniquePixabay[0];
-      const verifiedPixabay = await verifyStockVisualCandidates(uniquePixabay, visualContext, query, index);
-      if (verifiedPixabay) return verifiedPixabay;
-    }
+  // Both providers are searched before selection. A usable Pexels result must
+  // compete visually with Pixabay instead of preventing Pixabay from being queried.
+  const pexelsSearchPromise = pexelsKey
+    ? Promise.all(searchQueries.map((candidateQuery) => searchPexelsVideoDetailed(candidateQuery, {
+        sceneIndex: index,
+        avoidVideoIds: avoidIds,
+        context: options?.context,
+        requireTopicMatch,
+        targetDurationSeconds,
+        candidateCollector,
+        queryAlreadyExpanded: true
+      })))
+    : Promise.resolve([]);
+
+  const pixabaySearchPromise = pixabayKey
+    ? Promise.all(pixabayQueries.map((candidateQuery) => searchPixabayVideoCandidates(candidateQuery, {
+        context: options?.context,
+        sceneIndex: index,
+        avoidVideoIds: avoidIds,
+        requireTopicMatch,
+        allowBroadSceneMatch: requireTopicMatch,
+        targetDurationSeconds
+      })))
+    : Promise.resolve([]);
+
+  const [pexelsResults, pixabayResults] = await Promise.all([pexelsSearchPromise, pixabaySearchPromise]);
+  const allCandidates = [
+    ...candidateCollector,
+    ...pexelsResults.filter((item): item is ResolvedStockVideo => Boolean(item)),
+    ...pixabayResults.flat()
+  ];
+  const candidateShortlist = selectDiverseStockCandidates(
+    allCandidates,
+    8,
+    4
+  );
+
+  console.info(
+    '[Stock Search] Scena ' + (index + 1) +
+    ': zapytania=' + searchQueries.length +
+    ', Pexels=' + allCandidates.filter((item) => item.source === 'pexels').length +
+    ', Pixabay=' + allCandidates.filter((item) => item.source === 'pixabay').length +
+    ', shortlist=' + candidateShortlist.map((item) => item.source + ':' + (item.stockId || item.pexelsId)).join(',')
+  );
+
+  if (candidateShortlist.length > 0) {
+    if (!strictSemantic) return candidateShortlist[0];
+    const selected = await verifyStockVisualCandidates(candidateShortlist, visualContext, query, index, options?.sceneNarration || '');
+    if (selected) return selected;
+    console.warn('[Stock QA] Żaden z kandydatów Pexels/Pixabay nie przeszedł kontroli sceny ' + (index + 1) + '.');
   }
   const providers = [pexelsKey ? 'Pexels' : null, pixabayKey ? 'Pixabay' : null].filter(Boolean).join(' i ');
   throw new Error('Żaden dostawca (' + providers + ') nie znalazł klipu spełniającego kryteria sceny ' + (index + 1) + ': "' + query + '". Materiał generyczny nie został zaakceptowany.');
@@ -3500,6 +3581,8 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
               const originalScene = scenes[candidate.sceneIndex] as any;
               const resolved = await resolveStockOrPexelsVideoDetailed(candidate.repairQuery, candidate.sceneIndex, usedIds, {
                 context: `${payload.qaRepairArticle.title}\n${payload.qaRepairArticle.description || payload.qaRepairArticle.summary || ''}\nNarracja sceny: ${candidate.narration}\nPoprzedni powód odrzucenia: ${candidate.reason}\nPierwotne zapytanie wizualne: ${candidate.originalQuery}`,
+                sceneNarration: candidate.narration,
+                reasonToAvoid: candidate.reason,
                 requirePexels: true,
                 targetDurationSeconds: plannedSceneDurations[candidate.sceneIndex]
               });
@@ -5450,6 +5533,7 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
           const stockOrEvidence = await resolveStockWithVerifiedEvidenceFallback({
             resolveStock: () => resolveStockOrPexelsVideoDetailed(targetKeyword, idx, usedPexelsIds, {
               context: visualContext,
+              sceneNarration: String(textContent),
               requirePexels: requireNewsPexels
             }),
             sourceText: [financeCardSource.title, financeCardSource.description, financeCardSource.summary].join('\n'),
@@ -5617,6 +5701,7 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
     const stockOrEvidence = await resolveStockWithVerifiedEvidenceFallback({
       resolveStock: () => resolveStockOrPexelsVideoDetailed(targetKw, idx, usedPexelsIds, {
         context: visualContext,
+        sceneNarration: String(sc.voiceover_text || sc.subtitles || ''),
         requirePexels: requireNewsPexels
       }),
       sourceText: [financeCardSource.title, financeCardSource.description, financeCardSource.summary].join('\n'),
@@ -5771,7 +5856,7 @@ Wymagania JSON:
 
         for (let idx = 0; idx < parsed.scenes.length; idx++) {
           const sc = parsed.scenes[idx];
-          const resolved = await resolveStockOrPexelsVideoDetailed(sc.searchKeyword, idx, usedPexelsIds, { requirePexels: true });
+          const resolved = await resolveStockOrPexelsVideoDetailed(sc.searchKeyword, idx, usedPexelsIds, { requirePexels: true, sceneNarration: String(sc.voiceover_text || sc.subtitles || '') });
           if (resolved.pexelsId) {
             usedPexelsIds.push(resolved.pexelsId);
           }
@@ -5866,7 +5951,7 @@ Wymagania JSON:
       searchKeyword,
       idx,
       usedPexelsIds,
-      { context: scriptText, requirePexels: true }
+      { context: scriptText, requirePexels: true, sceneNarration: chunk }
     );
     if (!['pexels', 'pixabay'].includes(resolved.source) || !resolved.pexelsId) {
       throw new Error(`Scena tłumaczenia ${idx + 1} nie otrzymała klipu stockowego.`);
@@ -6169,6 +6254,7 @@ router.post('/auto-pilot-shorts', async (req, res) => {
         const stockOrEvidence = await resolveStockWithEvidenceFallback(
           () => resolveStockOrPexelsVideoDetailed(scene.visualQuery, index, usedPexelsIds, {
             context: `${visualContext}\nNarracja tej sceny: ${sceneNarration}\nOczekiwana czynność: ${scene.visualQuery}`,
+            sceneNarration,
             requirePexels: true,
             targetDurationSeconds: scene.duration
           }),
@@ -6834,7 +6920,7 @@ const handleInboundWebhook = async (req: express.Request, res: express.Response)
             String(scene.searchKeyword || topicName),
             idx,
             usedPexelsIds,
-            { context: topicName, requirePexels: true }
+            { context: topicName, requirePexels: true, sceneNarration: String(scene.voiceover_text || scene.subtitles || '') }
           );
           if (!['pexels', 'pixabay'].includes(resolved.source) || !resolved.pexelsId) {
             throw new Error(`Scena ${idx + 1} nie otrzymała klipu stockowego.`);
@@ -7275,6 +7361,7 @@ router.post('/stock/fetch-scene-footage', async (req, res) => {
       const query = queries[idx];
       const item = await resolveStockOrPexelsVideoDetailed(query, idx, usedPexelsIds, {
         context: visualContext,
+        sceneNarration: String(req.body?.sceneNarrations?.[idx] || req.body?.narrations?.[idx] || ''),
         requirePexels: mustUseMatchedStock
       });
       if (item.pexelsId) {
@@ -8578,6 +8665,8 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
           try {
             const resolved = await resolveStockOrPexelsVideoDetailed(query, index, usedStockIds, {
               context: articleContext,
+              sceneNarration: String(scene.voiceover_text || scene.subtitles || ''),
+              reasonToAvoid: previousFailure,
               requirePexels: true,
               targetDurationSeconds: Number(scene.duration) || 3
             });

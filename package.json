@@ -45,7 +45,8 @@
     "test:stock-candidate-policy": "tsx tests/stockCandidatePolicy.test.ts",
     "test:source-evidence-visual": "tsx tests/sourceEvidenceVisual.test.ts",
     "test:autopilot-retry": "tsx tests/autopilotRetry.test.ts",
-    "test:final-narration-mix": "tsx tests/finalNarrationMix.test.ts"
+    "test:final-narration-mix": "tsx tests/finalNarrationMix.test.ts",
+    "test:stock-scene-selection": "tsx tests/stockSceneSelection.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.32.0",
