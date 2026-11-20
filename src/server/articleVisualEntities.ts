@@ -152,9 +152,9 @@ export function extractArticleVisualEntities(articleText: string): ArticleVisual
 
   // Detect uncatalogued names only when a semantic marker makes their role explicit.
   const labelledPatterns: Array<{ type: ArticleVisualEntityType; regex: RegExp }> = [
-    { type: 'brand', regex: /\b(?:marka|marki|firm[ay]|sp[oó]łk[ay]|koncern|producent|sie[ćc]|grup[ay])\s+([A-ZŁŚŻŹĆŃÓĄĘ][\p{L}\p{N}.-]*(?:\s+[A-ZŁŚŻŹĆŃÓĄĘ][\p{L}\p{N}.-]*){0,2})/giu },
-    { type: 'institution', regex: /\b((?:Ministerstwo|Minister|Urząd|Urzad|Komisja|Rada|Agencja|Fundusz|Zakład|Zaklad|Izba)\s+[A-ZŁŚŻŹĆŃÓĄĘ][\p{L}\p{N}.-]*(?:\s+[A-ZŁŚŻŹĆŃÓĄĘ][\p{L}\p{N}.-]*){0,3})/gu },
-    { type: 'product', regex: /\b(?:produkt|program|konto|lokata|polisa|fundusz|ubezpieczenie|kredyt|obligacje|karta)\s+([A-ZŁŚŻŹĆŃÓĄĘ][\p{L}\p{N}.-]*(?:\s+[A-ZŁŚŻŹĆŃÓĄĘ][\p{L}\p{N}.-]*){0,3})/giu }
+    { type: 'brand', regex: /\b(?:[Mm]arka|[Mm]arki|[Ff]irma|[Ff]irmy|[Ss]p[oó]łk[ay]|[Kk]oncern|[Pp]roducent|[Ss]ie[ćc]|[Gg]rup[ay])\s+([A-ZŁŚŻŹĆŃÓĄĘ][\p{L}\p{N}.-]*(?:\s+[A-ZŁŚŻŹĆŃÓĄĘ][\p{L}\p{N}.-]*){0,2})/gu },
+    { type: 'institution', regex: /\b((?:[Mm]inisterstwo|[Mm]inister|[Uu]rząd|[Uu]rzad|[Kk]omisja|[Rr]ada|[Aa]gencja|[Ff]undusz|[Zz]akład|[Zz]aklad|[Ii]zba)\s+[A-ZŁŚŻŹĆŃÓĄĘ][\p{L}\p{N}.-]*(?:\s+[A-ZŁŚŻŹĆŃÓĄĘ][\p{L}\p{N}.-]*){0,3})/gu },
+    { type: 'product', regex: /\b(?:[Pp]rodukt|[Pp]rogram|[Kk]onto|[Ll]okata|[Pp]olisa|[Ff]undusz|[Uu]bezpieczenie|[Kk]redyt|[Oo]bligacje|[Kk]arta)\s+([A-ZŁŚŻŹĆŃÓĄĘ][\p{L}\p{N}.-]*(?:\s+[A-ZŁŚŻŹĆŃÓĄĘ][\p{L}\p{N}.-]*){0,3})/gu }
   ];
   for (const pattern of labelledPatterns) {
     for (const match of source.matchAll(pattern.regex)) {
