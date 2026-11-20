@@ -1,58 +1,74 @@
-import { initializeApp, getApps, getApp } from 'firebase/app';
 import {
-  getAuth,
-  signInWithPopup,
-  GoogleAuthProvider,
-  onAuthStateChanged,
-  User,
-  signOut
-} from 'firebase/auth';
-import firebaseConfig from '../../firebase-applet-config.json';
+  clearGoogleAccessToken,
+  mapGoogleUserInfo,
+  readGoogleAccessToken,
+  saveGoogleAccessToken,
+  type GoogleDriveUser,
+  type GoogleStorageLike
+} from './googleAuthState';
 
-// Initialize or reuse Firebase App
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-export const auth = getAuth(app);
+export type { GoogleDriveUser } from './googleAuthState';
 
-// All Google Drive and Google Sheets scopes configured for this application
+// Keep only scopes required by current Drive/Sheets operations and the user profile.
 export const SCOPES = [
   'https://www.googleapis.com/auth/drive',
-  'https://www.googleapis.com/auth/drive.activity',
-  'https://www.googleapis.com/auth/drive.activity.readonly',
-  'https://www.googleapis.com/auth/drive.appdata',
-  'https://www.googleapis.com/auth/drive.apps.readonly',
-  'https://www.googleapis.com/auth/drive.file',
-  'https://www.googleapis.com/auth/drive.install',
-  'https://www.googleapis.com/auth/drive.meet.readonly',
-  'https://www.googleapis.com/auth/drive.metadata',
-  'https://www.googleapis.com/auth/drive.metadata.readonly',
-  'https://www.googleapis.com/auth/drive.photos.readonly',
-  'https://www.googleapis.com/auth/drive.readonly',
-  'https://www.googleapis.com/auth/drive.scripts',
   'https://www.googleapis.com/auth/spreadsheets',
-  'https://www.googleapis.com/auth/spreadsheets.readonly'
+  'openid',
+  'email',
+  'profile'
 ];
 
-const provider = new GoogleAuthProvider();
-// Attach all Drive scopes
-SCOPES.forEach((scope) => {
-  provider.addScope(scope);
-});
-// Allow automatic account selection without forcing prompt select_account every time
-provider.setCustomParameters({
-  // Removed prompt: 'select_account' to avoid repeated forcing
-});
+interface GoogleTokenResponse {
+  access_token?: string;
+  expires_in?: number;
+  error?: string;
+  error_description?: string;
+}
 
-// Flag and promise lock to track sign-in status and prevent concurrent popup collisions
-let isSigningIn = false;
-let activeSignInPromise: Promise<{ user: User; accessToken: string } | null> | null = null;
-// Token cache persisted in localStorage across browser tabs and restarts; Google access tokens still expire.
-let cachedAccessToken: string | null = (() => {
-  try {
-    return localStorage.getItem('gdrive_access_token');
-  } catch {
-    return null;
+interface GoogleTokenClient {
+  requestAccessToken: (overrideConfig?: { prompt?: string }) => void;
+}
+
+interface GoogleOAuth2Api {
+  initTokenClient: (config: {
+    client_id: string;
+    scope: string;
+    callback: (response: GoogleTokenResponse) => void;
+    error_callback?: (error: { type?: string; message?: string }) => void;
+  }) => GoogleTokenClient;
+  revoke: (token: string, callback?: (response: { successful?: boolean; error?: string }) => void) => void;
+}
+
+declare global {
+  interface Window {
+    google?: {
+      accounts?: {
+        oauth2?: GoogleOAuth2Api;
+      };
+    };
   }
-})();
+}
+
+const TOKEN_CACHE: GoogleStorageLike = {
+  getItem(key) {
+    try { return window.sessionStorage.getItem(key); } catch { return null; }
+  },
+  setItem(key, value) {
+    try { window.sessionStorage.setItem(key, value); } catch {
+      throw new Error('Przeglądarka blokuje pamięć sesji. Zezwól na sessionStorage i spróbuj ponownie.');
+    }
+  },
+  removeItem(key) {
+    try { window.sessionStorage.removeItem(key); } catch { /* storage may be blocked */ }
+  }
+};
+
+// Remove the legacy Firebase-era persistent token. It has no trustworthy expiry metadata.
+if (typeof window !== 'undefined') {
+  try { window.localStorage.removeItem('gdrive_access_token'); } catch { /* storage may be blocked */ }
+}
+
+let activeSignInPromise: Promise<{ user: GoogleDriveUser; accessToken: string } | null> | null = null;
 
 export interface DriveFileItem {
   id: string;
@@ -78,98 +94,143 @@ export interface DriveStorageQuota {
   userPhotoUrl?: string;
 }
 
-// Initialize authentication listener on app load
-export const initAuth = (
-  onAuthSuccess?: (user: User, token: string) => void,
-  onAuthFailure?: () => void
-) => {
-  return onAuthStateChanged(auth, async (user: User | null) => {
-    if (user) {
-      if (!cachedAccessToken) {
-        try {
-          cachedAccessToken = localStorage.getItem('gdrive_access_token');
-        } catch {
-          // ignore
-        }
-      }
-      if (cachedAccessToken) {
-        if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
-      } else if (!isSigningIn) {
-        // If user is logged in to Firebase but token is missing from memory/session,
-        // trigger sign-in or prompt user
-        if (onAuthFailure) onAuthFailure();
-      }
-    } else {
-      cachedAccessToken = null;
-      try {
-        localStorage.removeItem('gdrive_access_token');
-      } catch {}
-      if (onAuthFailure) onAuthFailure();
-    }
+async function getGoogleUserInfo(accessToken: string): Promise<GoogleDriveUser> {
+  const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    cache: 'no-store'
   });
-};
-
-// Sign in with Google Popup (guarded against concurrent popups and iframe timeout assertions)
-export const googleSignIn = async (): Promise<{ user: User; accessToken: string } | null> => {
-  if (activeSignInPromise) {
-    return activeSignInPromise;
+  if (!response.ok) {
+    throw new Error(response.status === 401
+      ? 'Sesja Google wygasła. Zaloguj się ponownie.'
+      : `Nie udało się pobrać profilu Google (HTTP ${response.status}).`);
   }
+  return mapGoogleUserInfo(await response.json());
+}
 
-  activeSignInPromise = (async () => {
-    try {
-      isSigningIn = true;
-      const result = await signInWithPopup(auth, provider);
-      const credential = GoogleAuthProvider.credentialFromResult(result);
-      if (!credential?.accessToken) {
-        throw new Error('Nie udało się uzyskać tokenu dostępu Google Drive z logowania.');
-      }
-
-      cachedAccessToken = credential.accessToken;
-      try {
-        localStorage.setItem('gdrive_access_token', cachedAccessToken);
-      } catch {}
-      return { user: result.user, accessToken: cachedAccessToken };
-    } catch (error: any) {
-      const errMsg = String(error?.message || error || '');
-      const errCode = error?.code || '';
-
-      // Gracefully handle closed/cancelled popups and internal Firebase assertion timeouts in iframes
-      if (
-        errCode === 'auth/popup-closed-by-user' ||
-        errCode === 'auth/cancelled-popup-request' ||
-        errMsg.includes('Pending promise was never set') ||
-        errMsg.includes('popup-closed-by-user')
-      ) {
-        console.warn('[Google Drive Auth] Logowanie zostało przerwane lub okno logowania zostało zamknięte.');
-        return null;
-      }
-
-      console.error('[Google Drive Auth] Błąd logowania:', error);
-      throw error;
-    } finally {
-      isSigningIn = false;
-      activeSignInPromise = null;
+export const initAuth = (
+  onAuthSuccess?: (user: GoogleDriveUser, token: string) => void,
+  onAuthFailure?: () => void
+): (() => void) => {
+  let active = true;
+  const initialise = async () => {
+    const token = readGoogleAccessToken(TOKEN_CACHE);
+    if (!token) {
+      if (active) onAuthFailure?.();
+      return;
     }
-  })();
-
-  return activeSignInPromise;
-};
-
-export const getAccessToken = async (): Promise<string | null> => {
-  if (!cachedAccessToken) {
     try {
-      cachedAccessToken = localStorage.getItem('gdrive_access_token');
-    } catch {}
-  }
-  return cachedAccessToken;
+      const user = await getGoogleUserInfo(token);
+      if (active) onAuthSuccess?.(user, token);
+    } catch (error) {
+      clearGoogleAccessToken(TOKEN_CACHE);
+      console.warn('[Google Drive Auth] Zapisana sesja nie jest już ważna:', (error as Error).message);
+      if (active) onAuthFailure?.();
+    }
+  };
+  void initialise();
+  return () => { active = false; };
 };
 
-export const logoutGoogleDrive = async () => {
-  await signOut(auth);
-  cachedAccessToken = null;
+// GIS token requests must be initiated from a real user gesture. The library is
+// preloaded from index.html so requestAccessToken can run in the click handler.
+export const googleSignIn = (): Promise<{ user: GoogleDriveUser; accessToken: string } | null> => {
+  if (activeSignInPromise) return activeSignInPromise;
+
+  const clientId = import.meta.env?.VITE_GOOGLE_CLIENT_ID?.trim();
+  if (!clientId) {
+    return Promise.reject(new Error('Brak VITE_GOOGLE_CLIENT_ID. Ustaw identyfikator OAuth 2.0 Web Client dla Google Drive/Sheets.'));
+  }
+
+  const oauth = window.google?.accounts?.oauth2;
+  if (!oauth) {
+    return Promise.reject(new Error('Moduł Google Identity Services jeszcze się ładuje. Odśwież stronę i spróbuj ponownie.'));
+  }
+
+  let resolvePromise!: (value: { user: GoogleDriveUser; accessToken: string } | null) => void;
+  let rejectPromise!: (reason: Error) => void;
+  const promise = new Promise<{ user: GoogleDriveUser; accessToken: string } | null>((resolve, reject) => {
+    resolvePromise = resolve;
+    rejectPromise = reject;
+  });
+  activeSignInPromise = promise;
+
+  let settled = false;
+  const finish = (callback: () => void) => {
+    if (settled) return;
+    settled = true;
+    window.clearTimeout(timeout);
+    if (activeSignInPromise === promise) activeSignInPromise = null;
+    callback();
+  };
+  const timeout = window.setTimeout(() => {
+    finish(() => rejectPromise(new Error('Nie otrzymano odpowiedzi od Google. Zamknij okno logowania i spróbuj ponownie.')));
+  }, 120_000);
+
   try {
-    localStorage.removeItem('gdrive_access_token');
-  } catch {}
+    const client = oauth.initTokenClient({
+      client_id: clientId,
+      scope: SCOPES.join(' '),
+      callback: (response) => {
+        if (settled) return;
+        if (response.error) {
+          if (response.error === 'access_denied') {
+            finish(() => resolvePromise(null));
+            return;
+          }
+          finish(() => rejectPromise(new Error(response.error_description || `Google OAuth: ${response.error}`)));
+          return;
+        }
+        if (!response.access_token || !response.expires_in) {
+          finish(() => rejectPromise(new Error('Google nie zwrócił kompletnego tokenu dostępu.')));
+          return;
+        }
+
+        void (async () => {
+          try {
+            saveGoogleAccessToken(TOKEN_CACHE, response.access_token!, response.expires_in!);
+            const user = await getGoogleUserInfo(response.access_token!);
+            finish(() => resolvePromise({ user, accessToken: response.access_token! }));
+          } catch (error) {
+            clearGoogleAccessToken(TOKEN_CACHE);
+            finish(() => rejectPromise(error instanceof Error ? error : new Error(String(error))));
+          }
+        })();
+      },
+      error_callback: (error) => {
+        if (settled) return;
+        if (error.type === 'popup_closed') {
+          finish(() => resolvePromise(null));
+          return;
+        }
+        finish(() => rejectPromise(new Error(error.message || 'Nie udało się otworzyć okna logowania Google.')));
+      }
+    });
+
+    // No await before this call: GIS requires the original user gesture.
+    client.requestAccessToken();
+  } catch (error) {
+    finish(() => rejectPromise(error instanceof Error ? error : new Error(String(error))));
+  }
+
+  return promise;
+};
+
+export const getCachedAccessToken = (): string | null =>
+  readGoogleAccessToken(TOKEN_CACHE);
+
+export const getAccessToken = async (): Promise<string | null> =>
+  getCachedAccessToken();
+
+export const logoutGoogleDrive = async (): Promise<void> => {
+  const token = await getAccessToken();
+  if (token) {
+    try {
+      window.google?.accounts?.oauth2?.revoke(token, () => undefined);
+    } catch (error) {
+      console.warn('[Google Drive Auth] Nie udało się unieważnić zgody Google:', (error as Error).message);
+    }
+  }
+  clearGoogleAccessToken(TOKEN_CACHE);
 };
 
 // ---------------- Google Drive API Client Calls ----------------
@@ -419,13 +480,10 @@ export const exportVideoUrlToDrive = async (options: {
   } = {}) => {
     if (!jobId || !attemptId) return;
     try {
-      const firebaseIdToken = await auth.currentUser?.getIdToken();
+      // Same-origin API calls are authenticated by AppAuthGate's signed app session.
       const statusResponse = await fetch(`/api/jobs/${encodeURIComponent(jobId)}/exports`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {})
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ attemptId, startedAt, status, ...details })
       });
       if (!statusResponse.ok) {

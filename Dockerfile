@@ -12,6 +12,9 @@ RUN apt-get update \
 
 WORKDIR /app
 
+# Public Google OAuth client ID is used by Vite during image build only.
+ARG VITE_GOOGLE_CLIENT_ID
+
 # Stamped by the CI deployment workflow so health checks can prove the running commit.
 ARG APP_GIT_SHA=unknown
 ARG APP_IMAGE_LABEL=local
@@ -26,7 +29,7 @@ RUN npm install --include=dev --no-audit --no-fund
 
 COPY . .
 RUN npm run lint \
-    && npm run build \
+    && VITE_GOOGLE_CLIENT_ID="${VITE_GOOGLE_CLIENT_ID}" npm run build \
     && npm prune --omit=dev \
     && mkdir -p /app/exports /app/temp /app/fonts \
     && chown -R node:node /app

@@ -9322,7 +9322,7 @@ app.get('/api/auth/status', (_req, res) => {
   return res.status(getAppAuthConfiguration() ? 200 : 503).json({ configured: Boolean(getAppAuthConfiguration()) });
 });
 
-// Password login issues a short-lived signed app session; Firebase is not used for app access.
+// Password login issues a short-lived signed app session for the private panel.
 app.post('/api/auth/login', (req, res) => {
   const config = getAppAuthConfiguration();
   if (!config) return res.status(503).json({ error: 'Uwierzytelnianie aplikacji nie jest skonfigurowane.' });

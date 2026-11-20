@@ -23,8 +23,8 @@ import {
   Check,
   Video
 } from 'lucide-react';
-import { User } from 'firebase/auth';
 import {
+  type GoogleDriveUser,
   initAuth,
   googleSignIn,
   logoutGoogleDrive,
@@ -50,7 +50,7 @@ export const GoogleDriveManager: React.FC<GoogleDriveManagerProps> = ({
   onSelectVideoForScene,
   onToast
 }) => {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<GoogleDriveUser | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [needsAuth, setNeedsAuth] = useState(true);

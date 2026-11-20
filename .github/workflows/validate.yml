@@ -56,6 +56,10 @@ jobs:
         run: npm run test:telegram-chat
       - name: API auth tests
         run: npm run test:auth
+      - name: Google OAuth session state tests
+        run: npm run test:google-auth-state
+      - name: Google Firebase-to-GIS migration contract tests
+        run: npm run test:google-auth-migration
       - name: TTS cache retention tests
         run: npm run test:tts-cache-retention
       - name: Security, range and export path tests
