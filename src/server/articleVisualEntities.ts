@@ -163,7 +163,8 @@ export function extractArticleVisualEntities(articleText: string): ArticleVisual
         ? /^(?:marka|marki|firma|firmy|spółka|spolka|koncern|producent|sieć|siec|grupa)\s+/i.exec(match[0])?.[0] || ''
         : pattern.type === 'institution' ? ''
           : /^(?:produkt|program|konto|lokata|polisa|fundusz|ubezpieczenie|kredyt|obligacje|karta)\s+/i.exec(match[0])?.[0] || '';
-      const name = marker ? marker.trim() + ' ' + captured : captured;
+      const isGenericProductMarker = /^\\s*(?:produkt|program|fundusz|ubezpieczenie)\\s*$/i.test(marker);
+      const name = pattern.type === 'brand' || isGenericProductMarker ? captured : (marker ? marker.trim() + ' ' + captured : captured);
       const normalizedName = normalize(name);
       const alreadyCatalogued = detected.some((entity) => entity.aliases.some((alias) => {
         const normalizedAlias = normalize(alias);
@@ -191,6 +192,7 @@ export function selectRelevantArticleVisualEntities(articleText: string, sceneTe
   const hasVehicleCue = VEHICLE_CUES.test(scene);
   const hasInstitutionCue = INSTITUTION_CUES.test(scene);
   const hasProductCue = PRODUCT_CUES.test(scene);
+  const hasBrandCue = BRAND_CUES.test(scene);
 
   const relevant = [...direct];
   const models = entities.filter((entity) => entity.type === 'model');
