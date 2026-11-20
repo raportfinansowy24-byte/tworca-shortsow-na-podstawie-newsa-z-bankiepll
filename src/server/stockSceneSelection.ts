@@ -1,3 +1,5 @@
+import { selectRelevantArticleVisualEntities } from './articleVisualEntities';
+
 export interface StockSceneSearchInput {
   query: string;
   context?: string;
@@ -53,10 +55,31 @@ export function buildStockSceneSearchQueries(input: StockSceneSearchInput): stri
   if ((reason.includes('generic office') || reason.includes('keyboard') || reason.includes('klawiatur')) && isCreditCapacity) aliases.unshift('bank loan officer explaining mortgage borrowing capacity to couple');
   if ((reason.includes('wrong logo') || reason.includes('motyl') || reason.includes('butterfly')) && isBankBrand) aliases.unshift('corporate brand identity designer reviewing bank logo on large monitor');
 
+  const relevantEntities = selectRelevantArticleVisualEntities(
+    input.context || '',
+    [original, input.narration || ''].join(' ')
+  );
+  const entityQueries = relevantEntities.flatMap((entity) => {
+    const searchName = entity.canonical.includes('Narodowy Bank Polski')
+      ? 'National Bank of Poland (NBP)'
+      : entity.canonical.includes('Rada Polityki Pieniężnej')
+        ? 'Polish Monetary Policy Council (RPP)'
+        : entity.canonical.includes('Europejski Bank Centralny')
+          ? 'European Central Bank (ECB)'
+          : entity.canonical.includes('Komisja Nadzoru Finansowego')
+            ? 'Polish Financial Supervision Authority (KNF)'
+            : entity.canonical;
+    return entity.type === 'model'
+      ? [`${searchName} ${original}`, `${searchName} driving exterior`]
+      : entity.type === 'institution'
+        ? [`${searchName} ${original}`, `${searchName} headquarters exterior`]
+        : [`${searchName} ${original}`];
+  });
+
   const result: string[] = [];
   const seen = new Set<string>();
   const limit = Math.max(1, Math.min(5, Math.floor(input.maxQueries || 3)));
-  for (const candidate of [original, ...aliases, ...(input.categoryAlternatives || [])]) {
+  for (const candidate of [...entityQueries, original, ...aliases, ...(input.categoryAlternatives || [])]) {
     const value = cleanQuery(candidate);
     const key = normalize(value);
     if (!value || !key || seen.has(key)) continue;

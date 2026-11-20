@@ -70,6 +70,7 @@ import { buildContinuousNarrationMuxArgs } from './src/server/finalNarrationMix'
 import { isTrustedStockPreviewUrl, selectVisuallyVerifiedPexelsCandidate } from './src/server/pexelsCandidateVisualQa';
 import { mapPixabayVideoCandidates } from './src/server/pixabayVideoProvider';
 import { buildStockSceneSearchQueries, selectDiverseStockCandidates, selectStockPreviewFrameUrls } from './src/server/stockSceneSelection';
+import { selectRelevantArticleVisualEntities, toRequiredVisualEntityChecks } from './src/server/articleVisualEntities';
 import { buildStockClipSamplingFilter, isTrustedStockVideoDownloadUrl, stockClipSamplingFrameCountIsSufficient } from './src/server/stockClipSampling';
 import { cleanStockSearchQuery, scoreStockCandidateSoftAvoidance } from './src/server/stockCandidatePolicy';
 import { buildSourceEvidenceVisual, resolveStockWithEvidenceFallback, resolveStockWithVerifiedEvidenceFallback } from './src/server/sourceEvidenceVisual';
@@ -818,6 +819,9 @@ async function verifyStockVisualCandidates(
   if (geminiApiKeys.length === 0) {
     throw new Error('Pre-renderowa kontrola obrazu stock wymaga co najmniej jednego klucza Gemini.');
   }
+  const requiredEntities = toRequiredVisualEntityChecks(
+    selectRelevantArticleVisualEntities(context, [sceneNarration, sceneQuery].join(' '))
+  );
   const shortlist = selectDiverseStockCandidates(
     [...candidates]
       .filter((item) => Number.isSafeInteger(item.pexelsId) && (item.previewImageUrls?.length || 0) > 0)
@@ -872,11 +876,15 @@ async function verifyStockVisualCandidates(
     'Kontekst artykułu: ' + context.slice(0, 1800),
     'Dokładna wypowiedź lektora w tej scenie: ' + (sceneNarration || '[brak osobnej wypowiedzi]'),
     'Docelowy obraz sceny i zapytanie wyszukiwania: ' + sceneQuery,
+    'WYMAGANE ENCJE ARTYKUŁU (JSON): ' + JSON.stringify(requiredEntities),
+    requiredEntities.length
+      ? 'KRYTYCZNA KONTROLA TOŻSAMOŚCI: każdą wymienioną encję rozpoznaj wyłącznie po jednoznacznie widocznym oznaczeniu, logo, nazwie lub charakterystycznym oznaczeniu produktu/modelu. Wymagaj zgodności WSZYSTKICH encji. Nie zgaduj na podstawie kształtu, kategorii ani opisu pliku. Inna marka/model (np. Mercedes GLE zamiast Volkswagen Tayron) oznacza entityMatch=false i match=false. Jeżeli oznaczenia nie są czytelne, entityMatch=false i kandydat ma zostać odrzucony. W visibleEntities wypisz wyłącznie nazwy jednoznacznie rozpoznane na klatkach.'
+      : 'Nie dopisuj nazw marek, modeli, instytucji ani produktów, których nie da się jednoznacznie rozpoznać na klatkach.',
     'Wymagaj widocznego obiektu LUB czynności odpowiadających dokładnie tej wypowiedzi. Obejrzyj wszystkie klatki kandydata; jeśli choć jedna pokazuje inny temat (np. krypto zamiast oprocentowania kredytu), odrzuć kandydata. Laptop, biuro, kalkulator i banknoty same w sobie nie są dopasowaniem.',
     'Odrzuć sprzeczne ujęcia i dopasowania oparte wyłącznie na ogólnym skojarzeniu „finanse”. Nie przypisuj anonimowego biurowca, ekranu ani aplikacji konkretnej marce/bankowi, jeśli nie widać jej oznaczeń. Nie wymagaj niewidocznej kwoty lub nazwy miasta. Dla poziomego klipu oceń centralne przycięcie 9:16.',
     'Jeżeli kontekst zawiera powód wcześniejszego odrzucenia ujęcia, unikaj podobnego motywu i wymagaj widocznego odpowiednika oczekiwanej czynności.',
     'Otrzymujesz ' + verified.length + ' kandydatów. Zwróć dokładnie jeden wynik dla każdego, pole scene to numer kandydata.',
-    'Zwróć wyłącznie JSON: {"results":[{"scene":1,"match":true,"confidence":0.0,"reason":"krótkie uzasadnienie po polsku"}]}. match=true tylko dla sensownej ilustracji sceny.'
+    'Zwróć wyłącznie JSON: {"results":[{"scene":1,"match":true,"entityMatch":true,"visibleEntities":["nazwa widoczna na klatce"],"confidence":0.0,"reason":"krótkie uzasadnienie po polsku"}]}. entityMatch=true tylko wtedy, gdy wszystkie wymagane encje są jednoznacznie widoczne; przy braku wymaganych encji ustaw entityMatch=true i visibleEntities=[]. match=true tylko dla sensownej ilustracji sceny i poprawnej tożsamości encji.'
   ].join('\n');
   const providers: Array<{ model: string; analyze: () => Promise<ReturnType<typeof parseCompleteVisualSemanticResponse>> }> = [{
     model: GEMINI_PRIMARY_MODEL,
@@ -896,11 +904,13 @@ async function verifyStockVisualCandidates(
     const assessment = result.find((item) => item.scene === index + 1);
     const reason = String(assessment?.reason || 'Brak uzasadnienia.').replace(/[\r\n"]+/g, ' ').slice(0, 180);
     const confidence = Number.isFinite(assessment?.confidence) ? assessment!.confidence.toFixed(2) : 'n/a';
-    console.info('[Stock visual QA] Scena ' + (sceneIndex + 1) + ': ' + (candidate.stockId || candidate.pexelsId) + ' match=' + String(assessment?.match === true) + ' confidence=' + confidence + ' reason="' + reason + '"');
+    console.info('[Stock visual QA] Scena ' + (sceneIndex + 1) + ': ' + (candidate.stockId || candidate.pexelsId) + ' match=' + String(assessment?.match === true) + ' entityMatch=' + String(assessment?.entityMatch === true) + ' visibleEntities=' + JSON.stringify(assessment?.visibleEntities || []) + ' confidence=' + confidence + ' reason="' + reason + '"');
   });
   const selected = selectVisuallyVerifiedPexelsCandidate(verified.map((candidate, index) => ({
     pexelsId: candidate.pexelsId!, selectionScore: candidate.selectionScore || 0,
-    visual: result.find((item) => item.scene === index + 1)
+    visual: result.find((item) => item.scene === index + 1),
+    requireEntityMatch: requiredEntities.length > 0,
+    requiredEntities
   })), 0.68);
   if (!selected) {
     console.warn('[Stock visual precheck] Żaden kandydat nie przeszedł kontroli sceny ' + (sceneIndex + 1) + '.');
@@ -6228,9 +6238,6 @@ router.post('/auto-pilot-shorts', async (req, res) => {
           String(scene.voiceover_text || ''),
           String(scene.subtitles || '')
         ));
-      if (dataVisuals.some((visual: any) => !visual) && !process.env.PEXELS_API_KEY?.trim() && !process.env.PIXABAY_API_KEY?.trim()) {
-        return res.status(503).json({ error: 'Storyboard wymaga PEXELS_API_KEY lub PIXABAY_API_KEY dla scen bez potwierdzonych danych do plansz informacyjnych.', requiredConfig: 'PEXELS_API_KEY lub PIXABAY_API_KEY', fallbackDisabled: true });
-      }
       const visualContext = [article.title, article.description, article.summary, body.articleContext].filter(Boolean).join('\n');
       const usedPexelsIds: number[] = [];
       const resolvedScenes: any[] = [];
@@ -6251,18 +6258,19 @@ router.post('/auto-pilot-shorts', async (req, res) => {
           continue;
         }
         const sceneNarration = String(scene.voiceover_text || scene.subtitles || '');
-        const stockOrEvidence = await resolveStockWithEvidenceFallback(
-          () => resolveStockOrPexelsVideoDetailed(scene.visualQuery, index, usedPexelsIds, {
+        const sourceText = [financeArticle.title, financeArticle.description, financeArticle.summary].join('\n');
+        const stockOrEvidence = await resolveStockWithVerifiedEvidenceFallback({
+          resolveStock: () => resolveStockOrPexelsVideoDetailed(scene.visualQuery, index, usedPexelsIds, {
             context: `${visualContext}\nNarracja tej sceny: ${sceneNarration}\nOczekiwana czynność: ${scene.visualQuery}`,
             sceneNarration,
             requirePexels: true,
             targetDurationSeconds: scene.duration
           }),
-          () => buildSourceEvidenceVisual(
-            [financeArticle.title, financeArticle.description, financeArticle.summary].join('\n'),
-            String(scene.sourceEvidence || '')
-          )
-        );
+          sourceText,
+          sourceEvidence: String(scene.sourceEvidence || ''),
+          hints: [sceneNarration, String(scene.visualQuery || '')],
+          topicHint: financeArticle.title
+        });
         if (stockOrEvidence.kind === 'data_visual') {
           const stockFailure = String((stockOrEvidence.stockError as Error)?.message || stockOrEvidence.stockError).slice(0, 180);
           console.warn(`[Creative Director fallback] Scena ${index + 1}: stock nie przeszedł dopasowania/QA; używam cytatu zweryfikowanego w artykule. Powód: ${stockFailure}`);

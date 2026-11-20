@@ -46,7 +46,8 @@
     "test:source-evidence-visual": "tsx tests/sourceEvidenceVisual.test.ts",
     "test:autopilot-retry": "tsx tests/autopilotRetry.test.ts",
     "test:final-narration-mix": "tsx tests/finalNarrationMix.test.ts",
-    "test:stock-scene-selection": "tsx tests/stockSceneSelection.test.ts"
+    "test:stock-scene-selection": "tsx tests/stockSceneSelection.test.ts",
+    "test:article-visual-entities": "tsx tests/articleVisualEntities.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.32.0",

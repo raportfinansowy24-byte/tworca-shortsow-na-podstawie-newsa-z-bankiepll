@@ -9,6 +9,8 @@ export interface VisualSemanticResult {
   match: boolean;
   confidence: number;
   reason: string;
+  entityMatch?: boolean;
+  visibleEntities?: string[];
 }
 
 export interface VisualSemanticReport {
@@ -58,7 +60,11 @@ export function parseVisualSemanticResponse(text: string, expectedScenes: number
       scene,
       match: item.match,
       confidence: clampConfidence(item.confidence),
-      reason: typeof item.reason === 'string' ? item.reason.trim().slice(0, 300) : ''
+      reason: typeof item.reason === 'string' ? item.reason.trim().slice(0, 300) : '',
+      entityMatch: item.entityMatch === true,
+      visibleEntities: Array.isArray(item.visibleEntities)
+        ? item.visibleEntities.filter((value): value is string => typeof value === 'string').map((value) => value.trim().slice(0, 120)).filter(Boolean).slice(0, 8)
+        : []
     });
   }
   return results.sort((a, b) => a.scene - b.scene);

@@ -1,3 +1,5 @@
+import { visibleEntityNamesMatch } from './articleVisualEntities';
+
 export interface PexelsVisualAssessment {
   pexelsId: number;
   selectionScore: number;
@@ -6,7 +8,11 @@ export interface PexelsVisualAssessment {
     match: boolean;
     confidence: number;
     reason: string;
+    entityMatch?: boolean;
+    visibleEntities?: string[];
   };
+  requireEntityMatch?: boolean;
+  requiredEntities?: Array<{ canonical: string; aliases: string[] }>;
 }
 
 export interface SelectedPexelsVisualCandidate {
@@ -37,7 +43,11 @@ export function selectVisuallyVerifiedPexelsCandidate(
       item.pexelsId > 0 &&
       item.visual?.match === true &&
       Number.isFinite(item.visual.confidence) &&
-      item.visual.confidence >= minimumConfidence
+      item.visual.confidence >= minimumConfidence &&
+      (!item.requireEntityMatch || (
+        item.visual.entityMatch === true &&
+        visibleEntityNamesMatch(item.requiredEntities || [], item.visual.visibleEntities || [])
+      ))
     )
     .map((item) => ({
       pexelsId: item.pexelsId,

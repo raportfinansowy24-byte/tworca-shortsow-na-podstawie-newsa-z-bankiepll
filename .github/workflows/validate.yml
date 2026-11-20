@@ -72,6 +72,8 @@ jobs:
         run: npm run test:stock-candidate-policy
       - name: Scene-specific stock search and balanced provider selection tests
         run: npm run test:stock-scene-selection
+      - name: Article visual entity extraction tests
+        run: npm run test:article-visual-entities
       - name: Source-evidence visual fallback tests
         run: npm run test:source-evidence-visual
       - name: Financial scene matching tests
