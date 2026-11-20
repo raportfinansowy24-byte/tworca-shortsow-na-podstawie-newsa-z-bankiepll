@@ -36,6 +36,13 @@ assert.ok(namedProducts.some((entity) => entity.type === 'product' && entity.can
 const brandArticle = 'Allegro zmienia zasady opłat dla sprzedawców.';
 assert.ok(extractArticleVisualEntities(brandArticle).some((entity) => entity.type === 'brand' && entity.canonical === 'Allegro'));
 
+const uncataloguedBrandArticle = 'Marka NovaTech wchodzi na polski rynek.';
+assert.ok(extractArticleVisualEntities(uncataloguedBrandArticle).some((entity) => entity.type === 'brand' && entity.canonical === 'NovaTech'));
+assert.ok(selectRelevantArticleVisualEntities(uncataloguedBrandArticle, 'Firma zmienia zasady sprzedaży.').some((entity) => entity.canonical === 'NovaTech'));
+
+const uncataloguedInstitution = 'Urząd Regulacji Rynków Cyfrowych opublikował komunikat.';
+assert.ok(extractArticleVisualEntities(uncataloguedInstitution).some((entity) => entity.type === 'institution' && entity.canonical === 'Urząd Regulacji Rynków Cyfrowych'));
+
 assert.deepEqual(selectRelevantArticleVisualEntities('Brak nazw własnych w tym artykule.', 'Neutralny obraz miasta.'), []);
 assert.equal(visibleEntityNamesMatch([], []), true);
 console.log('Article visual entity tests passed');
