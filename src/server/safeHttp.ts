@@ -7,17 +7,33 @@ import { pinnedLookup, validateRemoteUrl } from './remoteUrlSecurity';
 type Validated = { url: URL; addresses: RemoteAddress[] };
 type Validator = (value: string) => Promise<Validated>;
 type Requester = typeof http;
+type DownloadOptions = {
+  maxBytes: number;
+  maxRedirects?: number;
+  /** Hard end-to-end deadline, including DNS and redirects. */
+  timeoutMs?: number;
+  /** Socket inactivity deadline; distinct from the total deadline. */
+  socketTimeoutMs?: number;
+  signal?: AbortSignal;
+  headers?: http.OutgoingHttpHeaders;
+  validate?: Validator;
+  http?: Requester;
+  https?: Requester;
+};
+
+const DEFAULT_DOWNLOAD_HEADERS: http.OutgoingHttpHeaders = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  Accept: '*/*'
+};
 
 /** Download with both a socket inactivity timeout and a hard end-to-end deadline. */
-export async function downloadRemoteFile(value: string, destination: string, options: {
-  maxBytes: number; maxRedirects?: number; timeoutMs?: number; signal?: AbortSignal; validate?: Validator; http?: Requester; https?: Requester;
-}): Promise<void> {
+export async function downloadRemoteFile(value: string, destination: string, options: DownloadOptions): Promise<void> {
   const controller = new AbortController();
   let timedOut = false;
   const abortFromCaller = () => controller.abort();
   if (options.signal?.aborted) controller.abort();
   else options.signal?.addEventListener('abort', abortFromCaller, { once: true });
-  const timeoutMs = options.timeoutMs ?? 12_000;
+  const timeoutMs = options.timeoutMs ?? 45_000;
   const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
   let onAbort: (() => void) | undefined;
   const aborted = new Promise<never>((_, reject) => {
@@ -40,9 +56,7 @@ export async function downloadRemoteFile(value: string, destination: string, opt
 }
 
 /** Download bounded data while revalidating and repinning every redirect hop. */
-async function downloadRemoteFileImpl(value: string, destination: string, options: {
-  maxBytes: number; maxRedirects?: number; timeoutMs?: number; signal?: AbortSignal; validate?: Validator; http?: Requester; https?: Requester;
-}): Promise<void> {
+async function downloadRemoteFileImpl(value: string, destination: string, options: DownloadOptions): Promise<void> {
   const validate = options.validate ?? validateRemoteUrl;
   const maxRedirects = options.maxRedirects ?? 5;
   try {
@@ -66,7 +80,10 @@ async function downloadRemoteFileImpl(value: string, destination: string, option
         const onAbort = () => finish(new Error('Download aborted'));
         if (options.signal?.aborted) return onAbort();
         options.signal?.addEventListener('abort', onAbort, { once: true });
-        req = client.get(url, { lookup: pinnedLookup(addresses) }, (res) => {
+        req = client.get(url, {
+          lookup: pinnedLookup(addresses),
+          headers: { ...DEFAULT_DOWNLOAD_HEADERS, ...(options.headers || {}) }
+        }, (res) => {
           if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
             res.resume();
             if (redirects >= maxRedirects) return finish(new Error('Redirect limit exceeded'));
@@ -89,7 +106,8 @@ async function downloadRemoteFileImpl(value: string, destination: string, option
           res.pipe(file);
         });
         req.on('error', finish);
-        if (options.timeoutMs) req.setTimeout(options.timeoutMs, () => finish(new Error('Download timeout')));
+        const socketTimeoutMs = options.socketTimeoutMs ?? 12_000;
+        if (socketTimeoutMs > 0) req.setTimeout(socketTimeoutMs, () => finish(new Error('Download socket inactivity timeout')));
       });
       if (redirected) continue;
       return;
@@ -116,7 +134,16 @@ export async function postWebhook(value: string, body: string, options: {
       if (error) reject(error);
       else resolve();
     };
-    const req = client.request(url, { method: 'POST', lookup: pinnedLookup(addresses), headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } }, (res) => {
+    const req = client.request(url, {
+      method: 'POST',
+      lookup: pinnedLookup(addresses),
+      headers: {
+        ...DEFAULT_DOWNLOAD_HEADERS,
+        Accept: 'application/json, */*',
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body)
+      }
+    }, (res) => {
       res.on('error', finish);
       res.on('end', () => finish());
       res.resume();

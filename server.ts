@@ -1804,7 +1804,7 @@ function downloadFile(fileUrl: string, destPath: string, jobId?: string, abortSi
     return generateLocalFallbackVideo(destPath, 6);
   }
 
-  return downloadRemoteFile(fileUrl, destPath, { maxBytes: 100 * 1024 * 1024, timeoutMs: 12000, signal: abortSignal }).catch((err: Error) => {
+  return downloadRemoteFile(fileUrl, destPath, { maxBytes: 100 * 1024 * 1024, timeoutMs: 45000, socketTimeoutMs: 12000, signal: abortSignal }).catch((err: Error) => {
     if (abortSignal?.aborted) throw new Error('Pobieranie przerwane: zadanie zostało anulowane');
     if (!allowLocalFallback) {
       const strictError = new Error(`Brak dopasowanego klipu wideo: ${err.message}`);
@@ -1822,7 +1822,7 @@ function downloadFile(fileUrl: string, destPath: string, jobId?: string, abortSi
 async function downloadAudioFile(fileUrl: string, destPath: string, timeoutMs: number = 5000): Promise<boolean> {
   if (!fileUrl || typeof fileUrl !== 'string' || !fileUrl.startsWith('http')) return false;
   try {
-    await downloadRemoteFile(fileUrl, destPath, { maxBytes: 25 * 1024 * 1024, timeoutMs });
+    await downloadRemoteFile(fileUrl, destPath, { maxBytes: 25 * 1024 * 1024, timeoutMs, socketTimeoutMs: timeoutMs, headers: { Accept: 'audio/*, */*' } });
     const valid = fs.existsSync(destPath) && fs.statSync(destPath).size > 1000;
     if (!valid) await fs.promises.unlink(destPath).catch(() => undefined);
     return valid;

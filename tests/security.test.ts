@@ -62,7 +62,9 @@ const httpServer = http.createServer();
 const httpAddress = await listen(httpServer);
 const base = `http://pinned.test:${httpAddress.port}`;
 let pinnedLookupCalls = 0;
+let lastRequestHeaders: http.IncomingHttpHeaders | undefined;
 httpServer.on('request', (req, res) => {
+  lastRequestHeaders = req.headers;
   if (req.url === '/redirect-private') { res.writeHead(302, { Location: `http://private.test:${httpAddress.port}/must-not-connect` }); res.end(); }
   else if (req.url === '/loop') { res.writeHead(302, { Location: '/loop' }); res.end(); }
   else if (req.url === '/large') { res.writeHead(200, { 'Content-Length': '8' }); res.end('12345678'); }
@@ -81,12 +83,24 @@ trackingHttp.get = ((...args: Parameters<typeof http.get>) => {
 await downloadRemoteFile(`${base}/ok`, path.join(netTemp, 'ok'), { maxBytes: 100, validate: validateLocal, http: trackingHttp });
 assert.equal(fs.readFileSync(path.join(netTemp, 'ok'), 'utf8'), 'ok');
 assert(pinnedLookupCalls > 0, 'HTTP client must use pinnedLookup rather than resolving DNS again');
+assert.match(String(lastRequestHeaders?.['user-agent'] || ''), /Mozilla\/5\.0.*Chrome\/124/);
+assert.equal(lastRequestHeaders?.accept, '*/*', 'stock download keeps a broad Accept header for CDN compatibility');
+await downloadRemoteFile(`${base}/audio`, path.join(netTemp, 'audio'), {
+  maxBytes: 100,
+  validate: validateLocal,
+  http: trackingHttp,
+  headers: { Accept: 'audio/*, */*' }
+});
+assert.equal(lastRequestHeaders?.accept, 'audio/*, */*', 'audio downloads can override Accept without losing the shared safe transport');
 await assert.rejects(downloadRemoteFile(`${base}/redirect-private`, path.join(netTemp, 'private'), { maxBytes: 100, validate: validateLocal, http: trackingHttp }));
 assert.equal(fs.existsSync(path.join(netTemp, 'private')), false);
 await assert.rejects(downloadRemoteFile(`${base}/loop`, path.join(netTemp, 'loop'), { maxBytes: 100, maxRedirects: 2, validate: validateLocal, http: trackingHttp }), /Redirect limit/);
 await assert.rejects(downloadRemoteFile(`${base}/large`, path.join(netTemp, 'large'), { maxBytes: 4, validate: validateLocal, http: trackingHttp }));
 await assert.rejects(downloadRemoteFile(`${base}/slow-drip`, path.join(netTemp, 'slow-drip'), { maxBytes: 100, timeoutMs: 40, validate: validateLocal, http: trackingHttp }), /total timeout/i);
 assert.equal(fs.existsSync(path.join(netTemp, 'slow-drip')), false, 'total timeout removes partial file');
+await assert.rejects(downloadRemoteFile(`${base}/slow`, path.join(netTemp, 'socket-timeout'), {
+  maxBytes: 100, timeoutMs: 500, socketTimeoutMs: 30, validate: validateLocal, http: trackingHttp
+}), /socket inactivity timeout/i);
 assert.equal(fs.existsSync(path.join(netTemp, 'large')), false, 'oversized partial file is removed');
 let webhookRedirectTargetHit = false;
 const webhookServer = http.createServer((req, res) => {
