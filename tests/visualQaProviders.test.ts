@@ -70,6 +70,24 @@ assert.deepEqual(calls, ['openai', 'gemini-3.8-flash'], 'Gemini 3.8 jest wywoły
 assert.equal(fallbackResult.model, 'gemini-3.8-flash');
 assert.equal(buildVisualSemanticReport(1, fallbackResult.result, fallbackResult.model).status, 'pass');
 assert.deepEqual(providerFailures, ['openai:gpt-6.1-sol: HTTP 503 unavailable']);
+const entityAwareVisual = parseCompleteVisualSemanticResponse(JSON.stringify({ results: [
+  {
+    scene: 1,
+    match: true,
+    entityMatch: true,
+    visibleEntities: ['VW Tayron'],
+    confidence: 0.91,
+    reason: 'Widoczne oznaczenie VW Tayron.'
+  }
+] }), 1);
+assert.equal(entityAwareVisual[0].entityMatch, true);
+assert.deepEqual(entityAwareVisual[0].visibleEntities, ['VW Tayron']);
+const missingEntityEvidence = parseCompleteVisualSemanticResponse(JSON.stringify({ results: [
+  { scene: 1, match: true, confidence: 0.91, reason: 'Brak identyfikacji modelu.' }
+] }), 1);
+assert.equal(missingEntityEvidence[0].entityMatch, false, 'brak potwierdzenia encji musi pozostać niezaufany');
+assert.deepEqual(missingEntityEvidence[0].visibleEntities, []);
+
 
 const partialProviderCalls: string[] = [];
 const completeOpenAiResponse = JSON.stringify({ results: [
