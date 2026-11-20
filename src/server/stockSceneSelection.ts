@@ -59,12 +59,22 @@ export function buildStockSceneSearchQueries(input: StockSceneSearchInput): stri
     input.context || '',
     [original, input.narration || ''].join(' ')
   );
-  const entityQueries = relevantEntities.flatMap((entity) => entity.type === 'model'
-    ? [`${entity.canonical} ${original}`, `${entity.canonical} driving exterior`]
-    : entity.type === 'institution'
-      ? [`${entity.canonical} ${original}`, `${entity.canonical} headquarters exterior`]
-      : [`${entity.canonical} ${original}`]
-  );
+  const entityQueries = relevantEntities.flatMap((entity) => {
+    const searchName = entity.canonical.includes('Narodowy Bank Polski')
+      ? 'National Bank of Poland (NBP)'
+      : entity.canonical.includes('Rada Polityki Pieniężnej')
+        ? 'Polish Monetary Policy Council (RPP)'
+        : entity.canonical.includes('Europejski Bank Centralny')
+          ? 'European Central Bank (ECB)'
+          : entity.canonical.includes('Komisja Nadzoru Finansowego')
+            ? 'Polish Financial Supervision Authority (KNF)'
+            : entity.canonical;
+    return entity.type === 'model'
+      ? [`${searchName} ${original}`, `${searchName} driving exterior`]
+      : entity.type === 'institution'
+        ? [`${searchName} ${original}`, `${searchName} headquarters exterior`]
+        : [`${searchName} ${original}`];
+  });
 
   const result: string[] = [];
   const seen = new Set<string>();
