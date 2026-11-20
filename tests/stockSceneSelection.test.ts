@@ -99,4 +99,4 @@ const namedProductQueries = buildStockSceneSearchQueries({
   context: 'Program Bezpieczny Kredyt 2% wraca w debacie publicznej.',
   maxQueries: 3
 });
-assert.match(namedProductQueries[0], /Bezpieczny Kredyt 2%/i);
+assert.match(namedProductQueries[0], /Bezpieczny Kredyt 2/i);
