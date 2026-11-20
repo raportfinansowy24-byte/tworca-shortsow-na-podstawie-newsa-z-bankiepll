@@ -103,6 +103,8 @@ const ENTITY_CATALOG: ArticleVisualEntity[] = [
   { type: 'institution', canonical: 'Polski Fundusz Rozwoju (PFR)', aliases: ['Polski Fundusz Rozwoju', 'PFR'] },
   { type: 'institution', canonical: 'Bankowy Fundusz Gwarancyjny (BFG)', aliases: ['Bankowy Fundusz Gwarancyjny', 'BFG'] },
   { type: 'institution', canonical: 'Agencja Restrukturyzacji i Modernizacji Rolnictwa (ARiMR)', aliases: ['Agencja Restrukturyzacji i Modernizacji Rolnictwa', 'ARiMR'] },
+  { type: 'institution', canonical: 'Urząd Regulacji Energetyki (URE)', aliases: ['Urząd Regulacji Energetyki', 'URE'] },
+  { type: 'institution', canonical: 'Urząd Komunikacji Elektronicznej (UKE)', aliases: ['Urząd Komunikacji Elektronicznej', 'UKE'] },
 
   { type: 'product', canonical: 'Bezpieczny Kredyt 2%', aliases: ['Bezpieczny Kredyt 2%', 'Bezpieczny Kredyt'] },
   { type: 'product', canonical: 'Rodzinny Kredyt Mieszkaniowy', aliases: ['Rodzinny Kredyt Mieszkaniowy'] },
@@ -148,13 +150,28 @@ export function extractArticleVisualEntities(articleText: string): ArticleVisual
     entity.aliases.some((alias) => containsAlias(source, alias))
   );
 
-  // Catch explicitly named retail products that are not in the fixed catalog.
-  // Only accept a capitalized name immediately following a product-type marker.
-  const labelledProductPattern = /\b(?:produkt|program|konto|lokata|polisa|fundusz|ubezpieczenie)\s+([A-ZŁŚŻŹĆŃÓĄĘ][\p{L}\p{N}.-]*(?:\s+[A-ZŁŚŻŹĆŃÓĄĘ][\p{L}\p{N}.-]*){0,3})/gu;
-  for (const match of source.matchAll(labelledProductPattern)) {
-    const name = String(match[1] || '').trim();
-    if (name.length >= 3 && !['Bank Polski', 'Bank Centralny'].includes(name)) {
-      detected.push({ type: 'product', canonical: name, aliases: [name] });
+  // Detect uncatalogued names only when a semantic marker makes their role explicit.
+  const labelledPatterns: Array<{ type: ArticleVisualEntityType; regex: RegExp }> = [
+    { type: 'brand', regex: /\b(?:marka|marki|firm[ay]|sp[oó]łk[ay]|koncern|producent|sie[ćc]|grup[ay])\s+([A-ZŁŚŻŹĆŃÓĄĘ][\p{L}\p{N}.-]*(?:\s+[A-ZŁŚŻŹĆŃÓĄĘ][\p{L}\p{N}.-]*){0,2})/giu },
+    { type: 'institution', regex: /\b((?:Ministerstwo|Minister|Urząd|Urzad|Komisja|Rada|Agencja|Fundusz|Zakład|Zaklad|Izba)\s+[A-ZŁŚŻŹĆŃÓĄĘ][\p{L}\p{N}.-]*(?:\s+[A-ZŁŚŻŹĆŃÓĄĘ][\p{L}\p{N}.-]*){0,3})/gu },
+    { type: 'product', regex: /\b(?:produkt|program|konto|lokata|polisa|fundusz|ubezpieczenie|kredyt|obligacje|karta)\s+([A-ZŁŚŻŹĆŃÓĄĘ][\p{L}\p{N}.-]*(?:\s+[A-ZŁŚŻŹĆŃÓĄĘ][\p{L}\p{N}.-]*){0,3})/giu }
+  ];
+  for (const pattern of labelledPatterns) {
+    for (const match of source.matchAll(pattern.regex)) {
+      const captured = String(match[1] || '').trim();
+      const marker = pattern.type === 'brand'
+        ? /^(?:marka|marki|firma|firmy|spółka|spolka|koncern|producent|sieć|siec|grupa)\s+/i.exec(match[0])?.[0] || ''
+        : pattern.type === 'institution' ? ''
+          : /^(?:produkt|program|konto|lokata|polisa|fundusz|ubezpieczenie|kredyt|obligacje|karta)\s+/i.exec(match[0])?.[0] || '';
+      const name = marker ? marker.trim() + ' ' + captured : captured;
+      const normalizedName = normalize(name);
+      const alreadyCatalogued = detected.some((entity) => entity.aliases.some((alias) => {
+        const normalizedAlias = normalize(alias);
+        return normalizedAlias === normalizedName || (normalizedAlias.length >= 5 && normalizedName.includes(normalizedAlias));
+      }));
+      if (name.length >= 3 && !alreadyCatalogued) {
+        detected.push({ type: pattern.type, canonical: name, aliases: [name] });
+      }
     }
   }
 
