@@ -163,7 +163,7 @@ export function extractArticleVisualEntities(articleText: string): ArticleVisual
         ? /^(?:marka|marki|firma|firmy|spółka|spolka|koncern|producent|sieć|siec|grupa)\s+/i.exec(match[0])?.[0] || ''
         : pattern.type === 'institution' ? ''
           : /^(?:produkt|program|konto|lokata|polisa|fundusz|ubezpieczenie|kredyt|obligacje|karta)\s+/i.exec(match[0])?.[0] || '';
-      const isGenericProductMarker = /^\\s*(?:produkt|program|fundusz|ubezpieczenie)\\s*$/i.test(marker);
+      const isGenericProductMarker = /^\s*(?:produkt|program|fundusz|ubezpieczenie)\s*$/i.test(marker);
       const name = pattern.type === 'brand' || isGenericProductMarker ? captured : (marker ? marker.trim() + ' ' + captured : captured);
       const normalizedName = normalize(name);
       const alreadyCatalogued = detected.some((entity) => entity.aliases.some((alias) => {
@@ -182,6 +182,7 @@ export function extractArticleVisualEntities(articleText: string): ArticleVisual
 const VEHICLE_CUES = /\b(?:samochod\w*|auto\w*|suv\w*|crossover\w*|pojazd\w*|silnik\w*|motoryzac\w*|jazd\w*|terenow\w*|kierowc\w*)\b/;
 const INSTITUTION_CUES = /\b(?:bank\w*|instytucj\w*|urzad\w*|minister\w*|regulator\w*|nadzor\w*|stop\w* procentow\w*|polityk\w* pieniez\w*|skladk\w*|emerytur\w*)\b/;
 const PRODUCT_CUES = /\b(?:produkt\w*|ofert\w*|kont\w*|kredyt\w*|lokat\w*|polis\w*|ubezpieczen\w*|program\w*|obligacj\w*|oszczedzan\w*)\b/;
+const BRAND_CUES = /\b(?:mark\w*|firm\w*|spolk\w*|koncern\w*|producent\w*|sieci handlow\w*)\b/;
 
 export function selectRelevantArticleVisualEntities(articleText: string, sceneText: string): ArticleVisualEntity[] {
   const entities = extractArticleVisualEntities(articleText);
@@ -204,6 +205,7 @@ export function selectRelevantArticleVisualEntities(articleText: string, sceneTe
   if (hasVehicleCue && models.length === 0 && brands.length === 1) relevant.push(brands[0]);
   if (hasInstitutionCue && institutions.length === 1) relevant.push(institutions[0]);
   if (hasProductCue && products.length === 1) relevant.push(products[0]);
+  if (hasBrandCue && brands.length === 1) relevant.push(brands[0]);
 
   const deduped = uniqueEntities(relevant);
   const modelFamilies = new Set(deduped.filter((entity) => entity.type === 'model').map((entity) => entity.family).filter(Boolean));
