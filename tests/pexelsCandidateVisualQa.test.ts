@@ -40,3 +40,43 @@ const ranking = selectVisuallyVerifiedPexelsCandidate([
 ]);
 assert.equal(ranking?.pexelsId, 301, 'wyższa pewność dopasowania obrazu musi przeważyć nad przewagą tekstowego rankingu');
 console.log('Pexels candidate visual QA tests passed');
+
+
+const requiredTayron = [{ canonical: 'Volkswagen Tayron', aliases: ['Volkswagen Tayron', 'VW Tayron', 'Tayron'] }];
+assert.equal(selectVisuallyVerifiedPexelsCandidate([
+  {
+    pexelsId: 401,
+    selectionScore: 999,
+    requireEntityMatch: true,
+    requiredEntities: requiredTayron,
+    visual: { scene: 1, match: true, confidence: 0.99, reason: 'SUV na drodze.', entityMatch: false, visibleEntities: ['Mercedes-Benz GLE'] }
+  }
+]), null, 'Mercedes GLE nie może przejść jako Volkswagen Tayron tylko dlatego, że oba są SUV-ami');
+
+assert.equal(selectVisuallyVerifiedPexelsCandidate([
+  {
+    pexelsId: 402,
+    selectionScore: 10,
+    requireEntityMatch: true,
+    requiredEntities: requiredTayron,
+    visual: { scene: 1, match: true, confidence: 0.88, reason: 'Rozpoznawalne oznaczenie VW Tayron.', entityMatch: true, visibleEntities: ['VW Tayron'] }
+  }
+])?.pexelsId, 402, 'stock może przejść, gdy model jest jawnie rozpoznany na klatce');
+
+assert.equal(selectVisuallyVerifiedPexelsCandidate([
+  {
+    pexelsId: 403,
+    selectionScore: 999,
+    requireEntityMatch: true,
+    requiredEntities: requiredTayron,
+    visual: { scene: 1, match: true, confidence: 0.99, reason: 'Nie potwierdzono modelu.', entityMatch: true, visibleEntities: ['Volkswagen'] }
+  }
+]), null, 'sama marka nie zastępuje wymaganego modelu');
+
+assert.equal(selectVisuallyVerifiedPexelsCandidate([
+  {
+    pexelsId: 404,
+    selectionScore: 999,
+    visual: { scene: 1, match: true, confidence: 0.95, reason: 'Zgodny temat.', entityMatch: false, visibleEntities: [] }
+  }
+])?.pexelsId, 404, 'dotychczasowa selekcja pozostaje kompatybilna, gdy kontrola encji nie jest wymagana');
