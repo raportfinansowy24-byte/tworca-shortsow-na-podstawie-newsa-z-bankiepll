@@ -71,6 +71,7 @@ import { getDeploymentInfo } from './src/server/deploymentInfo';
 import { retryVisualQa, runVisualQaWithFallback } from './src/server/visualQaProviders';
 import { mapNarrationAlignmentToScenes } from './src/server/singleNarration';
 import { buildContinuousNarrationMuxArgs } from './src/server/finalNarrationMix';
+import { getTtsCacheDirectory, getTtsCacheRetentionOptions, pruneTtsCacheDirectory, touchTtsCacheEntry } from './src/server/ttsCacheRetention';
 import { isTrustedStockPreviewUrl, selectVisuallyVerifiedPexelsCandidate } from './src/server/pexelsCandidateVisualQa';
 import { mapPixabayVideoCandidates } from './src/server/pixabayVideoProvider';
 import { buildStockSceneSearchQueries, selectDiverseStockCandidates, selectStockPreviewFrameUrls } from './src/server/stockSceneSelection';
@@ -2061,11 +2062,11 @@ async function generateElevenLabsAudio(
     outputFormat: 'mp3_44100_128',
     voiceSettings
   })).digest('hex');
-  const cacheDir = process.env.TTS_CACHE_DIR?.trim() || path.join(process.env.SHORTS_EXPORTS_DIR?.trim() || '/app/exports', 'tts-cache');
+  const cacheDir = getTtsCacheDirectory();
   const cacheAudioPath = path.join(cacheDir, `${cacheKey}.mp3`);
   const cacheMetadataPath = path.join(cacheDir, `${cacheKey}.json`);
 
-  // The Fly volume mounted at /app/exports keeps successful scene audio across restarts.
+  // The Fly volume mounted at /app/exports keeps validated TTS audio and exact caption alignment across restarts.
   try {
     await fs.promises.mkdir(cacheDir, { recursive: true });
     if (fs.existsSync(cacheAudioPath) && fs.existsSync(cacheMetadataPath)) {
@@ -2080,7 +2081,10 @@ async function generateElevenLabsAudio(
           Math.abs(measuredCachedDuration - Number(cached.duration)) <= 0.5) {
         await fs.promises.copyFile(cacheAudioPath, destPath);
         if (wordTimingsOut) wordTimingsOut.splice(0, wordTimingsOut.length, ...cached.wordTimings);
-        console.info(`[TTS cache] HIT scene audio ${cacheKey.slice(0, 12)}`);
+        await touchTtsCacheEntry(cacheDir, cacheKey).catch((error) => {
+          console.warn(`[TTS cache] Could not update cache access time: ${(error as Error).message}`);
+        });
+        console.info(`[TTS cache] HIT full narration audio ${cacheKey.slice(0, 12)}`);
         return measuredCachedDuration;
       }
       console.warn(`[TTS cache] Ignored invalid or incomplete audio entry ${cacheKey.slice(0, 12)}.`);
@@ -2127,7 +2131,18 @@ async function generateElevenLabsAudio(
     await fs.promises.writeFile(tempMetadataPath, JSON.stringify({ duration, wordTimings: alignedTimings }), 'utf8');
     await fs.promises.rename(tempAudioPath, cacheAudioPath);
     await fs.promises.rename(tempMetadataPath, cacheMetadataPath);
-    console.info(`[TTS cache] STORED scene audio ${cacheKey.slice(0, 12)}`);
+    console.info(`[TTS cache] STORED full narration audio ${cacheKey.slice(0, 12)}`);
+    try {
+      const retention = await pruneTtsCacheDirectory(cacheDir, {
+        ...getTtsCacheRetentionOptions(),
+        preserveKeys: [cacheKey]
+      });
+      if (retention.deletedEntries || retention.deletedTempFiles) {
+        console.info(`[TTS cache] Retention removed ${retention.deletedEntries} entries / ${retention.deletedBytes} bytes; remaining=${retention.remainingBytes} bytes.`);
+      }
+    } catch (retentionError) {
+      console.warn(`[TTS cache] Retention cleanup failed: ${(retentionError as Error).message}`);
+    }
   } catch (error) {
     console.warn(`[TTS cache] Could not persist audio cache: ${(error as Error).message}`);
   }
@@ -9353,6 +9368,17 @@ app.use('/api', router);
 async function startServer() {
   loadJobsFromDisk();
   loadSchedulerStateFromDisk();
+  const ttsCacheDir = getTtsCacheDirectory();
+  const runTtsCacheRetention = () => pruneTtsCacheDirectory(ttsCacheDir, getTtsCacheRetentionOptions())
+    .then((result) => {
+      if (result.deletedEntries || result.deletedTempFiles) {
+        console.info(`[TTS cache] Startup/periodic retention removed ${result.deletedEntries} entries / ${result.deletedBytes} bytes; retained=${result.retainedEntries}, remaining=${result.remainingBytes} bytes.`);
+      }
+    })
+    .catch((error) => console.warn('[TTS cache] Retention cleanup failed:', (error as Error).message));
+  void runTtsCacheRetention();
+  const ttsCacheRetentionTimer = setInterval(() => { void runTtsCacheRetention(); }, 6 * 60 * 60 * 1000);
+  ttsCacheRetentionTimer.unref?.();
   void hydrateJobsFromSupabase();
   ensureTikTokSansFont().catch(console.error);
   ensureAntonFont().catch(console.error);
