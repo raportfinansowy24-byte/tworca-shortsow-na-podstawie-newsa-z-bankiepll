@@ -31,9 +31,12 @@ assert.match(requiredSecrets, /(^|\s)APP_AUTH_SECRET(\s|$)/);
 assert.match(requiredSecrets, /(^|\s)APP_LOGIN_PASSWORD(\s|$)/);
 
 const server = readFileSync(new URL('../server.ts', import.meta.url), 'utf8');
+const workflow = readFileSync(new URL('../.github/workflows/validate.yml', import.meta.url), 'utf8');
 assert.match(server, /appAuth:\s*Boolean\(getAppAuthConfiguration\(\)\)/);
 assert.match(server, /getAppAuthConfiguration\(\)\s*\?\s*200\s*:\s*503/);
 assert.ok(deployScript.includes('/api/auth/status'));
 assert.match(deployScript, /AUTH_STATUS.*200/);
+assert.match(workflow, /BASE_URL\/api\/auth\/status/);
+assert.match(workflow, /authentication is not configured/);
 
 console.log('deployment auth readiness tests passed');

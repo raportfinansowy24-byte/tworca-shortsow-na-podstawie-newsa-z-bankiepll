@@ -1,14 +1,15 @@
 import 'dotenv/config';
 import express from 'express';
 import path from 'path';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import fs from 'fs';
 import https from 'https';
 import http from 'http';
 import { validateRemoteUrl, pinnedLookup } from './src/server/remoteUrlSecurity';
 import { downloadRemoteFile, postWebhook } from './src/server/safeHttp';
-import { isSafeExportPath, parseByteRange } from './src/server/byteRange';
+import { isPublicExportFilename, isSafeExportPath, parseByteRange } from './src/server/byteRange';
 import { runCompletionCallback } from './src/server/renderDeadline';
+import { createStreamTicketStore, STREAM_TICKET_TTL_MS } from './src/server/streamTickets';
 import { exec, spawn, ChildProcess } from 'child_process';
 import { promisify } from 'util';
 import { createServer as createViteServer } from 'vite';
@@ -1204,9 +1205,11 @@ app.use('/exports', (req, res, next) => {
   res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', '*');
   if (req.method === 'OPTIONS') return res.sendStatus(200);
-  let requestedPath: string;
-  try { requestedPath = path.resolve(EXPORTS_DIR, `.${decodeURIComponent(req.path)}`); } catch { return res.sendStatus(404); }
-  if (fs.existsSync(requestedPath) && !isSafeExportPath(EXPORTS_DIR, requestedPath)) return res.sendStatus(404);
+  let requestedFilename: string;
+  try { requestedFilename = decodeURIComponent(req.path).replace(/^\/+/, ''); } catch { return res.sendStatus(404); }
+  if (!isPublicExportFilename(requestedFilename)) return res.sendStatus(404);
+  const requestedPath = path.join(EXPORTS_DIR, requestedFilename);
+  if (!isSafeExportPath(EXPORTS_DIR, requestedPath)) return res.sendStatus(404);
   next();
 }, express.static(EXPORTS_DIR, {
   acceptRanges: true,
@@ -1227,7 +1230,7 @@ app.use('/exports', (req, res, next) => {
 // Dedicated Video Streaming Endpoint with HTTP 206 Partial Content support
 app.get('/api/exports/:filename', (req, res) => {
   const filename = req.params.filename;
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/.test(filename) || filename === '.' || filename === '..') return res.sendStatus(404);
+  if (!isPublicExportFilename(filename) || path.extname(filename).toLowerCase() !== '.mp4') return res.sendStatus(404);
   const filePath = path.join(EXPORTS_DIR, filename);
 
   if (!isSafeExportPath(EXPORTS_DIR, filePath)) {
@@ -3557,7 +3560,7 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
 
     if (payload.telegramApproval === true) {
       try {
-        await sendJobTelegramApprovalRequest(jobId);
+        await runCompletionCallback(totalJobTimeout, () => sendJobTelegramApprovalRequest(jobId));
       } catch (telegramError) {
         updateJobProgress(jobId, { telegramApprovalStatus: 'failed_to_send' }, `Nie udało się wysłać prośby o akceptację na Telegram: ${(telegramError as Error).message}`);
         console.warn(`[Telegram Approval] Nie wysłano prośby dla zadania ${jobId}:`, (telegramError as Error).message);
@@ -6652,7 +6655,7 @@ router.get('/jobs/:jobId/download', (req, res) => {
 
 router.get('/exports/:filename/download', (req, res) => {
   const { filename } = req.params;
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/.test(filename) || filename === '.' || filename === '..') return res.sendStatus(404);
+  if (!isPublicExportFilename(filename) || path.extname(filename).toLowerCase() !== '.mp4') return res.sendStatus(404);
   const filePath = path.join(EXPORTS_DIR, filename);
 
   if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile() || path.dirname(path.resolve(filePath)) !== path.resolve(EXPORTS_DIR) || !fs.realpathSync(filePath).startsWith(`${fs.realpathSync(EXPORTS_DIR)}${path.sep}`)) {
@@ -9334,24 +9337,10 @@ app.post('/api/auth/login', (req, res) => {
   }
 });
 
-// Short-lived, one-use credentials let native EventSource connect without exposing session tokens.
-type StreamTicketEntry = { jobId: string; expiresAt: number };
-const streamTickets = new Map<string, StreamTicketEntry>();
-const STREAM_TICKET_TTL_MS = 60_000;
-function hashStreamTicket(ticket: string): string {
-  return createHash('sha256').update(ticket).digest('hex');
-}
-function issueStreamTicket(jobId: string): string {
-  const ticket = randomBytes(32).toString('base64url');
-  streamTickets.set(hashStreamTicket(ticket), { jobId, expiresAt: Date.now() + STREAM_TICKET_TTL_MS });
-  return ticket;
-}
-function consumeStreamTicket(jobId: string, ticket: string): boolean {
-  const key = hashStreamTicket(ticket);
-  const entry = streamTickets.get(key);
-  if (entry) streamTickets.delete(key);
-  return Boolean(entry && entry.jobId === jobId && entry.expiresAt > Date.now());
-}
+// Short-lived, one-use EventSource credentials; expired/abandoned tickets are pruned and the store is bounded.
+const streamTicketStore = createStreamTicketStore({ ttlMs: 60_000, maxEntries: 5_000 });
+const issueStreamTicket = (jobId: string): string => streamTicketStore.issue(jobId);
+const consumeStreamTicket = (jobId: string, ticket: string): boolean => streamTicketStore.consume(jobId, ticket);
 
 // Browser sessions use signed app tokens; unattended jobs keep their separate bearer token.
 app.use('/api', createApiAuthMiddleware({

@@ -19,3 +19,17 @@ export function isSafeExportPath(exportsDir: string, candidate: string): boolean
     return realFile.startsWith(`${realRoot}${path.sep}`) && fs.statSync(realFile).isFile();
   } catch { return false; }
 }
+
+
+/** Public exports are media deliverables only; internal state and cache files stay private. */
+const PUBLIC_EXPORT_EXTENSIONS = new Set(['.mp4', '.jpg', '.jpeg', '.png', '.webp', '.mp3', '.wav', '.m4a']);
+
+export function isPublicExportFilename(filename: string): boolean {
+  if (
+    typeof filename !== 'string' ||
+    !/^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/u.test(filename) ||
+    filename === '.' ||
+    filename === '..'
+  ) return false;
+  return PUBLIC_EXPORT_EXTENSIONS.has(path.extname(filename).toLowerCase());
+}

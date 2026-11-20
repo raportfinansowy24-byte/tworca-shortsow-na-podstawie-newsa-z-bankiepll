@@ -52,7 +52,8 @@
     "test:article-visual-entities": "tsx tests/articleVisualEntities.test.ts",
     "test:deployment-auth-readiness": "tsx tests/deploymentAuthReadiness.test.ts",
     "test:stream-ticket-clients": "tsx tests/streamTicketClients.test.ts",
-    "test:tts-cache-retention": "tsx tests/ttsCacheRetention.test.ts"
+    "test:tts-cache-retention": "tsx tests/ttsCacheRetention.test.ts",
+    "test:stream-ticket-store": "tsx tests/streamTickets.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.32.0",

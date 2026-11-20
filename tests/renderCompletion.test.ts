@@ -7,8 +7,12 @@ status = 'completed';
 const callbackStartedAt = Date.now();
 await runCompletionCallback(watchdog, async () => {
   await new Promise((resolve) => setTimeout(resolve, 100));
-  return 'callback-finished';
+  return 'telegram-upload-finished';
 });
-assert.equal(Date.now() - callbackStartedAt >= 90, true, 'test must exercise a delayed callback');
-assert.equal(status, 'completed', 'a delayed completion callback must not turn a completed render into failed');
+await runCompletionCallback(watchdog, async () => {
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  return 'webhook-finished';
+});
+assert.equal(Date.now() - callbackStartedAt >= 190, true, 'test must exercise delayed Telegram and webhook callbacks');
+assert.equal(status, 'completed', 'delayed Telegram upload or webhook must not turn a completed render into failed');
 console.log('Render completion deadline tests passed.');

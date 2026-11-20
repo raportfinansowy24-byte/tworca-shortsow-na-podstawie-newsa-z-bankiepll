@@ -76,6 +76,8 @@ jobs:
         run: npm run test:deployment-auth-readiness
       - name: Authenticated SSE client tests
         run: npm run test:stream-ticket-clients
+      - name: Bounded one-use SSE ticket store tests
+        run: npm run test:stream-ticket-store
       - name: Visual QA provider fallback tests
         run: npm run test:visual-qa-providers
       - name: Stock candidate soft-avoid policy tests
@@ -340,7 +342,12 @@ jobs:
               ) process.exit(0);
               process.exit(1);
             ' "$response" "$EXPECTED_SHA"; then
-              echo "Fly.io is online on commit $EXPECTED_SHA."
+              auth_status="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 "$BASE_URL/api/auth/status" 2>/dev/null || true)"
+              [[ "$auth_status" == "200" ]] || {
+                echo "::error::Fly.io is serving the expected commit, but the private-panel authentication is not configured (HTTP $auth_status)."
+                exit 1
+              }
+              echo "Fly.io is online on commit $EXPECTED_SHA; app authentication is configured."
               exit 0
             fi
             echo "Waiting for Fly.io health check ($attempt/60)..."

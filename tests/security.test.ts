@@ -6,7 +6,7 @@ import http from 'node:http';
 import https from 'node:https';
 import tls from 'node:tls';
 import { execFileSync } from 'node:child_process';
-import { isSafeExportPath, parseByteRange } from '../src/server/byteRange';
+import { isPublicExportFilename, isSafeExportPath, parseByteRange } from '../src/server/byteRange';
 import { isPublicAddress, pinnedLookup, validateRemoteUrl } from '../src/server/remoteUrlSecurity';
 import { downloadRemoteFile, postWebhook } from '../src/server/safeHttp';
 
@@ -39,6 +39,13 @@ const root = path.join(temp, 'exports'); const outside = path.join(temp, 'outsid
 fs.mkdirSync(root); fs.writeFileSync(path.join(root, 'video.mp4'), 'ok'); fs.writeFileSync(outside, 'secret');
 fs.symlinkSync(outside, path.join(root, 'link.mp4'));
 assert.equal(isSafeExportPath(root, path.join(root, 'video.mp4')), true);
+for (const name of ['combined_video_job_1.mp4', 'thumb_combined_video_job_1.jpg', 'voice_preview_1.mp3']) {
+  assert.equal(isPublicExportFilename(name), true, name);
+}
+for (const name of ['jobs_history.json', 'autopilot_scheduler.json', 'job_1.json', 'tts-cache', 'tts-cache/secret.mp3', 'pixabay_api_cache_a.json', '../secret.mp4', '%2e%2e%2fsecret.mp4', '.tmp']) {
+  assert.equal(isPublicExportFilename(name), false, name);
+}
+
 assert.equal(isSafeExportPath(root, path.join(root, 'link.mp4')), false);
 assert.equal(isSafeExportPath(root, path.join(root, '..', 'outside')), false);
 fs.rmSync(temp, { recursive: true, force: true });
@@ -117,13 +124,13 @@ const tlsCertPath = path.join(netTemp, 'ephemeral-test-cert.pem');
 execFileSync('openssl', [
   'req', '-x509', '-newkey', 'rsa:2048', '-nodes',
   '-keyout', tlsKeyPath, '-out', tlsCertPath,
-  '-subj', '/CN=localhost', '-days', '1'
+  '-subj', '/CN=localhost', '-addext', 'subjectAltName=DNS:localhost', '-days', '1'
 ], { stdio: 'ignore' });
 const tlsServer = https.createServer({ key: fs.readFileSync(tlsKeyPath), cert: fs.readFileSync(tlsCertPath) }, (_req, res) => res.end('tls'));
 const tlsAddress = await listen(tlsServer);
 const tlsLookup = pinnedLookup(localAddress);
 const tlsResult = await new Promise<string>((resolve, reject) => {
-  https.get(`https://localhost:${tlsAddress.port}/`, { lookup: tlsLookup, agent: new https.Agent({ rejectUnauthorized: false }) }, (res) => {
+  https.get(`https://localhost:${tlsAddress.port}/`, { lookup: tlsLookup, agent: new https.Agent({ ca: fs.readFileSync(tlsCertPath) }) }, (res) => {
     let body = ''; res.setEncoding('utf8'); res.on('data', (chunk) => body += chunk); res.on('end', () => resolve(body));
   }).on('error', reject);
 });
