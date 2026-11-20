@@ -91,7 +91,7 @@ const namedInstitutionQueries = buildStockSceneSearchQueries({
   context: 'Komisja Nadzoru Finansowego (KNF) opublikowała komunikat.',
   maxQueries: 3
 });
-assert.match(namedInstitutionQueries[0], /Komisja Nadzoru Finansowego/i);
+assert.match(namedInstitutionQueries[0], /Polish Financial Supervision Authority/i);
 
 const namedProductQueries = buildStockSceneSearchQueries({
   query: 'person reviewing mortgage offer documents',
