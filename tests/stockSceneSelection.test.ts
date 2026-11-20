@@ -74,3 +74,29 @@ assert.throws(() => buildStockClipSamplingFilter(2), /Nieprawidłowa długość/
 assert.equal(stockClipSamplingFrameCountIsSufficient(3), true);
 assert.equal(stockClipSamplingFrameCountIsSufficient(2), false);
 console.log('Stock scene selection tests passed');
+
+
+const tayronQueries = buildStockSceneSearchQueries({
+  query: 'large modern SUV driving on asphalt road',
+  narration: 'Nowy SUV sprawdziliśmy na trasie.',
+  context: 'Volkswagen Tayron 2.0 TDI 193 KM 4MOTION. Duży SUV marki Volkswagen.',
+  maxQueries: 3
+});
+assert.match(tayronQueries[0], /Volkswagen Tayron/i, 'named model must anchor stock search before generic SUV phrases');
+assert.doesNotMatch(tayronQueries.join(' '), /Mercedes GLE|Peugeot/i);
+
+const namedInstitutionQueries = buildStockSceneSearchQueries({
+  query: 'government official speaking at press conference',
+  narration: 'Urząd opublikował nowe zasady.',
+  context: 'Komisja Nadzoru Finansowego (KNF) opublikowała komunikat.',
+  maxQueries: 3
+});
+assert.match(namedInstitutionQueries[0], /Komisja Nadzoru Finansowego/i);
+
+const namedProductQueries = buildStockSceneSearchQueries({
+  query: 'person reviewing mortgage offer documents',
+  narration: 'Program może pomóc kupującym mieszkania.',
+  context: 'Program Bezpieczny Kredyt 2% wraca w debacie publicznej.',
+  maxQueries: 3
+});
+assert.match(namedProductQueries[0], /Bezpieczny Kredyt 2%/i);
