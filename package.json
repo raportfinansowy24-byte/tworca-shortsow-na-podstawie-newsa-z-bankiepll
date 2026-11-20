@@ -15,6 +15,8 @@
     "test:cta-strategy": "tsx ./test-finance-cta-strategy.ts",
     "test:offer-matching": "tsx test-finance-offer-matching.ts",
     "test:auth": "tsx tests/apiAuth.test.ts",
+    "test:security": "tsx tests/security.test.ts",
+    "test:render-completion": "tsx tests/renderCompletion.test.ts",
     "test:deployment-info": "tsx tests/deploymentInfo.test.ts",
     "test:visual-qa-providers": "tsx tests/visualQaProviders.test.ts",
     "test:supabase-history": "tsx tests/supabaseJobStore.test.ts",
@@ -47,7 +49,9 @@
     "test:autopilot-retry": "tsx tests/autopilotRetry.test.ts",
     "test:final-narration-mix": "tsx tests/finalNarrationMix.test.ts",
     "test:stock-scene-selection": "tsx tests/stockSceneSelection.test.ts",
-    "test:article-visual-entities": "tsx tests/articleVisualEntities.test.ts"
+    "test:article-visual-entities": "tsx tests/articleVisualEntities.test.ts",
+    "test:deployment-auth-readiness": "tsx tests/deploymentAuthReadiness.test.ts",
+    "test:stream-ticket-clients": "tsx tests/streamTicketClients.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.32.0",
