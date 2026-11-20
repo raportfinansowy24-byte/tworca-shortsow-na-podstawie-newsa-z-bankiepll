@@ -1,3 +1,5 @@
+import { selectRelevantArticleVisualEntities } from './articleVisualEntities';
+
 export interface StockSceneSearchInput {
   query: string;
   context?: string;
@@ -53,10 +55,21 @@ export function buildStockSceneSearchQueries(input: StockSceneSearchInput): stri
   if ((reason.includes('generic office') || reason.includes('keyboard') || reason.includes('klawiatur')) && isCreditCapacity) aliases.unshift('bank loan officer explaining mortgage borrowing capacity to couple');
   if ((reason.includes('wrong logo') || reason.includes('motyl') || reason.includes('butterfly')) && isBankBrand) aliases.unshift('corporate brand identity designer reviewing bank logo on large monitor');
 
+  const relevantEntities = selectRelevantArticleVisualEntities(
+    input.context || '',
+    [original, input.narration || ''].join(' ')
+  );
+  const entityQueries = relevantEntities.flatMap((entity) => entity.type === 'model'
+    ? [`${entity.canonical} ${original}`, `${entity.canonical} driving exterior`]
+    : entity.type === 'institution'
+      ? [`${entity.canonical} ${original}`, `${entity.canonical} headquarters exterior`]
+      : [`${entity.canonical} ${original}`]
+  );
+
   const result: string[] = [];
   const seen = new Set<string>();
   const limit = Math.max(1, Math.min(5, Math.floor(input.maxQueries || 3)));
-  for (const candidate of [original, ...aliases, ...(input.categoryAlternatives || [])]) {
+  for (const candidate of [...entityQueries, original, ...aliases, ...(input.categoryAlternatives || [])]) {
     const value = cleanQuery(candidate);
     const key = normalize(value);
     if (!value || !key || seen.has(key)) continue;
