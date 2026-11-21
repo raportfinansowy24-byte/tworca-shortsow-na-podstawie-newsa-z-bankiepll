@@ -74,7 +74,7 @@ jobs:
         run: npm run test:creative-director
       - name: Emotional TTS direction tests
         run: npm run test:emotional-direction
-      - name: Gemini 4 Hydrogen key routing tests
+      - name: Gemini primary/fallback model routing tests
         run: npm run test:model-routing
       - name: Deployment auth readiness tests
         run: npm run test:deployment-auth-readiness
