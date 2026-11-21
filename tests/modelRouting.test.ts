@@ -70,3 +70,68 @@ await assert.rejects(() => withGeminiKeyRotation({
 }), /Brak kluczy Gemini/);
 
 console.log('Gemini Hydrogen model routing tests passed');
+
+const {
+  GEMINI_DEFAULT_FALLBACK_MODEL,
+  getGeminiFallbackModels,
+  withGeminiModelFallback
+} = await import('../src/server/modelRouting');
+
+assert.deepEqual(getGeminiFallbackModels({} as NodeJS.ProcessEnv), [GEMINI_DEFAULT_FALLBACK_MODEL]);
+assert.deepEqual(getGeminiFallbackModels({ GEMINI_FALLBACK_MODEL: 'off' } as NodeJS.ProcessEnv), []);
+assert.deepEqual(getGeminiFallbackModels({ GEMINI_FALLBACK_MODEL: 'gemini-3.5-flash-lite' } as NodeJS.ProcessEnv), ['gemini-3.5-flash-lite']);
+assert.throws(() => getGeminiFallbackModels({ GEMINI_FALLBACK_MODEL: '../invalid' } as NodeJS.ProcessEnv), /invalid model identifier/);
+
+const fallbackKeys = [
+  { name: 'GEMINI_API_KEY_1' as const, apiKey: 'primary-one' },
+  { name: 'GEMINI_API_KEY_2' as const, apiKey: 'primary-two' }
+];
+const routedCalls: string[] = [];
+const fallbackEvents: Array<{ from: string; to: string; key: string }> = [];
+const routed = await withGeminiModelFallback({
+  keys: fallbackKeys,
+  primaryModel: GEMINI_PRIMARY_MODEL,
+  fallbackModels: [GEMINI_DEFAULT_FALLBACK_MODEL],
+  operation: async (modelName, apiKey, keyName) => {
+    routedCalls.push(modelName + ':' + keyName);
+    if (modelName === GEMINI_PRIMARY_MODEL) throw new Error('HTTP 503 UNAVAILABLE');
+    if (apiKey !== 'primary-two') throw new Error('HTTP 429 RESOURCE_EXHAUSTED');
+    return 'fallback response';
+  },
+  onModelFallback: (from, to, keyName) => fallbackEvents.push({ from, to, key: keyName })
+});
+assert.deepEqual(routedCalls, [
+  GEMINI_PRIMARY_MODEL + ':GEMINI_API_KEY_1',
+  GEMINI_PRIMARY_MODEL + ':GEMINI_API_KEY_2',
+  GEMINI_DEFAULT_FALLBACK_MODEL + ':GEMINI_API_KEY_1',
+  GEMINI_DEFAULT_FALLBACK_MODEL + ':GEMINI_API_KEY_2'
+], 'all Hydrogen keys are exhausted before a fallback model is tried');
+assert.equal(routed.result, 'fallback response');
+assert.equal(routed.modelName, GEMINI_DEFAULT_FALLBACK_MODEL);
+assert.equal(routed.keyName, 'GEMINI_API_KEY_2');
+assert.deepEqual(fallbackEvents, [{
+  from: GEMINI_PRIMARY_MODEL,
+  to: GEMINI_DEFAULT_FALLBACK_MODEL,
+  key: 'GEMINI_API_KEY_2'
+}]);
+
+const validationCalls: string[] = [];
+await assert.rejects(() => withGeminiModelFallback({
+  keys: fallbackKeys,
+  primaryModel: GEMINI_PRIMARY_MODEL,
+  fallbackModels: [GEMINI_DEFAULT_FALLBACK_MODEL],
+  operation: async (modelName) => {
+    validationCalls.push(modelName);
+    throw new Error('HTTP 400 invalid response schema');
+  }
+}), /HTTP 400 invalid response schema/);
+assert.deepEqual(validationCalls, [GEMINI_PRIMARY_MODEL], 'request/schema errors must not be hidden by model failover');
+
+await assert.rejects(() => withGeminiModelFallback({
+  keys: fallbackKeys,
+  primaryModel: GEMINI_PRIMARY_MODEL,
+  fallbackModels: [GEMINI_DEFAULT_FALLBACK_MODEL],
+  operation: async (_modelName, _apiKey) => { throw new Error('HTTP 503 UNAVAILABLE'); }
+}), /Nie udało się uruchomić żadnego skonfigurowanego modelu Gemini/);
+
+console.log('Gemini model fallback tests passed');
