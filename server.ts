@@ -81,30 +81,38 @@ import { buildStockClipSamplingFilter, isTrustedStockVideoDownloadUrl, stockClip
 import { cleanStockSearchQuery, scoreStockCandidateSoftAvoidance } from './src/server/stockCandidatePolicy';
 import { buildSourceEvidenceVisual, resolveStockWithEvidenceFallback, resolveStockWithVerifiedEvidenceFallback } from './src/server/sourceEvidenceVisual';
 import { findLegacyFailedAutopilotArticleUrl, getNextPendingAutopilotRetry, MAX_STORYBOARD_QA_REPAIR_ATTEMPTS, recordAutopilotFailure, reactivateExhaustedAutopilotRetries, repairUntilPass, resolveAutopilotRetry, isCompatibleNarrationRetryCache, type AutopilotRetryEntry, type RetryableAutopilotArticle, type NarrationRetryCacheMetadata } from './src/server/autopilotRetry';
-import { GEMINI_PRIMARY_MODEL, getGeminiApiKeys, withGeminiKeyRotation } from './src/server/modelRouting';
+import { GEMINI_PRIMARY_MODEL, getGeminiApiKeys, getGeminiFallbackModels, withGeminiModelFallback } from './src/server/modelRouting';
 
 const execPromise = promisify(exec);
 const serverStartedAt = new Date().toISOString();
 
-async function generateGeminiHydrogenContent(params: { contents: any; config?: any }) {
-  const { result } = await withGeminiKeyRotation({
+async function generateGeminiContentWithFallback(params: { contents: any; config?: any }) {
+  const { result, modelName, keyName } = await withGeminiModelFallback({
     keys: getGeminiApiKeys(),
-    operation: (apiKey) => {
+    primaryModel: GEMINI_PRIMARY_MODEL,
+    fallbackModels: getGeminiFallbackModels(),
+    operation: (model, apiKey) => {
       const client = new GoogleGenAI({
         apiKey,
         httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
       });
       return client.models.generateContent({
-        model: GEMINI_PRIMARY_MODEL,
+        model,
         contents: params.contents,
         config: params.config
       });
     },
-    onKeyFailure: (keyName, error) => {
-      console.warn('[Gemini 4 Hydrogen] ' + keyName + ' nie powiódł się: ' + error.message.slice(0, 300));
+    onKeyFailure: (model, key, error) => {
+      console.warn('[Gemini ' + model + '] ' + key + ' nie powiódł się: ' + error.message.slice(0, 300));
+    },
+    onModelFallback: (primaryModel, fallbackModel, fallbackKey) => {
+      console.warn('[Gemini Router] ' + primaryModel + ' jest niedostępny; przełączam na ' + fallbackModel + ' (klucz ' + fallbackKey + ').');
     }
   });
-  return result;
+  if (modelName !== GEMINI_PRIMARY_MODEL) {
+    console.info('[Gemini Router] Request zakończony modelem zapasowym ' + modelName + ' (' + keyName + ').');
+  }
+  return { response: result, modelName, keyName };
 }
 let narrationCalibrationWriteQueue: Promise<void> = Promise.resolve();
 
@@ -180,15 +188,17 @@ async function analyzeRenderedVisualFit(
       'Zwróć wyłącznie JSON: {"results":[{"scene":1,"match":true,"confidence":0.0,"reason":"krótkie uzasadnienie po polsku"}]}.',
       `Uwzględnij dokładnie ${samples.length} scen i zwróć jeden wynik dla każdej, z numerami 1–${samples.length}. Confidence to liczba 0..1. match=false oznacza wyraźnie niepasujący obraz.`
     ].join('\n');
+    let actualModelName = GEMINI_PRIMARY_MODEL;
     const providers: Array<{ model: string; analyze: () => Promise<ReturnType<typeof parseCompleteVisualSemanticResponse>> }> = [{
       model: GEMINI_PRIMARY_MODEL,
       analyze: async () => retryVisualQa(async () => {
-        const response = await generateGeminiHydrogenContent({
+        const generated = await generateGeminiContentWithFallback({
           contents: [{ role: 'user', parts: [{ text: instructions }, ...imageParts] }],
           config: { responseMimeType: 'application/json' }
         });
-        if (!response.text?.trim()) throw new Error('Gemini 4 Hydrogen zwrócił pustą odpowiedź.');
-        return parseCompleteVisualSemanticResponse(response.text, samples.length);
+        actualModelName = generated.modelName;
+        if (!generated.response.text?.trim()) throw new Error('Gemini zwrócił pustą odpowiedź.');
+        return parseCompleteVisualSemanticResponse(generated.response.text, samples.length);
       }, {
         // The shared Gemini key pool already performs provider failover; avoid repeating the full key cycle.
         maxAttempts: 1
@@ -198,7 +208,7 @@ async function analyzeRenderedVisualFit(
     const { model, result } = await runVisualQaWithFallback(providers, (provider, error) => {
       console.warn(`[Shorts Editor QA] Provider ${provider} nie wykonał analizy klatek; przechodzę do kolejnego: ${error.message}`);
     });
-    return buildVisualSemanticReport(samples.length, result, model);
+    return buildVisualSemanticReport(samples.length, result, actualModelName || model);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.warn(`[Shorts Editor QA] Analiza semantyczna klatek nie powiodła się: ${message}`);
@@ -892,15 +902,17 @@ async function verifyStockVisualCandidates(
     'Otrzymujesz ' + verified.length + ' kandydatów. Zwróć dokładnie jeden wynik dla każdego, pole scene to numer kandydata.',
     'Zwróć wyłącznie JSON: {"results":[{"scene":1,"match":true,"entityMatch":true,"visibleEntities":["nazwa widoczna na klatce"],"confidence":0.0,"reason":"krótkie uzasadnienie po polsku"}]}. entityMatch=true tylko wtedy, gdy wszystkie wymagane encje są jednoznacznie widoczne; przy braku wymaganych encji ustaw entityMatch=true i visibleEntities=[]. match=true tylko dla sensownej ilustracji sceny i poprawnej tożsamości encji.'
   ].join('\n');
+  let actualModelName = GEMINI_PRIMARY_MODEL;
   const providers: Array<{ model: string; analyze: () => Promise<ReturnType<typeof parseCompleteVisualSemanticResponse>> }> = [{
     model: GEMINI_PRIMARY_MODEL,
     analyze: async () => retryVisualQa(async () => {
-      const response = await generateGeminiHydrogenContent({
+      const generated = await generateGeminiContentWithFallback({
         contents: [{ role: 'user', parts: [{ text: instructions }, ...imageParts] }],
         config: { responseMimeType: 'application/json' }
       });
-      if (!response.text?.trim()) throw new Error('Gemini 4 Hydrogen zwrócił pustą odpowiedź w kontroli stock.');
-      return parseCompleteVisualSemanticResponse(response.text, verified.length);
+      actualModelName = generated.modelName;
+      if (!generated.response.text?.trim()) throw new Error('Gemini zwrócił pustą odpowiedź w kontroli stock.');
+      return parseCompleteVisualSemanticResponse(generated.response.text, verified.length);
     }, { maxAttempts: 1 })
   }];
   const { model, result } = await runVisualQaWithFallback(providers, (provider, error) => {
@@ -924,7 +936,7 @@ async function verifyStockVisualCandidates(
   }
   const picked = verified.find((candidate) => candidate.pexelsId === selected.pexelsId);
   if (!picked) throw new Error('Kontrola wizualna zwróciła nieznany klip stock.');
-  console.log('[Stock visual precheck] Scena ' + (sceneIndex + 1) + ' zaakceptowała ' + picked.source + ' ' + (picked.stockId || picked.pexelsId) + ' (' + model + ', confidence ' + selected.confidence.toFixed(2) + ').');
+  console.log('[Stock visual precheck] Scena ' + (sceneIndex + 1) + ' zaakceptowała ' + picked.source + ' ' + (picked.stockId || picked.pexelsId) + ' (' + actualModelName + ', confidence ' + selected.confidence.toFixed(2) + ').');
   return picked;
 }
 
@@ -4008,7 +4020,7 @@ router.get('/supervisor/status', async (_req, res) => {
     geminiKeyCount: getGeminiApiKeys().length,
     primaryModelProvider: getGeminiApiKeys().length > 0 ? 'gemini' : 'unconfigured',
     primaryModel: GEMINI_PRIMARY_MODEL,
-    fallbackModel: null,
+    fallbackModel: getGeminiFallbackModels()[0] || null,
     pexels: Boolean(process.env.PEXELS_API_KEY),
     pixabay: Boolean(process.env.PIXABAY_API_KEY),
     stockProvider: process.env.PEXELS_API_KEY ? 'pexels-primary' : (process.env.PIXABAY_API_KEY ? 'pixabay-primary' : 'unconfigured'),
@@ -4658,11 +4670,11 @@ async function callModelRouter(params: {
   config?: any;
 }): Promise<{ text: string; modelUsed: string } | null> {
   try {
-    const response = await generateGeminiHydrogenContent({
+    const generated = await generateGeminiContentWithFallback({
       contents: params.contents,
       config: params.config
     });
-    if (response?.text?.trim()) return { text: response.text, modelUsed: GEMINI_PRIMARY_MODEL };
+    if (generated.response?.text?.trim()) return { text: generated.response.text, modelUsed: generated.modelName };
     throw new Error('Gemini 4 Hydrogen zwrócił pustą odpowiedź.');
   } catch (cause) {
     const error = cause instanceof Error ? cause : new Error(String(cause));
@@ -6645,8 +6657,11 @@ router.get('/jobs/:jobId/download', (req, res) => {
     return res.status(404).json({ error: `Nie znaleziono pliku wideo dla zadania ${jobId}` });
   }
 
+  if (!isPublicExportFilename(job.outputFilename) || path.extname(job.outputFilename).toLowerCase() !== '.mp4') {
+    return res.status(404).json({ error: 'Plik fizyczny wideo wygasł lub został usunięty z serwera.' });
+  }
   const filePath = path.join(EXPORTS_DIR, job.outputFilename);
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/.test(job.outputFilename) || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile() || path.dirname(path.resolve(filePath)) !== path.resolve(EXPORTS_DIR) || !fs.realpathSync(filePath).startsWith(`${fs.realpathSync(EXPORTS_DIR)}${path.sep}`)) {
+  if (!isSafeExportPath(EXPORTS_DIR, filePath)) {
     return res.status(404).json({ error: 'Plik fizyczny wideo wygasł lub został usunięty z serwera.' });
   }
 
@@ -6658,7 +6673,7 @@ router.get('/exports/:filename/download', (req, res) => {
   if (!isPublicExportFilename(filename) || path.extname(filename).toLowerCase() !== '.mp4') return res.sendStatus(404);
   const filePath = path.join(EXPORTS_DIR, filename);
 
-  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile() || path.dirname(path.resolve(filePath)) !== path.resolve(EXPORTS_DIR) || !fs.realpathSync(filePath).startsWith(`${fs.realpathSync(EXPORTS_DIR)}${path.sep}`)) {
+  if (!isSafeExportPath(EXPORTS_DIR, filePath)) {
     return res.status(404).json({ error: 'Plik nie istnieje na serwerze.' });
   }
 
