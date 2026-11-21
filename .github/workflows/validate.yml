@@ -25,6 +25,8 @@ jobs:
       - name: TypeScript validation
         run: npm run lint
       - name: Production build
+        env:
+          VITE_GOOGLE_CLIENT_ID: 969674652088-refncj62i12t7k54es18vq0vidhaq4tf.apps.googleusercontent.com
         run: npm run build
       - name: Scene contract tests
         run: npm run test:scene-contract
