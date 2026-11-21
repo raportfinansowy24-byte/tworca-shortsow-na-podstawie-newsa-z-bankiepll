@@ -1,5 +1,18 @@
 export const GEMINI_PRIMARY_MODEL = 'gemini-4-hydrogen';
 
+export const GEMINI_DEFAULT_FALLBACK_MODEL = 'gemini-3.5-flash-lite';
+
+export function getGeminiFallbackModels(env: Record<string, string | undefined> = process.env): string[] {
+  const configured = env.GEMINI_FALLBACK_MODEL?.trim();
+  if (!configured || configured.toLowerCase() === 'default') return [GEMINI_DEFAULT_FALLBACK_MODEL];
+  if (configured.toLowerCase() === 'off') return [];
+  const models = [...new Set(configured.split(',').map((model) => model.trim()).filter(Boolean))];
+  if (models.some((model) => !/^[a-z0-9][a-z0-9.-]{0,99}$/u.test(model))) {
+    throw new Error('GEMINI_FALLBACK_MODEL contains an invalid model identifier.');
+  }
+  return models.filter((model) => model !== GEMINI_PRIMARY_MODEL);
+}
+
 export type GeminiApiKeyName =
   | 'GEMINI_API_KEY'
   | `GEMINI_API_KEY_${1 | 2 | 3 | 4 | 5 | 6 | 7}`;
@@ -71,6 +84,57 @@ export async function withGeminiKeyRotation<T>(params: {
   }
 
   const failure = new Error('Gemini 4 Hydrogen nie zadziałał na dostępnych kluczach: ' + failures.join(' | '));
+  (failure as Error & { cause?: unknown }).cause = lastError;
+  throw failure;
+}
+
+
+export interface GeminiRoutedResult<T> {
+  result: T;
+  keyName: GeminiApiKey['name'];
+  modelName: string;
+}
+
+/**
+ * Try the primary Gemini model across the configured API key pool. If it is
+ * unavailable/rate-limited, try lower-cost fallback models with the same keys.
+ * Validation errors (HTTP 400) are not hidden by retrying a different model.
+ */
+export async function withGeminiModelFallback<T>(params: {
+  keys: GeminiApiKey[];
+  primaryModel?: string;
+  fallbackModels?: string[];
+  operation: (modelName: string, apiKey: string, keyName: GeminiApiKey['name']) => Promise<T>;
+  onKeyFailure?: (modelName: string, keyName: GeminiApiKey['name'], error: Error) => void;
+  onModelFallback?: (primaryModel: string, fallbackModel: string, keyName: GeminiApiKey['name']) => void;
+}): Promise<GeminiRoutedResult<T>> {
+  const primaryModel = params.primaryModel || GEMINI_PRIMARY_MODEL;
+  const models = [...new Set([primaryModel, ...(params.fallbackModels || [])].filter(Boolean))];
+  if (models.length === 0) throw new Error('No Gemini models are configured.');
+  if (params.keys.length === 0) {
+    throw new Error('Brak kluczy Gemini. Ustaw co najmniej jeden sekret GEMINI_API_KEY_1–GEMINI_API_KEY_7 (lub starszy GEMINI_API_KEY).');
+  }
+
+  const failures: string[] = [];
+  let lastError: Error | null = null;
+  for (let index = 0; index < models.length; index++) {
+    const modelName = models[index];
+    try {
+      const routed = await withGeminiKeyRotation({
+        keys: params.keys,
+        operation: (apiKey, keyName) => params.operation(modelName, apiKey, keyName),
+        onKeyFailure: (keyName, error) => params.onKeyFailure?.(modelName, keyName, error)
+      });
+      if (modelName !== primaryModel) params.onModelFallback?.(primaryModel, modelName, routed.keyName);
+      return { ...routed, modelName };
+    } catch (cause) {
+      lastError = cause instanceof Error ? cause : new Error(String(cause));
+      failures.push(modelName + ': ' + lastError.message.slice(0, 500));
+      if (index === models.length - 1 || !shouldRotateGeminiKey(lastError)) break;
+    }
+  }
+
+  const failure = new Error('Nie udało się uruchomić żadnego skonfigurowanego modelu Gemini: ' + failures.join(' | '));
   (failure as Error & { cause?: unknown }).cause = lastError;
   throw failure;
 }
