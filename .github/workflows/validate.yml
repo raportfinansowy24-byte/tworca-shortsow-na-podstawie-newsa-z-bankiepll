@@ -64,6 +64,8 @@ jobs:
         run: npm run test:google-auth-migration
       - name: TTS cache retention tests
         run: npm run test:tts-cache-retention
+      - name: ElevenLabs request telemetry tests
+        run: npm run test:elevenlabs-request
       - name: Security, range and export path tests
         run: npm run test:security
       - name: Render completion deadline tests
