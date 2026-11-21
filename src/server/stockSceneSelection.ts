@@ -22,7 +22,10 @@ function cleanQuery(value: string): string {
 export function buildStockSceneSearchQueries(input: StockSceneSearchInput): string[] {
   const original = cleanQuery(input.query);
   if (!original) return [];
-  const combined = normalize([original, input.narration || '', input.context || ''].join(' '));
+  // Classify the individual scene from its own query and narration. Article context may
+  // mention several topics (for example Wall Street and inflation); using it here lets
+  // one article-level keyword inject unrelated stock queries into every scene.
+  const combined = normalize([original, input.narration || ''].join(' '));
   const aliases: string[] = [];
   const isFixedMortgageRate = /fixed rate|fixed mortgage|interest rate|mortgage rate|stawki okresowo stalej stopy|stala stope|oprocentowan|stopa procentow/.test(combined);
   const isCreditCapacity = /credit capacity|borrowing capacity|zdolnosc kredytow|zdolnosc|pozyczyc wiecej|wiecej kredyt/.test(combined);
