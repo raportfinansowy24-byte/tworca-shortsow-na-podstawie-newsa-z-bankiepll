@@ -135,3 +135,25 @@ await assert.rejects(() => withGeminiModelFallback({
 }), /Nie udało się uruchomić żadnego skonfigurowanego modelu Gemini/);
 
 console.log('Gemini model fallback tests passed');
+
+const {
+  GEMINI_HTTP_TIMEOUT_MS,
+  GEMINI_NARRATION_REVISION_BUDGET_MS,
+  GEMINI_REQUEST_BUDGET_MS,
+  getGeminiHttpOptions,
+  getGeminiRemainingBudgetMs
+} = await import('../src/server/geminiRequestPolicy');
+
+assert.equal(GEMINI_HTTP_TIMEOUT_MS, 20_000);
+assert.equal(GEMINI_REQUEST_BUDGET_MS, 45_000);
+assert.equal(GEMINI_NARRATION_REVISION_BUDGET_MS, 45_000);
+assert.deepEqual(getGeminiHttpOptions(45_000), { timeout: 20_000, retryOptions: { attempts: 1 } });
+assert.deepEqual(getGeminiHttpOptions(3_500), { timeout: 3_500, retryOptions: { attempts: 1 } });
+assert.equal(getGeminiHttpOptions(0), null, 'expired request budget prevents another provider attempt');
+assert.equal(getGeminiHttpOptions(-1), null, 'negative request budget prevents another provider attempt');
+assert.equal(getGeminiRemainingBudgetMs(10_000, 2_500), 7_500);
+assert.equal(getGeminiRemainingBudgetMs(10_000, 10_000), 0);
+assert.equal(getGeminiRemainingBudgetMs(10_000, 12_000), 0);
+assert.equal(getGeminiRemainingBudgetMs(Number.NaN, 0), 0);
+
+console.log('Gemini bounded request policy tests passed');
