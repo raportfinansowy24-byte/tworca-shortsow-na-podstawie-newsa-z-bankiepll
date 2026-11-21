@@ -92,7 +92,7 @@ try {
   assert.equal(typeof complete?.responseHeadersMs, 'number');
   assert.equal(typeof complete?.timeToFirstByteMs, 'number');
   assert.equal(typeof complete?.totalMs, 'number');
-  assert.equal(complete?.purpose, undefined, 'kontekst jest wspólny dla zdarzeń, nie metryk');
+  assert.equal(complete?.purpose, 'short-narration', 'pomiar musi wskazywać rodzaj żądania TTS');
   assert.ok(successEvents.some((event) => event.event === 'request_body_sent'));
   assert.ok(successEvents.some((event) => event.event === 'response_headers'));
   assert.ok(successEvents.every((event) => event.requestId === 'test-request-id'));
