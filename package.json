@@ -53,7 +53,9 @@
     "test:deployment-auth-readiness": "tsx tests/deploymentAuthReadiness.test.ts",
     "test:stream-ticket-clients": "tsx tests/streamTicketClients.test.ts",
     "test:tts-cache-retention": "tsx tests/ttsCacheRetention.test.ts",
-    "test:stream-ticket-store": "tsx tests/streamTickets.test.ts"
+    "test:stream-ticket-store": "tsx tests/streamTickets.test.ts",
+    "test:google-auth-state": "tsx tests/googleAuthState.test.ts",
+    "test:google-auth-migration": "tsx tests/googleAuthMigration.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.32.0",
@@ -62,7 +64,6 @@
     "@vitejs/plugin-react": "^5.0.4",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
-    "firebase": "^12.19.0",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
     "react": "^19.0.1",

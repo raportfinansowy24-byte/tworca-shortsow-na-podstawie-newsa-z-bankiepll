@@ -29,8 +29,8 @@ import {
   Sliders,
   ChevronRight
 } from 'lucide-react';
-import { User } from 'firebase/auth';
 import {
+  type GoogleDriveUser,
   initAuth,
   googleSignIn,
   logoutGoogleDrive,
@@ -66,7 +66,7 @@ export const GoogleSheetsManager: React.FC<GoogleSheetsManagerProps> = ({
   onToast
 }) => {
   // Auth state
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<GoogleDriveUser | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
   const [authInitialized, setAuthInitialized] = useState<boolean>(false);

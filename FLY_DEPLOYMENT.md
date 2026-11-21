@@ -9,8 +9,9 @@
 
 ## Zabezpieczenia i funkcje
 
-- Interfejs wymaga logowania Google/Firebase i dopuszcza wyłącznie `raportfinansowy24@gmail.com`.
-- Backend weryfikuje token Firebase ID po stronie serwera; trasy `/api/*` wymagają autoryzacji poza publicznym healthcheckiem i webhookiem Telegrama (ten webhook sprawdza osobny sekret).
+- Prywatny panel loguje się hasłem `APP_LOGIN_PASSWORD`; serwer podpisuje 12-godzinną sesję kluczem `APP_AUTH_SECRET`.
+- API weryfikuje podpis sesji po stronie serwera. Automatyzacja używa oddzielnego `BANKIER_SHORTS_API_TOKEN`; webhook Telegrama ma własny sekret.
+- Google Drive i Sheets używają Google Identity Services (GIS) oraz publicznego `VITE_GOOGLE_CLIENT_ID`. To osobna zgoda do zasobów Google, niezależna od logowania do panelu.
 - Skrypt automatyzacji używa osobnego, losowego tokenu Bearer z `/home/ubuntu/.user_env`; plik jest ograniczony do właściciela. Skrypt dołącza token zarówno do żądań API, jak i pobrania MP4.
 - Prośba o akceptację Telegram wysyła rzeczywisty MP4 jako załącznik z przyciskami akceptacji/odrzucenia; akceptacja zapisuje decyzję, ale nie publikuje filmu. Limit załącznika wynosi 45 MB.
 - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` i `TELEGRAM_WEBHOOK_SECRET` nie są jeszcze skonfigurowane. Rejestracja webhooka pozostaje wyłączona. Nie włączaj jej bez potwierdzenia, że bot jest dedykowany tej aplikacji.
@@ -18,7 +19,7 @@
 ## Po wdrożeniu
 
 1. Sprawdź `/api/health` oraz publiczną odpowiedź `401` dla niezalogowanego żądania do chronionej trasy API.
-2. Sprawdź logowanie Firebase. W razie błędu dodaj `tworca-shortsow-na-podstawie-newsa-z-bankiepll.fly.dev` w Firebase Authentication → Settings → Authorized domains.
+2. Sprawdź logowanie hasłem panelu. Dla Google Drive/Sheets dodaj origin `https://tworca-shortsow-na-podstawie-newsa-z-bankiepll.fly.dev` oraz lokalny origin developerski do Google Cloud Console → OAuth 2.0 Web Client → Authorized JavaScript origins. Sprawdź też, czy build zawiera `VITE_GOOGLE_CLIENT_ID`.
 3. Sprawdź autoryzację tokenem automatyzacji bez wypisywania tokenu w logach.
 4. Nie uruchamiaj renderu produkcyjnego jako testu, dopóki nie są gotowe usługi AI/TTS i wymagana konfiguracja akceptacji Telegram.
 5. Pełny test Telegrama wykonaj dopiero po ustawieniu sekretów bota, włączeniu webhooka dla dedykowanego bota i dostępie do prywatnego czatu.

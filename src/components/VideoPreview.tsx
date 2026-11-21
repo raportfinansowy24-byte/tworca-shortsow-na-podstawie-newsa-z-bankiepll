@@ -24,7 +24,7 @@ import {
 import {
   exportVideoUrlToDrive,
   getOrCreateAppFolder,
-  getAccessToken,
+  getCachedAccessToken,
   googleSignIn
 } from '../services/googleDriveService';
 
@@ -99,12 +99,13 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
     setIsUploadingToDrive(true);
     setDriveUploadProgress(10);
     try {
-      const token = await getAccessToken();
+      let token = getCachedAccessToken();
       if (!token) {
         const signinRes = await googleSignIn();
         if (!signinRes?.accessToken) {
           throw new Error('Wymagane zalogowanie do konta Google.');
         }
+        token = signinRes.accessToken;
       }
 
       const folderId = await getOrCreateAppFolder('shorts-bot');
