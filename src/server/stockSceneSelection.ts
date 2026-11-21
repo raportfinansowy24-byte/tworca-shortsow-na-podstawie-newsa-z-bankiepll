@@ -38,7 +38,7 @@ export function buildStockSceneSearchQueries(input: StockSceneSearchInput): stri
     isCentralBank: /national bank of poland|central bank|nbp|rpp|rada polityki pienieznej|rate decision/.test(text),
     isLand: /vacant land|building plot|land plot|dzialk|grunt|ziemi pod budow/.test(text),
     isInflation: /inflation|consumer price|grocery price|supermarket|inflacj|wzrost cen|ceny zywnosc/.test(text),
-    isStockMarket: /stock market|stock exchange|shares|equity|gielda|akcj|notowan|wig\\d*/.test(text),
+    isStockMarket: /stock market|stock exchange|shares|equity|gielda|akcj|notowan|wig\d*/.test(text),
     isCrypto: /cryptocurrency|crypto|bitcoin|ethereum|kryptowalut/.test(text),
     isCurrency: /currency|forex|exchange rate|walut|kurs euro|kurs dolara/.test(text),
     isTax: /tax|tax return|tax form|podatek|podatk|fiskus|urzad skarbow/.test(text)
