@@ -57,7 +57,9 @@ const COMMON_NON_ENTITY_STARTERS = new Set([
   'wycena', 'analitycy', 'eksperci', 'inwestorzy', 'klienci', 'bank', 'grupa', 'firma',
   'rzad', 'minister', 'nowy', 'nowa', 'nowe', 'kolejny', 'kolejna', 'kolejne',
   'pierwszy', 'pierwsza', 'pierwsze', 'drugi', 'druga', 'drugie', 'polski', 'polska', 'polskie',
-  'wedlug', 'czesc', 'wiekszosc', 'prognoza', 'decyzja', 'informacja', 'komunikat'
+  'wedlug', 'czesc', 'wiekszosc', 'prognoza', 'decyzja', 'informacja', 'komunikat',
+  // Sentence openers must not be mistaken for part of a two-word proper name.
+  'czy'
 ]);
 
 function canonicalNumericTokens(raw: string): string[] {
