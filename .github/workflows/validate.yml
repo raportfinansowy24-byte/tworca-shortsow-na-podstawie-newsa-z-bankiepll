@@ -109,7 +109,8 @@ jobs:
   deploy_production:
     name: Recover Fly volume and deploy production
     needs: validate
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # One-time controlled deploys may opt out of this automatic job and use scripts/deploy-production.sh instead.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && !contains(github.event.head_commit.message, '[skip-prod-deploy]')
     runs-on: ubuntu-latest
     timeout-minutes: 35
     concurrency:
