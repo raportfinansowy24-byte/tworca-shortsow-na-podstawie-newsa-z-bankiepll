@@ -22,20 +22,47 @@ function cleanQuery(value: string): string {
 export function buildStockSceneSearchQueries(input: StockSceneSearchInput): string[] {
   const original = cleanQuery(input.query);
   if (!original) return [];
-  const combined = normalize([original, input.narration || '', input.context || ''].join(' '));
+  // Classify the individual scene from its own query and narration. Article context may
+  // mention several topics (for example Wall Street and inflation); using it here lets
+  // one article-level keyword inject unrelated stock queries into every scene.
+  // Classify the individual scene from its own query and narration. Article context may
+  // mention several topics (for example Wall Street and inflation); it must not override
+  // a scene-specific cue or inject unrelated stock queries into every scene.
+  const combined = normalize([original, input.narration || ''].join(' '));
+  const detectTopics = (text: string) => ({
+    isFixedMortgageRate: /fixed rate|fixed mortgage|interest rate|mortgage rate|stawki okresowo stalej stopy|stala stope|oprocentowan|stopa procentow/.test(text),
+    isCreditCapacity: /credit capacity|borrowing capacity|zdolnosc kredytow|zdolnosc|pozyczyc wiecej|wiecej kredyt/.test(text),
+    isMortgage: /mortgage|home loan|loan application|kredyt hipotec|hipotek|rata kredyt|bank advisor|doradca kredyt/.test(text),
+    isBankApp: /mobile banking|banking app|bank app|aplikacj bankow|iko|ipko|bankowo|smartphone app/.test(text),
+    isBankBrand: /bank brand|bank logo|logo bank|rebrand|brand identity|nowa identyfikacja|porzadk.*mark|zmien.*mark|bank.*nazw|mark.*banku/.test(text),
+    isCentralBank: /national bank of poland|central bank|nbp|rpp|rada polityki pienieznej|rate decision/.test(text),
+    isLand: /vacant land|building plot|land plot|dzialk|grunt|ziemi pod budow/.test(text),
+    isInflation: /inflation|consumer price|grocery price|supermarket|inflacj|wzrost cen|ceny zywnosc/.test(text),
+    isStockMarket: /stock market|stock exchange|shares|equity|gielda|akcj|notowan|wig\d*/.test(text),
+    isCrypto: /cryptocurrency|crypto|bitcoin|ethereum|kryptowalut/.test(text),
+    isCurrency: /currency|forex|exchange rate|walut|kurs euro|kurs dolara/.test(text),
+    isTax: /tax|tax return|tax form|podatek|podatk|fiskus|urzad skarbow/.test(text)
+  });
+  const sceneTopics = detectTopics(combined);
+  const hasSceneTopic = Object.values(sceneTopics).some(Boolean);
+  const contextTopics = detectTopics(normalize(input.context || ''));
+  const contextTopicEntries = Object.entries(contextTopics).filter(([, matched]) => matched);
+  // "Interest rate" overlaps the NBP/RPP detector; do not count it as a second
+  // article topic when the context clearly refers to central-bank policy.
+  const specificContextTopics = contextTopicEntries.filter(([key]) =>
+    !(key === 'isFixedMortgageRate' && contextTopics.isCentralBank)
+  );
+  const topicFlags = hasSceneTopic
+    ? sceneTopics
+    : specificContextTopics.length === 1
+      ? contextTopics
+      : sceneTopics;
+
+  const {
+    isFixedMortgageRate, isCreditCapacity, isMortgage, isBankApp, isBankBrand,
+    isCentralBank, isLand, isInflation, isStockMarket, isCrypto, isCurrency, isTax
+  } = topicFlags;
   const aliases: string[] = [];
-  const isFixedMortgageRate = /fixed rate|fixed mortgage|interest rate|mortgage rate|stawki okresowo stalej stopy|stala stope|oprocentowan|stopa procentow/.test(combined);
-  const isCreditCapacity = /credit capacity|borrowing capacity|zdolnosc kredytow|zdolnosc|pozyczyc wiecej|wiecej kredyt/.test(combined);
-  const isMortgage = /mortgage|home loan|loan application|kredyt hipotec|hipotek|rata kredyt|bank advisor|doradca kredyt/.test(combined);
-  const isBankApp = /mobile banking|banking app|bank app|aplikacj bankow|iko|ipko|bankowo|smartphone app/.test(combined);
-  const isBankBrand = /bank brand|bank logo|logo bank|rebrand|brand identity|nowa identyfikacja|porzadk.*mark|zmien.*mark|bank.*nazw|mark.*banku/.test(combined);
-  const isCentralBank = /national bank of poland|central bank|nbp|rpp|rada polityki pienieznej|rate decision/.test(combined);
-  const isLand = /vacant land|building plot|land plot|dzialk|grunt|ziemi pod budow/.test(combined);
-  const isInflation = /inflation|consumer price|grocery price|supermarket|inflacj|wzrost cen|ceny zywnosc/.test(combined);
-  const isStockMarket = /stock market|stock exchange|shares|equity|gielda|akcj|notowan|wig\d*/.test(combined);
-  const isCrypto = /cryptocurrency|crypto|bitcoin|ethereum|kryptowalut/.test(combined);
-  const isCurrency = /currency|forex|exchange rate|walut|kurs euro|kurs dolara/.test(combined);
-  const isTax = /tax|tax return|tax form|podatek|podatk|fiskus|urzad skarbow/.test(combined);
 
   if (isCentralBank) aliases.push('National Bank of Poland monetary policy press conference', 'central bank interest rate decision meeting documents', 'central bank governor speaking at press conference');
   else if (isFixedMortgageRate) aliases.push('bank employee comparing fixed mortgage interest rates on computer', 'home loan fixed interest rate comparison documents', 'mortgage rate offer table on bank advisor tablet');
