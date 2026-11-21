@@ -136,7 +136,7 @@ export const initAuth = (
 export const googleSignIn = (): Promise<{ user: GoogleDriveUser; accessToken: string } | null> => {
   if (activeSignInPromise) return activeSignInPromise;
 
-  const clientId = import.meta.env?.VITE_GOOGLE_CLIENT_ID?.trim();
+  const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID?.trim();
   if (!clientId) {
     return Promise.reject(new Error('Brak VITE_GOOGLE_CLIENT_ID. Ustaw identyfikator OAuth 2.0 Web Client dla Google Drive/Sheets.'));
   }
