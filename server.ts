@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import { createHash } from 'node:crypto';
+import { requestElevenLabsApi as performElevenLabsRequest, type ElevenLabsRequestContext } from './src/server/elevenLabsRequest';
 import fs from 'fs';
 import https from 'https';
 import http from 'http';
@@ -1979,33 +1980,6 @@ function resolveElevenLabsVoiceId(requestedVoice?: string): string {
   return process.env.ELEVENLABS_VOICE_ID?.trim() || DEFAULT_ELEVENLABS_VOICE_ID;
 }
 
-function requestElevenLabsApi(method: 'GET' | 'POST', endpoint: string, payload?: unknown, signal?: AbortSignal): Promise<{ statusCode: number; body: string }> {
-  const apiKey = process.env.ELEVENLABS_API_KEY?.trim();
-  if (!apiKey) return Promise.reject(new Error('Brakuje ELEVENLABS_API_KEY. Skonfiguruj klucz ElevenLabs po stronie serwera.'));
-  if (signal?.aborted) return Promise.reject(new Error('Żądanie ElevenLabs anulowane wraz z renderem.'));
-  const body = payload === undefined ? undefined : JSON.stringify(payload);
-  return new Promise((resolve, reject) => {
-    const req = https.request(`https://api.elevenlabs.io${endpoint}`, {
-      method,
-      ...(signal ? { signal } : {}),
-      headers: {
-        'xi-api-key': apiKey,
-        'Accept': 'application/json',
-        ...(body ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } : {})
-      },
-      timeout: 30000
-    }, (res) => {
-      const chunks: Buffer[] = [];
-      res.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
-      res.on('end', () => resolve({ statusCode: res.statusCode || 0, body: Buffer.concat(chunks).toString('utf8') }));
-    });
-    req.on('timeout', () => req.destroy(new Error('Przekroczono limit czasu żądania ElevenLabs.')));
-    req.on('error', reject);
-    if (body) req.write(body);
-    req.end();
-  });
-}
-
 function elevenLabsErrorMessage(body: string): string {
   let message = 'nieznany błąd API';
   try {
@@ -2056,7 +2030,8 @@ async function generateElevenLabsAudio(
   destPath: string,
   speed: number = 1.0,
   wordTimingsOut?: CaptionWordTiming[],
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  requestContext: ElevenLabsRequestContext = {}
 ): Promise<number> {
   const actualVoiceId = resolveElevenLabsVoiceId(voiceId);
   const safeSpeed = Math.max(0.7, Math.min(Number.isFinite(speed) ? speed : 1.0, 1.2));
@@ -2108,7 +2083,7 @@ async function generateElevenLabsAudio(
     console.warn(`[TTS cache] Cache read unavailable; generating fresh audio: ${(error as Error).message}`);
   }
 
-  const response = await requestElevenLabsApi(
+  const response = await performElevenLabsRequest(
     'POST',
     `/v1/text-to-speech/${encodeURIComponent(actualVoiceId)}/with-timestamps?output_format=mp3_44100_128`,
     {
@@ -2116,7 +2091,8 @@ async function generateElevenLabsAudio(
       model_id: modelId,
       voice_settings: voiceSettings,
     },
-    signal
+    signal,
+    requestContext
   );
   if (response.statusCode !== 200) {
     const message = `ElevenLabs zwrócił HTTP ${response.statusCode}: ${elevenLabsErrorMessage(response.body)}`;
@@ -2266,7 +2242,8 @@ async function generateTtsAudio(
   requestedVoice?: string,
   speedMultiplier: number = 1.0,
   wordTimingsOut?: CaptionWordTiming[],
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  requestContext: ElevenLabsRequestContext = {}
 ): Promise<number> {
   const cleanText = text.replace(/[\r\n]+/g, ' ').trim();
   void tempDir;
@@ -2278,7 +2255,7 @@ async function generateTtsAudio(
   if (!process.env.ELEVENLABS_API_KEY?.trim()) {
     throw new Error('Brak ELEVENLABS_API_KEY. Render finansowego shorta wymaga lektora ElevenLabs; Google TTS jest wyłączony.');
   }
-  return await generateElevenLabsAudio(cleanText, selectedVoice, destPath, safeSpeed, wordTimingsOut, signal);
+  return await generateElevenLabsAudio(cleanText, selectedVoice, destPath, safeSpeed, wordTimingsOut, signal, requestContext);
 }
 
 // Convert seconds to ASS time format (h:mm:ss.cc)
@@ -2887,7 +2864,8 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
           lockedTtsVoiceId,
           ttsSpeed,
           fullWordTimings,
-          abortController.signal
+          abortController.signal,
+          { purpose: 'short-narration', jobId }
         );
         if (wholeNarrationDuration <= 0 || !fs.existsSync(fullNarrationPath)) {
           throw new Error('ElevenLabs nie wygenerował kompletnego audio dla Shorta.');
@@ -6950,7 +6928,7 @@ router.delete('/webhook/logs', (req, res) => {
 // GET /api/tts/voices - Return voices actually available to this ElevenLabs account.
 router.get('/tts/voices', async (req, res) => {
   try {
-    const response = await requestElevenLabsApi('GET', '/v1/voices?page_size=100');
+    const response = await performElevenLabsRequest('GET', '/v1/voices?page_size=100', undefined, undefined, { purpose: 'voice-list' });
     if (response.statusCode !== 200) {
       const authFailed = response.statusCode === 401 || response.statusCode === 403;
       return res.status(authFailed ? 503 : 502).json({
@@ -6991,7 +6969,7 @@ router.get('/tts/stream', async (req, res) => {
     const speed = parseFloat(req.query.speed as string) || 1.0;
 
     const tempAudio = path.join(TEMP_DIR, `stream_preview_${Date.now()}_${Math.random().toString(36).substring(2, 6)}.mp3`);
-    const dur = await generateTtsAudio(rawText.slice(0, 300), lang, tempAudio, TEMP_DIR, requestedVoice, speed);
+    const dur = await generateTtsAudio(rawText.slice(0, 300), lang, tempAudio, TEMP_DIR, requestedVoice, speed, undefined, undefined, { purpose: 'preview' });
     if (dur <= 0 || !fs.existsSync(tempAudio)) throw new Error('ElevenLabs nie utworzył pliku audio do podglądu.');
     res.setHeader('Content-Type', 'audio/mpeg');
     res.setHeader('Cache-Control', 'no-cache');
@@ -7022,7 +7000,7 @@ router.post('/tts/preview', async (req, res) => {
     const previewFilename = `tts_preview_${Date.now()}_${Math.random().toString(36).substring(2, 6)}.mp3`;
     const destPath = path.join(EXPORTS_DIR, previewFilename);
 
-    const duration = await generateTtsAudio(text.trim(), cleanLang, destPath, TEMP_DIR, selectedVoice, speedMultiplier);
+    const duration = await generateTtsAudio(text.trim(), cleanLang, destPath, TEMP_DIR, selectedVoice, speedMultiplier, undefined, undefined, { purpose: 'preview' });
     const baseUrl = getPublicBaseUrl(req);
 
     res.json({
