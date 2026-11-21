@@ -4,6 +4,7 @@ import path from 'path';
 import { createHash } from 'node:crypto';
 import { requestElevenLabsApi as performElevenLabsRequest, type ElevenLabsRequestContext } from './src/server/elevenLabsRequest';
 import fs from 'fs';
+import https from 'https';
 import http from 'http';
 import { validateRemoteUrl, pinnedLookup } from './src/server/remoteUrlSecurity';
 import { downloadRemoteFile, postWebhook } from './src/server/safeHttp';
