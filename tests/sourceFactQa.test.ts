@@ -92,6 +92,19 @@ const contradictionResult = evaluateSourceEvidence(negatedDirectionScenes, { sou
 assert.equal(contradictionResult.status, 'blocked');
 assert.ok(contradictionResult.findings.some((f) => f.code === 'contradictory_numeric_direction'));
 
+// Regression Test 5: An interrogative opener is not part of an institution name.
+const commissionSource = 'Komisja Europejska częściowo pozytywnie oceniła wniosek. Jeśli KE potwierdzi swoją ocenę, kwota płatności może zostać zmniejszona.';
+const commissionScenes = [
+  {
+    voiceover_text: 'Sprawdź, Czy Komisja potwierdzi ocenę.',
+    subtitles: 'Sprawdź, Czy Komisja potwierdzi ocenę.',
+    sourceEvidence: 'Jeśli KE potwierdzi swoją ocenę.'
+  },
+  { voiceover_text: 'Wejdź na raport-finansowy24.pl i sprawdź szczegóły.', subtitles: 'Wejdź na raport-finansowy24.pl i sprawdź szczegóły.' }
+];
+const commissionResult = evaluateSourceEvidence(commissionScenes, { sourceText: commissionSource });
+assert.equal(commissionResult.status, 'pass', 'Czy Komisja must not be parsed as a two-word proper name');
+
 console.log('Source fact QA tests passed');
 
 
