@@ -100,3 +100,43 @@ const namedProductQueries = buildStockSceneSearchQueries({
   maxQueries: 3
 });
 assert.match(namedProductQueries[0], /Bezpieczny Kredyt 2/i);
+
+const mixedTopicArticleContext = [
+  'Wall Street, NVIDIA i notowania spółek technologicznych.',
+  'Artykuł omawia również inflację, wzrost cen żywności i decyzję RPP.'
+].join(' ');
+const wallStreetSceneQueries = buildStockSceneSearchQueries({
+  query: 'Wall Street stock exchange trading floor monitors',
+  narration: 'Strach na Wall Street i spadek notowań Nvidii.',
+  context: mixedTopicArticleContext,
+  maxQueries: 5
+});
+assert.ok(wallStreetSceneQueries.some((value) => /equity trader|stock market index/i.test(value)));
+assert.doesNotMatch(
+  wallStreetSceneQueries.join(' '),
+  /shopper comparing grocery prices|supermarket price labels|consumer price index/i,
+  'article-level inflation must not inject grocery searches into a Wall Street scene'
+);
+
+const centralBankSceneQueries = buildStockSceneSearchQueries({
+  query: 'central bank press conference speaker at podium microphone',
+  narration: 'NBP i RPP komentują decyzję dotyczącą stóp procentowych.',
+  context: mixedTopicArticleContext,
+  maxQueries: 5
+});
+assert.ok(centralBankSceneQueries.some((value) => /central bank|National Bank of Poland/i.test(value)));
+assert.doesNotMatch(
+  centralBankSceneQueries.join(' '),
+  /shopper comparing grocery prices|supermarket price labels/i,
+  'article-level inflation must not replace a central-bank scene with grocery shots'
+);
+
+const weatherSceneQueries = buildStockSceneSearchQueries({
+  query: 'stormy ocean waves heavy clouds',
+  narration: 'El Niño może wpłynąć na pogodę.',
+  context: mixedTopicArticleContext,
+  maxQueries: 5
+});
+assert.deepEqual(weatherSceneQueries, ['stormy ocean waves heavy clouds'],
+  'unrelated article topics must not add stock-query aliases to a weather scene');
+
