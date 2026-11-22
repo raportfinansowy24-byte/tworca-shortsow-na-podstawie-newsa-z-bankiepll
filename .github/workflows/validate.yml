@@ -72,6 +72,10 @@ jobs:
         run: npm run test:render-completion
       - name: Deployment info tests
         run: npm run test:deployment-info
+      - name: Install FFmpeg for MP4 integration tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
       - name: MP4 history validation tests
         run: npm run test:mp4-validation && npm run test:mp4-validation:integration
       - name: Campaign tracking and CTA tests
