@@ -57,7 +57,8 @@
     "test:stream-ticket-store": "tsx tests/streamTickets.test.ts",
     "test:google-auth-state": "tsx tests/googleAuthState.test.ts",
     "test:google-auth-migration": "tsx tests/googleAuthMigration.test.ts",
-    "test:stock-clip-sampling": "tsx tests/stockClipSampling.test.ts"
+    "test:stock-clip-sampling": "tsx tests/stockClipSampling.test.ts",
+    "test:stock-qa-duration-propagation": "tsx tests/stockQaDurationPropagation.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.32.0",
