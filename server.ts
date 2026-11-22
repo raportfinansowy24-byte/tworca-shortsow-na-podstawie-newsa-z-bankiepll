@@ -807,7 +807,8 @@ function quoteStockShellArgument(value: string): string {
 
 async function sampleStockVideoFrames(
   candidate: ResolvedStockVideo,
-  sceneIndex: number
+  sceneIndex: number,
+  targetDurationSeconds?: number
 ): Promise<Array<{ mimeType: string; data: string }>> {
   if (!isTrustedStockVideoDownloadUrl(candidate.videoUrl)) {
     console.warn('[Stock clip QA] Scena ' + (sceneIndex + 1) + ': odrzucono niedozwolony host URL klipu ' + (candidate.stockId || candidate.pexelsId) + '.');
@@ -816,7 +817,7 @@ async function sampleStockVideoFrames(
   const duration = Number(candidate.duration);
   let filter: string;
   try {
-    filter = buildStockClipSamplingFilter(duration);
+    filter = buildStockClipSamplingFilter(duration, targetDurationSeconds ?? duration);
   } catch (error) {
     console.warn('[Stock clip QA] Scena ' + (sceneIndex + 1) + ': nieprawidłowa długość klipu: ' + (error as Error).message);
     return [];
@@ -863,7 +864,8 @@ async function verifyStockVisualCandidates(
   context: string,
   sceneQuery: string,
   sceneIndex: number,
-  sceneNarration = ''
+  sceneNarration = '',
+  targetDurationSeconds?: number
 ): Promise<ResolvedStockVideo | null> {
   const geminiApiKeys = getGeminiApiKeys();
   if (geminiApiKeys.length === 0) {
@@ -895,17 +897,11 @@ async function verifyStockVisualCandidates(
         return null;
       }
     }));
-    const usablePreviews = previewFrames.filter((frame): frame is { mimeType: string; data: string } => Boolean(frame));
-    // Pixabay's API normally returns one thumbnail, not a timeline of video
-    // frames. Never judge a Pixabay clip from that one still: sample the real
-    // MP4. Pexels is sampled too whenever it exposes fewer than 3 previews.
-    const needsActualClipSampling = candidate.source === 'pixabay' || usablePreviews.length < 3;
-    const actualFrames = needsActualClipSampling
-      ? await sampleStockVideoFrames(candidate, sceneIndex)
-      : [];
-    const frames = needsActualClipSampling
-      ? (stockClipSamplingFrameCountIsSufficient(actualFrames.length) ? actualFrames : [])
-      : usablePreviews;
+    // Always inspect actual video frames from the exact opening window used by
+    // the renderer. Provider previews may show a different part of a long clip,
+    // so preview-only QA can approve content that is never rendered.
+    const actualFrames = await sampleStockVideoFrames(candidate, sceneIndex, targetDurationSeconds);
+    const frames = stockClipSamplingFrameCountIsSufficient(actualFrames.length) ? actualFrames : [];
     return { candidate, frames };
   }));
   downloaded.filter((item) => item.frames.length === 0).forEach(({ candidate }) => {
@@ -1193,7 +1189,7 @@ async function resolveStockOrPexelsVideoDetailed(
 
   if (candidateShortlist.length > 0) {
     if (!strictSemantic) return candidateShortlist[0];
-    const selected = await verifyStockVisualCandidates(candidateShortlist, visualContext, query, index, options?.sceneNarration || '');
+    const selected = await verifyStockVisualCandidates(candidateShortlist, visualContext, query, index, options?.sceneNarration || '', targetDurationSeconds);
     if (selected) return selected;
     console.warn('[Stock QA] Żaden z kandydatów Pexels/Pixabay nie przeszedł kontroli sceny ' + (index + 1) + '.');
   }
