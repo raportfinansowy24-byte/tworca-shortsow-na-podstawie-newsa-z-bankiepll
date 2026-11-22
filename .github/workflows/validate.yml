@@ -72,6 +72,8 @@ jobs:
         run: npm run test:render-completion
       - name: Deployment info tests
         run: npm run test:deployment-info
+      - name: MP4 history validation tests
+        run: npm run test:mp4-validation && npm run test:mp4-validation:integration
       - name: Campaign tracking and CTA tests
         run: npm run test:campaign-tracking
       - name: Creative Director tests

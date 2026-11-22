@@ -70,6 +70,7 @@ import { applyQaRepairAssets, buildQaRepairFailureReport, executeQaRepairOnce, Q
 import { buildConcatArgs, FAST_H264_OPTIONS, isValidConcatenatedVideo } from './src/server/renderOptimizations';
 import { buildEmotionallyDirectedNarration } from './src/server/emotionalDirection';
 import { getDeploymentInfo } from './src/server/deploymentInfo';
+import { validateMp4File, type Mp4ValidationResult } from './src/server/mp4Validation';
 import { retryVisualQa, runVisualQaWithFallback } from './src/server/visualQaProviders';
 import { mapNarrationAlignmentToScenes } from './src/server/singleNarration';
 import { buildContinuousNarrationMuxArgs } from './src/server/finalNarrationMix';
@@ -1377,6 +1378,47 @@ const JOBS_DB_PATH = path.join(EXPORTS_DIR, 'jobs_history.json');
 const jobsStore = new Map<string, Job>();
 const activeJobExecutions = new Map<string, ActiveJobExecution>();
 const sseSubscribers = new Map<string, Set<express.Response>>();
+const mp4ValidationCache = new Map<string, { size: number; mtimeMs: number; result: Mp4ValidationResult }>();
+
+async function validateExportedMp4(filePath: string, requireAudio = false): Promise<Mp4ValidationResult> {
+  let stats: fs.Stats;
+  try {
+    stats = await fs.promises.lstat(filePath);
+  } catch {
+    return { valid: false, reason: 'Plik MP4 nie istnieje.', hasAudio: false };
+  }
+  if (!stats.isFile()) return { valid: false, reason: 'Ścieżka MP4 nie wskazuje na zwykły plik.', hasAudio: false };
+
+  const cacheKey = path.resolve(filePath);
+  const cached = mp4ValidationCache.get(cacheKey);
+  let result: Mp4ValidationResult;
+  if (cached && cached.size === stats.size && cached.mtimeMs === stats.mtimeMs) {
+    result = cached.result;
+  } else {
+    result = await validateMp4File(filePath);
+    mp4ValidationCache.set(cacheKey, { size: stats.size, mtimeMs: stats.mtimeMs, result });
+    if (mp4ValidationCache.size > 500) {
+      const oldestKey = mp4ValidationCache.keys().next().value;
+      if (oldestKey) mp4ValidationCache.delete(oldestKey);
+    }
+  }
+
+  if (result.valid && requireAudio && !result.hasAudio) {
+    return { ...result, valid: false, reason: 'Plik MP4 nie zawiera wymaganego strumienia audio.' };
+  }
+  return result;
+}
+
+function markCompletedJobAsInvalid(job: Job, reason: string): void {
+  job.status = 'failed';
+  job.progress = Math.min(job.progress, 99);
+  job.step = 'Odrzucono nieprawidłowy plik MP4 podczas kontroli historii.';
+  job.error = reason;
+  job.updatedAt = new Date().toISOString();
+  saveJobsToDisk();
+  queueShortJobSnapshot(job as ShortJobSnapshot, true);
+}
+
 
 // Funkcja natychmiastowego bezpiecznego zatrzymania i ubicia procesu renderowania (kill-switch)
 function cancelAndTerminateJob(jobId: string, reason: string = 'Zadanie anulowane przez użytkownika'): boolean {
@@ -1470,36 +1512,70 @@ function loadJobsFromDisk() {
       }
     }
 
-    // Auto-discover exported .mp4 files on disk that might be missing from jobs_history.json
-    if (fs.existsSync(EXPORTS_DIR)) {
-      const files = fs.readdirSync(EXPORTS_DIR);
-      for (const file of files) {
-        if (file.endsWith('.mp4')) {
-          const filePath = path.join(EXPORTS_DIR, file);
-          const stats = fs.statSync(filePath);
-          let existingJob = Array.from(jobsStore.values()).find(j => j.outputFilename === file);
-          if (!existingJob) {
-            const match = file.match(/combined_video_(job_[^\.]+)\.mp4/);
-            const jobId = match ? match[1] : `job_disk_${stats.mtimeMs}`;
-            const discoveredJob: Job = {
-              id: jobId,
-              status: 'completed',
-              progress: 100,
-              step: 'Renderowanie zakończone pomyślnie!',
-              logs: [`[${new Date(stats.mtimeMs).toLocaleTimeString()}] Automatyczne przywrócenie pliku wideo MP4 z pamięci dyskowej`],
-              outputFilename: file,
-              fileSize: stats.size,
-              createdAt: new Date(stats.birthtimeMs || stats.mtimeMs).toISOString(),
-              updatedAt: new Date(stats.mtimeMs).toISOString()
-            };
-            jobsStore.set(jobId, discoveredJob);
-          }
-        }
-      }
-    }
+    // Disk-only exports are recovered asynchronously after HTTP startup.
+    // They are never marked completed based on filename or file size alone.
     saveJobsToDisk();
   } catch (err) {
     console.warn('Nie można załadować historii zadań z dysku:', (err as Error).message);
+  }
+}
+
+async function recoverAndValidateExportedMp4Files(): Promise<void> {
+  let changed = false;
+  try {
+    const persistedCompletedJobs = Array.from(jobsStore.values()).filter(
+      (job) => job.status === 'completed' && typeof job.outputFilename === 'string' &&
+        path.basename(job.outputFilename) === job.outputFilename
+    );
+
+    for (const job of persistedCompletedJobs) {
+      const validation = await validateExportedMp4(path.join(EXPORTS_DIR, job.outputFilename!));
+      if (!validation.valid) {
+        markCompletedJobAsInvalid(job, validation.reason || 'Nieprawidłowy plik MP4.');
+        changed = true;
+        console.warn('[Historia MP4] Odrzucono ukończone zadanie ' + job.id + ': ' + validation.reason);
+      }
+    }
+
+    if (fs.existsSync(EXPORTS_DIR)) {
+      const files = fs.readdirSync(EXPORTS_DIR).filter((file) => file.toLowerCase().endsWith('.mp4'));
+      for (const file of files) {
+        if (Array.from(jobsStore.values()).some((job) => job.outputFilename === file)) continue;
+        const filePath = path.join(EXPORTS_DIR, file);
+        const validation = await validateExportedMp4(filePath);
+        if (!validation.valid) {
+          console.warn('[Historia MP4] Pominięto nieprawidłowy plik ' + file + ': ' + validation.reason);
+          continue;
+        }
+
+        let stats: fs.Stats;
+        try {
+          stats = await fs.promises.stat(filePath);
+        } catch {
+          continue;
+        }
+        const match = file.match(/combined_video_(job_[^\.]+)\.mp4/);
+        const jobId = match ? match[1] : 'job_disk_' + stats.mtimeMs;
+        if (jobsStore.has(jobId)) continue;
+        jobsStore.set(jobId, {
+          id: jobId,
+          status: 'completed',
+          progress: 100,
+          step: 'Render MP4 odzyskany po pozytywnej walidacji ffprobe.',
+          logs: ['[' + new Date(stats.mtimeMs).toLocaleTimeString() + '] Odzyskano plik MP4 po walidacji struktury i strumieni.'],
+          outputFilename: file,
+          fileSize: stats.size,
+          duration: validation.durationSeconds,
+          createdAt: new Date(stats.birthtimeMs || stats.mtimeMs).toISOString(),
+          updatedAt: new Date(stats.mtimeMs).toISOString()
+        });
+        changed = true;
+      }
+    }
+
+    if (changed) saveJobsToDisk();
+  } catch (error) {
+    console.warn('[Historia MP4] Nie udało się zweryfikować/odzyskać plików:', (error as Error).message);
   }
 }
 
@@ -6647,7 +6723,7 @@ router.post('/combine-scenes', async (req, res) => {
 });
 
 // Explicit Download Endpoint for generated MP4 files
-router.get('/jobs/:jobId/download', (req, res) => {
+router.get('/jobs/:jobId/download', async (req, res) => {
   const { jobId } = req.params;
   const job = jobsStore.get(jobId);
 
@@ -6662,17 +6738,26 @@ router.get('/jobs/:jobId/download', (req, res) => {
   if (!isSafeExportPath(EXPORTS_DIR, filePath)) {
     return res.status(404).json({ error: 'Plik fizyczny wideo wygasł lub został usunięty z serwera.' });
   }
+  const validation = await validateExportedMp4(filePath);
+  if (!validation.valid) {
+    markCompletedJobAsInvalid(job, validation.reason || 'Nieprawidłowy plik MP4.');
+    return res.status(422).json({ error: 'Plik MP4 nie przeszedł walidacji.', details: validation.reason });
+  }
 
   res.download(filePath, job.outputFilename);
 });
 
-router.get('/exports/:filename/download', (req, res) => {
+router.get('/exports/:filename/download', async (req, res) => {
   const { filename } = req.params;
   if (!isPublicExportFilename(filename) || path.extname(filename).toLowerCase() !== '.mp4') return res.sendStatus(404);
   const filePath = path.join(EXPORTS_DIR, filename);
 
   if (!isSafeExportPath(EXPORTS_DIR, filePath)) {
     return res.status(404).json({ error: 'Plik nie istnieje na serwerze.' });
+  }
+  const validation = await validateExportedMp4(filePath);
+  if (!validation.valid) {
+    return res.status(422).json({ error: 'Plik MP4 nie przeszedł walidacji.', details: validation.reason });
   }
 
   res.download(filePath, filename);
@@ -7071,46 +7156,44 @@ router.get('/jobs/recent-completed', async (req, res) => {
       }
     }
 
-    const completedJobs = Array.from(jobsStore.values())
-      .filter((job) => {
-        if (job.status !== 'completed' || !job.outputFilename) return false;
-        // Do not allow a stored filename to escape the exports directory.
-        if (path.basename(job.outputFilename) !== job.outputFilename) return false;
-        return fs.existsSync(path.join(EXPORTS_DIR, job.outputFilename));
-      })
-      .sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime())
-      .slice(0, limit)
-      .map((job) => {
-        const filePath = path.join(EXPORTS_DIR, job.outputFilename!);
-        let actualSize = job.fileSize;
-        try {
-          actualSize = fs.statSync(filePath).size;
-        } catch {}
-
-        const thumbFilename = `thumb_${path.parse(job.outputFilename!).name}.jpg`;
-        const thumbExists = fs.existsSync(path.join(EXPORTS_DIR, thumbFilename));
-
-        return {
-          id: job.id,
-          status: job.status,
-          step: job.step,
-          filename: job.outputFilename,
-          fileSize: formatBytesHelper(actualSize),
-          downloadUrl: `${baseUrl}/api/jobs/${job.id}/download`,
-          outputUrl: `${baseUrl}/exports/${job.outputFilename}`,
-          thumbnailUrl: job.thumbnailUrl || (thumbExists ? `${baseUrl}/exports/${thumbFilename}` : undefined),
-          createdAt: job.createdAt,
-          updatedAt: job.updatedAt,
-          timestampFormatted: new Date(job.updatedAt || job.createdAt).toLocaleString('pl-PL', {
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit'
-          })
-        };
+    const completedCandidates = Array.from(jobsStore.values())
+      .filter((job) => job.status === 'completed' && Boolean(job.outputFilename))
+      .sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime());
+    const completedJobs: Record<string, unknown>[] = [];
+    for (const job of completedCandidates) {
+      if (!job.outputFilename || path.basename(job.outputFilename) !== job.outputFilename) continue;
+      const filePath = path.join(EXPORTS_DIR, job.outputFilename);
+      const validation = await validateExportedMp4(filePath);
+      if (!validation.valid) {
+        markCompletedJobAsInvalid(job, validation.reason || 'Nieprawidłowy plik MP4.');
+        console.warn('[Historia MP4] Nie pokazuję zadania ' + job.id + ' jako zakończonego: ' + validation.reason);
+        continue;
+      }
+      const stats = await fs.promises.stat(filePath);
+      const thumbFilename = 'thumb_' + path.parse(job.outputFilename).name + '.jpg';
+      const thumbExists = fs.existsSync(path.join(EXPORTS_DIR, thumbFilename));
+      completedJobs.push({
+        id: job.id,
+        status: job.status,
+        step: job.step,
+        filename: job.outputFilename,
+        fileSize: formatBytesHelper(stats.size),
+        downloadUrl: baseUrl + '/api/jobs/' + job.id + '/download',
+        outputUrl: baseUrl + '/exports/' + job.outputFilename,
+        thumbnailUrl: job.thumbnailUrl || (thumbExists ? baseUrl + '/exports/' + thumbFilename : undefined),
+        createdAt: job.createdAt,
+        updatedAt: job.updatedAt,
+        timestampFormatted: new Date(job.updatedAt || job.createdAt).toLocaleString('pl-PL', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit'
+        })
       });
+      if (completedJobs.length >= limit) break;
+    }
 
     res.setHeader('Cache-Control', 'no-store');
     res.json({ success: true, count: completedJobs.length, jobs: completedJobs });
@@ -9382,7 +9465,7 @@ async function startServer() {
   void runTtsCacheRetention();
   const ttsCacheRetentionTimer = setInterval(() => { void runTtsCacheRetention(); }, 6 * 60 * 60 * 1000);
   ttsCacheRetentionTimer.unref?.();
-  void hydrateJobsFromSupabase();
+  void hydrateJobsFromSupabase().finally(() => recoverAndValidateExportedMp4Files());
   ensureTikTokSansFont().catch(console.error);
   ensureAntonFont().catch(console.error);
   void refreshOfferCatalogSnapshot();

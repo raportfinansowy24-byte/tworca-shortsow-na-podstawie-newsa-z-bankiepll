@@ -58,7 +58,9 @@
     "test:google-auth-state": "tsx tests/googleAuthState.test.ts",
     "test:google-auth-migration": "tsx tests/googleAuthMigration.test.ts",
     "test:stock-clip-sampling": "tsx tests/stockClipSampling.test.ts",
-    "test:stock-qa-duration-propagation": "tsx tests/stockQaDurationPropagation.test.ts"
+    "test:stock-qa-duration-propagation": "tsx tests/stockQaDurationPropagation.test.ts",
+    "test:mp4-validation": "tsx tests/mp4Validation.test.ts",
+    "test:mp4-validation:integration": "tsx tests/mp4Validation.integration.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.32.0",
