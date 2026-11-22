@@ -83,38 +83,71 @@ import { cleanStockSearchQuery, scoreStockCandidateSoftAvoidance } from './src/s
 import { buildSourceEvidenceVisual, resolveStockWithEvidenceFallback, resolveStockWithVerifiedEvidenceFallback } from './src/server/sourceEvidenceVisual';
 import { findLegacyFailedAutopilotArticleUrl, getNextPendingAutopilotRetry, MAX_STORYBOARD_QA_REPAIR_ATTEMPTS, recordAutopilotFailure, reactivateExhaustedAutopilotRetries, repairUntilPass, resolveAutopilotRetry, isCompatibleNarrationRetryCache, type AutopilotRetryEntry, type RetryableAutopilotArticle, type NarrationRetryCacheMetadata } from './src/server/autopilotRetry';
 import { GEMINI_PRIMARY_MODEL, getGeminiApiKeys, getGeminiFallbackModels, withGeminiModelFallback } from './src/server/modelRouting';
+import { GEMINI_NARRATION_REVISION_BUDGET_MS, GEMINI_REQUEST_BUDGET_MS, getGeminiHttpOptions, getGeminiRemainingBudgetMs } from './src/server/geminiRequestPolicy';
 
 const execPromise = promisify(exec);
 const serverStartedAt = new Date().toISOString();
 
-async function generateGeminiContentWithFallback(params: { contents: any; config?: any }) {
-  const { result, modelName, keyName } = await withGeminiModelFallback({
-    keys: getGeminiApiKeys(),
-    primaryModel: GEMINI_PRIMARY_MODEL,
-    fallbackModels: getGeminiFallbackModels(),
-    operation: (model, apiKey) => {
-      const client = new GoogleGenAI({
-        apiKey,
-        httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
-      });
-      return client.models.generateContent({
-        model,
-        contents: params.contents,
-        config: params.config
-      });
-    },
-    onKeyFailure: (model, key, error) => {
-      console.warn('[Gemini ' + model + '] ' + key + ' nie powiódł się: ' + error.message.slice(0, 300));
-    },
-    onModelFallback: (primaryModel, fallbackModel, fallbackKey) => {
-      console.warn('[Gemini Router] ' + primaryModel + ' jest niedostępny; przełączam na ' + fallbackModel + ' (klucz ' + fallbackKey + ').');
+async function generateGeminiContentWithFallback(params: { contents: any; config?: any; deadlineAt?: number }) {
+  const startedAt = Date.now();
+  const deadlineAt = params.deadlineAt ?? (startedAt + GEMINI_REQUEST_BUDGET_MS);
+  const keys = getGeminiApiKeys();
+  const fallbackModels = getGeminiFallbackModels();
+  console.info('[Gemini HTTP] request_started budgetMs=' + getGeminiRemainingBudgetMs(deadlineAt, startedAt) + ' keys=' + keys.length + ' models=' + (1 + fallbackModels.length) + '.');
+  try {
+    const { result, modelName, keyName } = await withGeminiModelFallback({
+      keys,
+      primaryModel: GEMINI_PRIMARY_MODEL,
+      fallbackModels,
+      operation: (model, apiKey, attemptKeyName) => {
+        const remainingBudgetMs = getGeminiRemainingBudgetMs(deadlineAt);
+        const httpOptions = getGeminiHttpOptions(remainingBudgetMs);
+        if (!httpOptions) {
+          throw new Error('Gemini request budget exhausted before the next provider attempt.');
+        }
+        const attemptStartedAt = Date.now();
+        console.info('[Gemini HTTP] attempt_started model=' + model + ' key=' + attemptKeyName + ' timeoutMs=' + httpOptions.timeout + ' remainingBudgetMs=' + remainingBudgetMs + '.');
+        const client = new GoogleGenAI({
+          apiKey,
+          httpOptions: {
+            headers: { 'User-Agent': 'aistudio-build' },
+            ...httpOptions
+          }
+        });
+        return client.models.generateContent({
+          model,
+          contents: params.contents,
+          config: params.config
+        }).then((response) => {
+          console.info('[Gemini HTTP] attempt_complete model=' + model + ' key=' + attemptKeyName + ' elapsedMs=' + (Date.now() - attemptStartedAt) + ' remainingBudgetMs=' + getGeminiRemainingBudgetMs(deadlineAt) + '.');
+          return response;
+        }).catch((error: unknown) => {
+          const elapsedMs = Date.now() - attemptStartedAt;
+          const remainingMs = getGeminiRemainingBudgetMs(deadlineAt);
+          const message = error instanceof Error ? error.message.replace(/[\r\n]+/g, ' ').slice(0, 180) : 'Unknown Gemini request error';
+          console.warn('[Gemini HTTP] attempt_failed model=' + model + ' key=' + attemptKeyName + ' elapsedMs=' + elapsedMs + ' remainingBudgetMs=' + remainingMs + ' error="' + message + '".');
+          throw error;
+        });
+      },
+      onKeyFailure: (model, key, error) => {
+        console.warn('[Gemini ' + model + '] ' + key + ' nie powiódł się: ' + error.message.slice(0, 300));
+      },
+      onModelFallback: (primaryModel, fallbackModel, fallbackKey) => {
+        console.warn('[Gemini Router] ' + primaryModel + ' jest niedostępny; przełączam na ' + fallbackModel + ' (klucz ' + fallbackKey + ').');
+      }
+    });
+    if (modelName !== GEMINI_PRIMARY_MODEL) {
+      console.info('[Gemini Router] Request zakończony modelem zapasowym ' + modelName + ' (' + keyName + ').');
     }
-  });
-  if (modelName !== GEMINI_PRIMARY_MODEL) {
-    console.info('[Gemini Router] Request zakończony modelem zapasowym ' + modelName + ' (' + keyName + ').');
+    console.info('[Gemini HTTP] request_complete model=' + modelName + ' key=' + keyName + ' totalMs=' + (Date.now() - startedAt) + ' remainingBudgetMs=' + getGeminiRemainingBudgetMs(deadlineAt) + '.');
+    return { response: result, modelName, keyName };
+  } catch (error) {
+    const message = error instanceof Error ? error.message.replace(/[\r\n]+/g, ' ').slice(0, 220) : 'Unknown Gemini request error';
+    console.warn('[Gemini HTTP] request_failed totalMs=' + (Date.now() - startedAt) + ' remainingBudgetMs=' + getGeminiRemainingBudgetMs(deadlineAt) + ' error="' + message + '".');
+    throw error;
   }
-  return { response: result, modelName, keyName };
 }
+
 let narrationCalibrationWriteQueue: Promise<void> = Promise.resolve();
 
 async function loadNarrationCalibration(calibrationPath: string) {
@@ -2621,6 +2654,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
 
     if (ttsEnabled) {
       const hasEditorialModel = getGeminiApiKeys().length > 0;
+      const narrationRevisionDeadlineAt = Date.now() + GEMINI_NARRATION_REVISION_BUDGET_MS;
       const fit = await fitNarrationBeforeTts({
         sceneTexts: sceneSpeechTexts,
         baseSceneDurations,
@@ -2697,6 +2731,7 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
           try {
             const modelResult = await callModelRouter({
               contents: prompt,
+              deadlineAt: narrationRevisionDeadlineAt,
               config: {
                 responseMimeType: 'application/json',
                 responseSchema: {
@@ -4646,11 +4681,13 @@ function buildSmartFallbackScript(
 async function callModelRouter(params: {
   contents: string;
   config?: any;
+  deadlineAt?: number;
 }): Promise<{ text: string; modelUsed: string } | null> {
   try {
     const generated = await generateGeminiContentWithFallback({
       contents: params.contents,
-      config: params.config
+      config: params.config,
+      deadlineAt: params.deadlineAt
     });
     if (generated.response?.text?.trim()) return { text: generated.response.text, modelUsed: generated.modelName };
     throw new Error('Gemini 4 Hydrogen zwrócił pustą odpowiedź.');

@@ -55,7 +55,11 @@ export function shouldRotateGeminiKey(error: unknown): boolean {
     .find((item) => Number.isInteger(item) && item > 0);
   if (status && [401, 403, 408, 429, 500, 502, 503, 504].includes(status)) return true;
 
+  const errorName = error && typeof error === 'object' && 'name' in error ? String((error as { name?: unknown }).name ?? '') : '';
   const message = error instanceof Error ? error.message : String(error);
+  // Gemini's HTTP timeout is surfaced by Node fetch as AbortError. Treat it as
+  // transient so key rotation/model fallback can continue within the request budget.
+  if (errorName === 'AbortError' || /\b(?:AbortError|aborted|operation was aborted|request timed out)\b/i.test(message)) return true;
   return /\b(?:401|403|408|429|500|502|503|504)\b/i.test(message) ||
     /\b(?:RESOURCE_EXHAUSTED|PERMISSION_DENIED|UNAUTHENTICATED|UNAVAILABLE|INTERNAL|API_KEY_INVALID|API_KEY_SERVICE_BLOCKED|API key (?:is )?not valid|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|fetch failed|network error|timed? ?out)\b/i.test(message);
 }

@@ -37,6 +37,8 @@ assert.equal(shouldRotateGeminiKey(new Error('HTTP 503 UNAVAILABLE')), true);
 assert.equal(shouldRotateGeminiKey(new Error('HTTP 401 API key invalid')), true);
 assert.equal(shouldRotateGeminiKey(new Error('HTTP 400 API_KEY_INVALID')), true);
 assert.equal(shouldRotateGeminiKey(new Error('HTTP 400 invalid response schema')), false);
+assert.equal(shouldRotateGeminiKey(Object.assign(new Error('This operation was aborted'), { name: 'AbortError' })), true);
+assert.equal(shouldRotateGeminiKey(new Error('AbortError: This operation was aborted')), true);
 
 const calls: string[] = [];
 const failover = await withGeminiKeyRotation({
@@ -53,6 +55,24 @@ assert.deepEqual(calls, [
 ]);
 assert.equal(failover.result, 'Hydrogen response');
 assert.equal(failover.keyName, 'GEMINI_API_KEY_7');
+
+const fallbackKeys = [
+  { name: 'GEMINI_API_KEY_1' as const, apiKey: 'primary-one' },
+  { name: 'GEMINI_API_KEY_2' as const, apiKey: 'primary-two' }
+];
+
+const timeoutFailoverCalls: string[] = [];
+const timeoutFailover = await withGeminiKeyRotation({
+  keys: fallbackKeys,
+  operation: async (apiKey, keyName) => {
+    timeoutFailoverCalls.push(keyName);
+    if (apiKey === 'primary-one') throw Object.assign(new Error('This operation was aborted'), { name: 'AbortError' });
+    return 'Recovered after timeout';
+  }
+});
+assert.deepEqual(timeoutFailoverCalls, ['GEMINI_API_KEY_1', 'GEMINI_API_KEY_2']);
+assert.equal(timeoutFailover.result, 'Recovered after timeout');
+assert.equal(timeoutFailover.keyName, 'GEMINI_API_KEY_2');
 
 const nonRetryableCalls: string[] = [];
 await assert.rejects(() => withGeminiKeyRotation({
@@ -82,10 +102,6 @@ assert.deepEqual(getGeminiFallbackModels({ GEMINI_FALLBACK_MODEL: 'off' } as Nod
 assert.deepEqual(getGeminiFallbackModels({ GEMINI_FALLBACK_MODEL: 'gemini-3.5-flash-lite' } as NodeJS.ProcessEnv), ['gemini-3.5-flash-lite']);
 assert.throws(() => getGeminiFallbackModels({ GEMINI_FALLBACK_MODEL: '../invalid' } as NodeJS.ProcessEnv), /invalid model identifier/);
 
-const fallbackKeys = [
-  { name: 'GEMINI_API_KEY_1' as const, apiKey: 'primary-one' },
-  { name: 'GEMINI_API_KEY_2' as const, apiKey: 'primary-two' }
-];
 const routedCalls: string[] = [];
 const fallbackEvents: Array<{ from: string; to: string; key: string }> = [];
 const routed = await withGeminiModelFallback({
@@ -109,6 +125,21 @@ assert.deepEqual(routedCalls, [
 assert.equal(routed.result, 'fallback response');
 assert.equal(routed.modelName, GEMINI_DEFAULT_FALLBACK_MODEL);
 assert.equal(routed.keyName, 'GEMINI_API_KEY_2');
+
+const timeoutModelFallbackCalls: string[] = [];
+const timeoutModelFallback = await withGeminiModelFallback({
+  keys: [{ name: 'GEMINI_API_KEY_1', apiKey: 'timeout-key' }],
+  primaryModel: GEMINI_PRIMARY_MODEL,
+  fallbackModels: [GEMINI_DEFAULT_FALLBACK_MODEL],
+  operation: async (modelName) => {
+    timeoutModelFallbackCalls.push(modelName);
+    if (modelName === GEMINI_PRIMARY_MODEL) throw Object.assign(new Error('This operation was aborted'), { name: 'AbortError' });
+    return 'Recovered on fallback model';
+  }
+});
+assert.deepEqual(timeoutModelFallbackCalls, [GEMINI_PRIMARY_MODEL, GEMINI_DEFAULT_FALLBACK_MODEL]);
+assert.equal(timeoutModelFallback.result, 'Recovered on fallback model');
+assert.equal(timeoutModelFallback.modelName, GEMINI_DEFAULT_FALLBACK_MODEL);
 assert.deepEqual(fallbackEvents, [{
   from: GEMINI_PRIMARY_MODEL,
   to: GEMINI_DEFAULT_FALLBACK_MODEL,
@@ -135,3 +166,25 @@ await assert.rejects(() => withGeminiModelFallback({
 }), /Nie udało się uruchomić żadnego skonfigurowanego modelu Gemini/);
 
 console.log('Gemini model fallback tests passed');
+
+const {
+  GEMINI_HTTP_TIMEOUT_MS,
+  GEMINI_NARRATION_REVISION_BUDGET_MS,
+  GEMINI_REQUEST_BUDGET_MS,
+  getGeminiHttpOptions,
+  getGeminiRemainingBudgetMs
+} = await import('../src/server/geminiRequestPolicy');
+
+assert.equal(GEMINI_HTTP_TIMEOUT_MS, 20_000);
+assert.equal(GEMINI_REQUEST_BUDGET_MS, 45_000);
+assert.equal(GEMINI_NARRATION_REVISION_BUDGET_MS, 45_000);
+assert.deepEqual(getGeminiHttpOptions(45_000), { timeout: 20_000, retryOptions: { attempts: 1 } });
+assert.deepEqual(getGeminiHttpOptions(3_500), { timeout: 3_500, retryOptions: { attempts: 1 } });
+assert.equal(getGeminiHttpOptions(0), null, 'expired request budget prevents another provider attempt');
+assert.equal(getGeminiHttpOptions(-1), null, 'negative request budget prevents another provider attempt');
+assert.equal(getGeminiRemainingBudgetMs(10_000, 2_500), 7_500);
+assert.equal(getGeminiRemainingBudgetMs(10_000, 10_000), 0);
+assert.equal(getGeminiRemainingBudgetMs(10_000, 12_000), 0);
+assert.equal(getGeminiRemainingBudgetMs(Number.NaN, 0), 0);
+
+console.log('Gemini bounded request policy tests passed');
