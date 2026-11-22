@@ -876,27 +876,12 @@ async function verifyStockVisualCandidates(
   );
   const shortlist = selectDiverseStockCandidates(
     [...candidates]
-      .filter((item) => Number.isSafeInteger(item.pexelsId) && (item.previewImageUrls?.length || 0) > 0)
+      .filter((item) => Number.isSafeInteger(item.pexelsId) && Boolean(item.videoUrl))
       .sort((a, b) => (b.selectionScore ?? -Infinity) - (a.selectionScore ?? -Infinity)),
     4,
     2
   );
   const downloaded = await Promise.all(shortlist.map(async (candidate) => {
-    const previewFrames = await Promise.all(selectStockPreviewFrameUrls(candidate.previewImageUrls || [], 3).map(async (imageUrl) => {
-      try {
-        if (!isTrustedStockPreviewUrl(imageUrl)) return null;
-        const response = await fetch(imageUrl, { signal: AbortSignal.timeout(10000), redirect: 'error' });
-        if (!response.ok) return null;
-        const mimeType = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
-        if (!['image/jpeg', 'image/png', 'image/webp'].includes(mimeType)) return null;
-        const bytes = Buffer.from(await response.arrayBuffer());
-        if (bytes.length === 0 || bytes.length > 4 * 1024 * 1024) return null;
-        return { mimeType, data: bytes.toString('base64') };
-      } catch (error) {
-        console.warn('[Stock visual precheck] Podgląd ' + candidate.source + ':' + candidate.pexelsId + ' niedostępny: ' + (error as Error).message);
-        return null;
-      }
-    }));
     // Always inspect actual video frames from the exact opening window used by
     // the renderer. Provider previews may show a different part of a long clip,
     // so preview-only QA can approve content that is never rendered.
