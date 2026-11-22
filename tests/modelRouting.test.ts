@@ -56,6 +56,11 @@ assert.deepEqual(calls, [
 assert.equal(failover.result, 'Hydrogen response');
 assert.equal(failover.keyName, 'GEMINI_API_KEY_7');
 
+const fallbackKeys = [
+  { name: 'GEMINI_API_KEY_1' as const, apiKey: 'primary-one' },
+  { name: 'GEMINI_API_KEY_2' as const, apiKey: 'primary-two' }
+];
+
 const timeoutFailoverCalls: string[] = [];
 const timeoutFailover = await withGeminiKeyRotation({
   keys: fallbackKeys,
@@ -97,10 +102,6 @@ assert.deepEqual(getGeminiFallbackModels({ GEMINI_FALLBACK_MODEL: 'off' } as Nod
 assert.deepEqual(getGeminiFallbackModels({ GEMINI_FALLBACK_MODEL: 'gemini-3.5-flash-lite' } as NodeJS.ProcessEnv), ['gemini-3.5-flash-lite']);
 assert.throws(() => getGeminiFallbackModels({ GEMINI_FALLBACK_MODEL: '../invalid' } as NodeJS.ProcessEnv), /invalid model identifier/);
 
-const fallbackKeys = [
-  { name: 'GEMINI_API_KEY_1' as const, apiKey: 'primary-one' },
-  { name: 'GEMINI_API_KEY_2' as const, apiKey: 'primary-two' }
-];
 const routedCalls: string[] = [];
 const fallbackEvents: Array<{ from: string; to: string; key: string }> = [];
 const routed = await withGeminiModelFallback({
