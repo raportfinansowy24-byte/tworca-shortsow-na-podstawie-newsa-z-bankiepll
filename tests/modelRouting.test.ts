@@ -37,6 +37,8 @@ assert.equal(shouldRotateGeminiKey(new Error('HTTP 503 UNAVAILABLE')), true);
 assert.equal(shouldRotateGeminiKey(new Error('HTTP 401 API key invalid')), true);
 assert.equal(shouldRotateGeminiKey(new Error('HTTP 400 API_KEY_INVALID')), true);
 assert.equal(shouldRotateGeminiKey(new Error('HTTP 400 invalid response schema')), false);
+assert.equal(shouldRotateGeminiKey(Object.assign(new Error('This operation was aborted'), { name: 'AbortError' })), true);
+assert.equal(shouldRotateGeminiKey(new Error('AbortError: This operation was aborted')), true);
 
 const calls: string[] = [];
 const failover = await withGeminiKeyRotation({
@@ -53,6 +55,19 @@ assert.deepEqual(calls, [
 ]);
 assert.equal(failover.result, 'Hydrogen response');
 assert.equal(failover.keyName, 'GEMINI_API_KEY_7');
+
+const timeoutFailoverCalls: string[] = [];
+const timeoutFailover = await withGeminiKeyRotation({
+  keys: fallbackKeys,
+  operation: async (apiKey, keyName) => {
+    timeoutFailoverCalls.push(keyName);
+    if (apiKey === 'primary-one') throw Object.assign(new Error('This operation was aborted'), { name: 'AbortError' });
+    return 'Recovered after timeout';
+  }
+});
+assert.deepEqual(timeoutFailoverCalls, ['GEMINI_API_KEY_1', 'GEMINI_API_KEY_2']);
+assert.equal(timeoutFailover.result, 'Recovered after timeout');
+assert.equal(timeoutFailover.keyName, 'GEMINI_API_KEY_2');
 
 const nonRetryableCalls: string[] = [];
 await assert.rejects(() => withGeminiKeyRotation({
@@ -109,6 +124,21 @@ assert.deepEqual(routedCalls, [
 assert.equal(routed.result, 'fallback response');
 assert.equal(routed.modelName, GEMINI_DEFAULT_FALLBACK_MODEL);
 assert.equal(routed.keyName, 'GEMINI_API_KEY_2');
+
+const timeoutModelFallbackCalls: string[] = [];
+const timeoutModelFallback = await withGeminiModelFallback({
+  keys: [{ name: 'GEMINI_API_KEY_1', apiKey: 'timeout-key' }],
+  primaryModel: GEMINI_PRIMARY_MODEL,
+  fallbackModels: [GEMINI_DEFAULT_FALLBACK_MODEL],
+  operation: async (modelName) => {
+    timeoutModelFallbackCalls.push(modelName);
+    if (modelName === GEMINI_PRIMARY_MODEL) throw Object.assign(new Error('This operation was aborted'), { name: 'AbortError' });
+    return 'Recovered on fallback model';
+  }
+});
+assert.deepEqual(timeoutModelFallbackCalls, [GEMINI_PRIMARY_MODEL, GEMINI_DEFAULT_FALLBACK_MODEL]);
+assert.equal(timeoutModelFallback.result, 'Recovered on fallback model');
+assert.equal(timeoutModelFallback.modelName, GEMINI_DEFAULT_FALLBACK_MODEL);
 assert.deepEqual(fallbackEvents, [{
   from: GEMINI_PRIMARY_MODEL,
   to: GEMINI_DEFAULT_FALLBACK_MODEL,
