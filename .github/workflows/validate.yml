@@ -90,6 +90,8 @@ jobs:
         run: npm run test:visual-qa-providers
       - name: Stock clip rendered-window sampling tests
         run: npm run test:stock-clip-sampling
+      - name: Stock QA scene-duration propagation tests
+        run: npm run test:stock-qa-duration-propagation
       - name: Stock candidate soft-avoid policy tests
         run: npm run test:stock-candidate-policy
       - name: Scene-specific stock search and balanced provider selection tests

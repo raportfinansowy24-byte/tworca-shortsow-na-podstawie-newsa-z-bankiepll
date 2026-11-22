@@ -5397,7 +5397,8 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
             resolveStock: () => resolveStockOrPexelsVideoDetailed(targetKeyword, idx, usedPexelsIds, {
               context: visualContext,
               sceneNarration: String(textContent),
-              requirePexels: requireNewsPexels
+              requirePexels: requireNewsPexels,
+              targetDurationSeconds: sceneDurations[idx]
             }),
             sourceText: [financeCardSource.title, financeCardSource.description, financeCardSource.summary].join('\n'),
             sourceEvidence: String(sc.sourceEvidence || ''),
@@ -5565,7 +5566,8 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
       resolveStock: () => resolveStockOrPexelsVideoDetailed(targetKw, idx, usedPexelsIds, {
         context: visualContext,
         sceneNarration: String(sc.voiceover_text || sc.subtitles || ''),
-        requirePexels: requireNewsPexels
+        requirePexels: requireNewsPexels,
+        targetDurationSeconds: sceneDurations[idx]
       }),
       sourceText: [financeCardSource.title, financeCardSource.description, financeCardSource.summary].join('\n'),
       sourceEvidence: String((sc as any).sourceEvidence || ''),
@@ -5719,7 +5721,7 @@ Wymagania JSON:
 
         for (let idx = 0; idx < parsed.scenes.length; idx++) {
           const sc = parsed.scenes[idx];
-          const resolved = await resolveStockOrPexelsVideoDetailed(sc.searchKeyword, idx, usedPexelsIds, { requirePexels: true, sceneNarration: String(sc.voiceover_text || sc.subtitles || '') });
+          const resolved = await resolveStockOrPexelsVideoDetailed(sc.searchKeyword, idx, usedPexelsIds, { requirePexels: true, sceneNarration: String(sc.voiceover_text || sc.subtitles || ''), targetDurationSeconds: sceneDurations[idx] });
           if (resolved.pexelsId) {
             usedPexelsIds.push(resolved.pexelsId);
           }
@@ -5814,7 +5816,7 @@ Wymagania JSON:
       searchKeyword,
       idx,
       usedPexelsIds,
-      { context: scriptText, requirePexels: true, sceneNarration: chunk }
+      { context: scriptText, requirePexels: true, sceneNarration: chunk, targetDurationSeconds: dur }
     );
     if (!['pexels', 'pixabay'].includes(resolved.source) || !resolved.pexelsId) {
       throw new Error(`Scena tłumaczenia ${idx + 1} nie otrzymała klipu stockowego.`);
@@ -6793,7 +6795,7 @@ const handleInboundWebhook = async (req: express.Request, res: express.Response)
             String(scene.searchKeyword || topicName),
             idx,
             usedPexelsIds,
-            { context: topicName, requirePexels: true, sceneNarration: String(scene.voiceover_text || scene.subtitles || '') }
+            { context: topicName, requirePexels: true, sceneNarration: String(scene.voiceover_text || scene.subtitles || ''), targetDurationSeconds: Number(scene.duration) || 8 }
           );
           if (!['pexels', 'pixabay'].includes(resolved.source) || !resolved.pexelsId) {
             throw new Error(`Scena ${idx + 1} nie otrzymała klipu stockowego.`);
@@ -7235,7 +7237,8 @@ router.post('/stock/fetch-scene-footage', async (req, res) => {
       const item = await resolveStockOrPexelsVideoDetailed(query, idx, usedPexelsIds, {
         context: visualContext,
         sceneNarration: String(req.body?.sceneNarrations?.[idx] || req.body?.narrations?.[idx] || ''),
-        requirePexels: mustUseMatchedStock
+        requirePexels: mustUseMatchedStock,
+        targetDurationSeconds: Number(req.body?.sceneDurations?.[idx]) || undefined
       });
       if (item.pexelsId) {
         usedPexelsIds.push(item.pexelsId);
