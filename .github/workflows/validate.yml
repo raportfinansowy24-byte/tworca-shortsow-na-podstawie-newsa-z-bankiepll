@@ -88,6 +88,8 @@ jobs:
         run: npm run test:stream-ticket-store
       - name: Visual QA provider fallback tests
         run: npm run test:visual-qa-providers
+      - name: Stock clip rendered-window sampling tests
+        run: npm run test:stock-clip-sampling
       - name: Stock candidate soft-avoid policy tests
         run: npm run test:stock-candidate-policy
       - name: Scene-specific stock search and balanced provider selection tests
