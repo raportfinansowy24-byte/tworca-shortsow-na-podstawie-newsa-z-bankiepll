@@ -12,6 +12,7 @@ import { downloadRemoteFile, postWebhook } from './src/server/safeHttp';
 import { isPublicExportFilename, isSafeExportPath, parseByteRange } from './src/server/byteRange';
 import { runCompletionCallback } from './src/server/renderDeadline';
 import { createStreamTicketStore, STREAM_TICKET_TTL_MS } from './src/server/streamTickets';
+import { BestEffortFlush } from './src/server/bestEffortFlush';
 import { exec, execFile, spawn, ChildProcess } from 'child_process';
 import { promisify } from 'util';
 import { createServer as createViteServer } from 'vite';
@@ -1450,13 +1451,19 @@ function saveJobsToDisk(): Promise<void> {
   return writePromise;
 }
 
+const bestEffortJobsFlush = new BestEffortFlush(() => saveJobsToDisk(), { delayMs: 50 });
+
+async function flushJobsToDisk(): Promise<void> {
+  await bestEffortJobsFlush.flushNow();
+}
+
 async function updateJobProgressAndFlush(
   jobId: string,
   update: Partial<Job>,
   logMsg?: string
 ): Promise<void> {
   updateJobProgress(jobId, update, logMsg);
-  await saveJobsToDisk();
+  await flushJobsToDisk();
 }
 
 function loadJobsFromDisk() {
@@ -1602,7 +1609,7 @@ function updateJobProgress(
     });
   }
 
-  saveJobsToDisk();
+  bestEffortJobsFlush.schedule();
   const importantUpdate = Boolean(
     update.status || update.outputUrl || update.outputFilename || update.exportStatus ||
     update.driveUrl || update.driveFileId || update.error || update.telegramApprovalStatus
@@ -1726,7 +1733,7 @@ async function createTelegramRevisionJob(parentJobId: string, feedback: string):
   };
 
   jobsStore.set(jobId, revisionJob);
-  await saveJobsToDisk();
+  await flushJobsToDisk();
   queueShortJobSnapshot(revisionJob as ShortJobSnapshot, true);
   updateJobProgress(parentJobId, {
     telegramApprovalStatus: 'rework_created',
@@ -2176,7 +2183,10 @@ type CaptionWordTiming = { word: string; start: number; end: number };
 async function getAudioDuration(audioPath: string): Promise<number> {
   if (!fs.existsSync(audioPath)) return 0;
   try {
-    const { stdout } = await execPromise(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${audioPath}"`);
+    const { stdout } = await execFilePromise('ffprobe', [
+      '-v', 'error', '-show_entries', 'format=duration',
+      '-of', 'default=noprint_wrappers=1:nokey=1', audioPath
+    ]);
     const duration = Number.parseFloat(stdout.trim());
     return Number.isFinite(duration) && duration > 0 ? duration : 0;
   } catch {
@@ -3550,7 +3560,10 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
     const thumbnailPath = path.join(EXPORTS_DIR, thumbnailFilename);
     let thumbnailUrl: string | undefined = undefined;
     try {
-      await execPromise(`ffmpeg -y -ss 00:00:01.200 -i "${finalOutputPath}" -vframes 1 -q:v 2 "${thumbnailPath}"`);
+      await execFilePromise('ffmpeg', [
+        '-y', '-ss', '00:00:01.200', '-i', finalOutputPath,
+        '-vframes', '1', '-q:v', '2', thumbnailPath
+      ]);
       if (fs.existsSync(thumbnailPath)) {
         thumbnailUrl = `${baseUrl}/exports/${thumbnailFilename}`;
       }
@@ -6439,7 +6452,7 @@ router.post('/auto-pilot-shorts', async (req, res) => {
     };
 
     jobsStore.set(jobId, newJob);
-    await saveJobsToDisk();
+    await flushJobsToDisk();
     queueShortJobSnapshot(newJob as ShortJobSnapshot, true);
     if (pipelineRunId) {
       void updatePipelineRunStatus(pipelineRunId, 'queued', jobId);
@@ -6631,7 +6644,7 @@ router.post('/combine-scenes', async (req, res) => {
   };
 
   jobsStore.set(jobId, newJob);
-  await saveJobsToDisk();
+  await flushJobsToDisk();
   queueShortJobSnapshot(newJob as ShortJobSnapshot, true);
 
   const isAsync = payload.async === true || Boolean(payload.webhookUrl);
@@ -6898,7 +6911,7 @@ const handleInboundWebhook = async (req: express.Request, res: express.Response)
         updatedAt: new Date().toISOString()
       };
       jobsStore.set(jobId, newJob);
-      await saveJobsToDisk();
+      await flushJobsToDisk();
       queueShortJobSnapshot(newJob as ShortJobSnapshot, true);
 
       // Start asynchronous job
@@ -7165,7 +7178,10 @@ router.get('/jobs/:jobId/thumbnail', async (req, res) => {
   const videoPath = path.join(EXPORTS_DIR, job.outputFilename);
   if (fs.existsSync(videoPath)) {
     try {
-      await execPromise(`ffmpeg -y -ss 00:00:01.200 -i "${videoPath}" -vframes 1 -q:v 2 "${thumbPath}"`);
+      await execFilePromise('ffmpeg', [
+        '-y', '-ss', '00:00:01.200', '-i', videoPath,
+        '-vframes', '1', '-q:v', '2', thumbPath
+      ]);
       if (fs.existsSync(thumbPath)) {
         res.setHeader('Content-Type', 'image/jpeg');
         res.setHeader('Cache-Control', 'public, max-age=86400');
@@ -7346,7 +7362,7 @@ router.post('/jobs/:jobId/cancel', historyMutationRateLimit, async (req, res) =>
     return res.status(404).json({ error: `Nie znaleziono zadania ${jobId}` });
   }
 
-  await saveJobsToDisk();
+  await flushJobsToDisk();
   res.json({
     success: true,
     message: `Zadanie ${jobId} zostało natychmiast zatrzymane i wyczyszczone.`,
@@ -7365,7 +7381,7 @@ router.delete('/jobs/:jobId', historyMutationRateLimit, async (req, res) => {
 
   if (!job) {
     // Usunięto z aktywnych procesów lub nie było w bazie
-    await saveJobsToDisk();
+    await flushJobsToDisk();
     return res.json({ success: true, message: `Zadanie ${jobId} zostało zatrzymane i usunięte.` });
   }
 
@@ -7398,9 +7414,9 @@ router.delete('/jobs/:jobId', historyMutationRateLimit, async (req, res) => {
   }
 
   jobsStore.delete(jobId);
-  await saveJobsToDisk();
+  await flushJobsToDisk();
 
-  res.json({ success: true, message: `Zadanie ${jobId} zostało zatrzymane i bezpowrotnie usunięte z historii.` });
+  res.json({ success: true, message: `Zadanie ${jobId} zostało zatrzymane i usunięte z lokalnej historii cache.` });
 });
 
 // Clear Jobs History (/api/jobs)
@@ -7415,7 +7431,7 @@ router.delete('/jobs', historyMutationRateLimit, async (req, res) => {
       }
     }
   }
-  await saveJobsToDisk();
+  await flushJobsToDisk();
   res.json({ success: true, message: 'Historia renderowania została pomyślnie wyczyszczona.' });
 });
 
@@ -8759,7 +8775,7 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
       console.warn('[Autopilot Retry] Nie udało się zapisać dokładnego payloadu do wznowienia: ' + (error as Error).message);
     }
     jobsStore.set(jobId, newJob);
-    await saveJobsToDisk();
+    await flushJobsToDisk();
     queueShortJobSnapshot(newJob as ShortJobSnapshot, true);
     void recordAutopilotPipelineRun({
       runId: jobId, jobId, title: candidate.title, articleUrl: candidate.link,

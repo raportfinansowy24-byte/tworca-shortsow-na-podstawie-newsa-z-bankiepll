@@ -90,7 +90,10 @@ export class AtomicJsonFile<T> {
         current.waiters.forEach(({ reject }) => reject(error));
       }
     }
+    await this.onDrainIdle();
   }
+
+  protected async onDrainIdle(): Promise<void> {}
 
   protected async commit(serialized: string): Promise<void> {
     const directory = path.dirname(this.filePath);

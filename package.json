@@ -21,6 +21,7 @@
     "test:visual-qa-providers": "tsx tests/visualQaProviders.test.ts",
     "test:supabase-history": "tsx tests/supabaseJobStore.test.ts",
     "test:atomic-json": "tsx tests/atomicJsonFile.test.ts",
+    "test:best-effort-flush": "tsx tests/bestEffortFlush.test.ts",
     "test:supabase-url": "tsx tests/supabaseUrl.test.ts",
     "test:telegram-review": "tsx tests/telegramReview.test.ts",
     "test:telegram-chat": "tsx tests/telegramChatCommands.test.ts",

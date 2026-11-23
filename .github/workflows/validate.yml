@@ -110,6 +110,8 @@ jobs:
         run: npm run test:supabase-history
       - name: Atomic local history tests
         run: npm run test:atomic-json
+      - name: Best-effort history flush tests
+        run: npm run test:best-effort-flush
 
 
   deploy_production:

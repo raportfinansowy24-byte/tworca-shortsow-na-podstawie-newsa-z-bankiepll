@@ -86,6 +86,19 @@ try {
   assert.equal(maxActiveCommits, 1, 'coalesced writer must never commit snapshots concurrently');
   assert.deepEqual(coalesced.load(), [19]);
 
+  const boundaryPath = path.join(tempDir, 'drain-boundary.json');
+  class BoundaryAtomicJsonFile extends AtomicJsonFile<number[]> {
+    secondWrite: Promise<void> | undefined;
+
+    protected override async onDrainIdle(): Promise<void> {
+      if (!this.secondWrite) this.secondWrite = this.write([31]);
+    }
+  }
+  const boundary = new BoundaryAtomicJsonFile({ filePath: boundaryPath });
+  await boundary.write([30]);
+  await boundary.secondWrite;
+  assert.deepEqual(boundary.load(), [31], 'a write at drain completion must be drained and persisted');
+
   console.log('Atomic JSON file tests passed');
 } finally {
   fs.rmSync(tempDir, { recursive: true, force: true });
