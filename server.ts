@@ -5275,7 +5275,7 @@ BAZOWE CZASY SCEN: 2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5 sekundy.
 
   try {
     const prompt = `Jesteś elitarnym twórcą viralowych formatów wideo dla portalu raport-finansowy24.pl (w stylu CNBC, Bloomberg, Hormozi).
-Stwórz wysoce merytoryczny, porywający scenariusz na 18-sekundowy film złożony z DOKŁADNIE 8 dynamicznych scen o czasach 2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5 sekundy w języku: ${language} na temat: "${cleanTopic}" (Kategoria: ${niche}).
+Stwórz wysoce merytoryczny scenariusz Shorta z DOKŁADNIE 8 scen w języku: ${language} na temat: "${cleanTopic}" (Kategoria: ${niche}). Preferowany cel redakcyjny to około 18 sekund, minimum gotowego filmu wynosi 15 sekund i nie ma górnego limitu. Podane czasy scen [2, 2, 2, 2, 2.5, 2.5, 2.5, 2.5] są wyłącznie budżetem początkowym — końcowy timeline ma odpowiadać rzeczywistej długości ciągłego lektora.
 ${dataBoundaryInstructions}
 ${offerMatchPrompt}
 ${buildCtaPolicyPrompt()}
