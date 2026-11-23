@@ -1,5 +1,5 @@
 import { evaluateSourceEvidence } from './sourceFactQa';
-import { isSafeFinanceDataVisualSvg, MAX_SHORT_DURATION_SECONDS, MIN_SHORT_DURATION_SECONDS, TARGET_SHORT_DURATION_SECONDS } from './sceneContract';
+import { isSafeFinanceDataVisualSvg, MIN_SHORT_DURATION_SECONDS, TARGET_SHORT_DURATION_SECONDS } from './sceneContract';
 
 export type ShortsEditorQaSeverity = 'blocker' | 'warning';
 export type ShortsEditorQaStatus = 'pass' | 'review' | 'blocked';
@@ -50,7 +50,6 @@ export function hasNarrationWithinWordRanges(
 
 export interface ShortsEditorQaOptions {
   expectedSceneCount?: number;
-  maxDurationSeconds?: number;
   expectedDurationSeconds?: number;
   requireCta?: boolean;
   requireVisualQueries?: boolean;
@@ -144,7 +143,6 @@ function clampScore(score: number): number {
 export function evaluateShortStoryboard(rawScenes: unknown, options: ShortsEditorQaOptions = {}): ShortsEditorQaReport {
   const scenes = Array.isArray(rawScenes) ? rawScenes.map(sceneObject) : [];
   const expectedSceneCount = options.expectedSceneCount;
-  const maxDurationSeconds = options.maxDurationSeconds ?? MAX_SHORT_DURATION_SECONDS;
   const findings: ShortsEditorQaFinding[] = [];
   let score = 100;
 
@@ -228,11 +226,11 @@ export function evaluateShortStoryboard(rawScenes: unknown, options: ShortsEdito
   if (!options.skipNarrationLengthChecks && typeof options.maxNarrationWordsExcludingLast === 'number' && narrationWordsExcludingLast > options.maxNarrationWordsExcludingLast) {
     addFinding({ code: 'total_words_over_limit', severity: 'blocker', message: `Lektor scen 1–${Math.max(1, scenes.length - 1)} ma ${narrationWordsExcludingLast} słów; limit to ${options.maxNarrationWordsExcludingLast}.` });
   }
-  if (totalDuration > maxDurationSeconds + 0.001) {
-    addFinding({ code: 'duration_over_limit', severity: 'blocker', message: `Plan ma ${totalDuration.toFixed(2)} s; limit wynosi ${maxDurationSeconds} s.` });
+  if (totalDuration < MIN_SHORT_DURATION_SECONDS - 0.001) {
+    addFinding({ code: 'duration_under_minimum', severity: 'blocker', message: `Plan ma ${totalDuration.toFixed(2)} s; minimum wynosi ${MIN_SHORT_DURATION_SECONDS} s.` });
   }
-  if (typeof options.expectedDurationSeconds === 'number' && Math.abs(totalDuration - options.expectedDurationSeconds) > 2) {
-    addFinding({ code: 'duration_off_target', severity: 'warning', message: `Plan ma ${totalDuration.toFixed(2)} s zamiast około ${options.expectedDurationSeconds} s.` });
+  if (typeof options.expectedDurationSeconds === 'number' && totalDuration < options.expectedDurationSeconds - 2) {
+    addFinding({ code: 'duration_off_target', severity: 'warning', message: `Plan ma ${totalDuration.toFixed(2)} s i jest wyraźnie krótszy od celu ${options.expectedDurationSeconds} s.` });
   }
 
   const seenNarrations = new Map<string, number>();
@@ -319,7 +317,7 @@ export function buildShortsEditorQaRevisionInstruction(
   return [
     'SHORTS EDITOR QA — POPRAWKA PLANU ' + attemptLabel,
     'Zachowaj ten sam artykuł i wyłącznie potwierdzone fakty. Nie twórz nowego tematu ani nie wymyślaj liczb.',
-    `Zwróć dokładnie 8 scen na około 18 sekund (maksymalnie ${MAX_SHORT_DURATION_SECONDS} sekund). Pierwsze ujęcie ma zatrzymać uwagę od razu; ostatnie ma zawierać zatwierdzone CTA.`,
+    `Zwróć dokładnie 8 scen. Preferowany cel to około ${TARGET_SHORT_DURATION_SECONDS} sekund, ale gotowy Short musi trwać co najmniej ${MIN_SHORT_DURATION_SECONDS} sekund i nie ma górnego limitu czasu. Nie skracaj ani nie przyspieszaj narracji tylko po to, by zmieścić ją w arbitralnym maksimum. Pierwsze ujęcie ma zatrzymać uwagę od razu; ostatnie ma zawierać zatwierdzone CTA.`,
     'Każda scena ma mieć krótką narrację, identyczną treść napisów i konkretne zapytanie wizualne odnoszące się do tej kwestii.',
     'Każda scena faktograficzna musi zawierać sourceEvidence: krótki, dosłowny cytat z przekazanego artykułu. Cytat musi zawierać wykorzystane liczby i nie może być parafrazowany ani wymyślony.',
     'Usuń powtórzone zdania, ogólniki i niepotrzebne słowa. Nie czytaj URL-i lektorem. Nie zmieniaj polityki CTA.',
@@ -338,7 +336,6 @@ export function evaluateRenderedShort(metrics: RenderedShortMetrics): ShortsEdit
     findings.push(finding);
     score -= finding.severity === 'blocker' ? 35 : 10;
   };
-  const maxDurationSeconds = metrics.maxDurationSeconds ?? MAX_SHORT_DURATION_SECONDS;
 
   if (!metrics.hasVideo) {
     addFinding({ code: 'missing_video_stream', severity: 'blocker', message: 'Gotowy plik nie zawiera strumienia wideo.' });
@@ -358,9 +355,6 @@ export function evaluateRenderedShort(metrics: RenderedShortMetrics): ShortsEdit
   if (!Number.isFinite(metrics.durationSeconds) || Number(metrics.durationSeconds) <= 0) {
     addFinding({ code: 'invalid_output_duration', severity: 'blocker', message: 'Nie udało się odczytać długości gotowego pliku.' });
   } else {
-    if (Number(metrics.durationSeconds) > maxDurationSeconds + 0.001) {
-      addFinding({ code: 'output_over_duration_limit', severity: 'blocker', message: `Gotowy film trwa ${Number(metrics.durationSeconds).toFixed(2)} s; limit wynosi ${maxDurationSeconds} s.` });
-    }
     if (Number(metrics.durationSeconds) < MIN_SHORT_DURATION_SECONDS - 0.001) {
       addFinding({
         code: 'output_under_minimum_duration',
@@ -368,8 +362,7 @@ export function evaluateRenderedShort(metrics: RenderedShortMetrics): ShortsEdit
         message: `Gotowy film trwa ${Number(metrics.durationSeconds).toFixed(2)} s; minimum wynosi ${MIN_SHORT_DURATION_SECONDS} s.`
       });
     }
-    // Longer speech-led renders may use the explicitly allowed reserve up to maxDurationSeconds.
-    // Do not warn merely because a valid narration expanded beyond the 18s editorial target.
+    // Longer speech-led renders are valid. Warn only when the result is materially shorter than its planned target.
     if (typeof metrics.expectedDurationSeconds === 'number' &&
         Number(metrics.durationSeconds) < metrics.expectedDurationSeconds - 3) {
       addFinding({
