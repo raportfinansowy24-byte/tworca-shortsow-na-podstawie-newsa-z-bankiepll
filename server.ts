@@ -5682,7 +5682,7 @@ async function translateSmartOrGeminiScript({
     const prompt = `Jesteś ekspertem automatycznego tłumaczenia i tworzenia krótkich scen wideo (Shorts / TikTok / Reels).
 Przetłumacz i podziel poniższy tekst / transkrypcję z nagrania wideo na język: "${targetLanguage}".
 Podziel go na ${count} scen z uderzającymi napisami oraz dobierz angielskie słowa kluczowe tła wideo Pexels dla każdej sceny.
-To adaptacja do krótkiego formatu, nie tłumaczenie dosłowne: zachowaj najważniejsze fakty. Sceny 1–4 mają maksymalnie 5 słów, sceny 5–8 maksymalnie 6 słów. Docelowy czas Shorta to 23 s; łączny limit bezwzględny to 28 s. CTA wlicza się do limitu.
+To adaptacja do krótkiego formatu, nie tłumaczenie dosłowne: zachowaj najważniejsze fakty. Sceny 1–4 mają maksymalnie 5 słów, sceny 5–8 maksymalnie 6 słów. Docelowy czas orientacyjny Shorta to 23 s; gotowy film ma trwać co najmniej 15 s i nie ma górnego limitu. Zachowaj naturalny czas lektora; CTA pozostaje częścią ciągłej narracji.
 
 Tekst do przetłumaczenia:
 "${scriptText}"
