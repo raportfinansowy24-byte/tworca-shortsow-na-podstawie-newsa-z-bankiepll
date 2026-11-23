@@ -2790,6 +2790,7 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
       requireCaptionAlignment: !payload.pipelinePlan,
       skipCaptionAlignment: Boolean(payload.pipelinePlan),
       skipNarrationLengthChecks: Boolean(payload.pipelinePlan),
+      skipNarrationDensityCheck: true,
       sourceText: payload.sourceArticleText,
       requireSourceEvidence: payload.requireSourceEvidence,
       requireBrandedCta: payload.requireBrandedCta
@@ -2996,6 +2997,36 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
         'Nieprawidłowy rzeczywisty budżet czasu Shorta (' + totalPlannedDuration.toFixed(2) +
         ' s); wymagane minimum to ' + MIN_SHORT_DURATION_SECONDS + ' sekund.'
       );
+    }
+    if (ttsEnabled) {
+      // Density is measured against the actual word-aligned TTS timeline, never the 2.25s storyboard placeholder.
+      const speechAlignedQa = evaluateShortStoryboard(
+        scenes.map((scene, index) => ({ ...scene, duration: plannedSceneDurations[index] })),
+        { skipCaptionAlignment: true }
+      );
+      const narrationDensityFindings = speechAlignedQa.findings.filter((finding) => finding.code === 'narration_too_dense');
+      const existingDensityQa = job.shortMetadata?.editorQa && typeof job.shortMetadata.editorQa === 'object'
+        ? job.shortMetadata.editorQa as Record<string, unknown>
+        : {};
+      updateJobProgress(jobId, {
+        shortMetadata: {
+          ...job.shortMetadata,
+          editorQa: {
+            ...existingDensityQa,
+            speechAlignedNarration: {
+              status: narrationDensityFindings.length ? 'review' : 'pass',
+              findings: narrationDensityFindings,
+              checkedAt: new Date().toISOString()
+            }
+          }
+        }
+      }, '[Shorts Editor QA] Kontrola gęstości na rzeczywistym timeline TTS: ' + (narrationDensityFindings.length ? 'review' : 'pass') + '.');
+      if (narrationDensityFindings.length && payload.requireAllQaPass) {
+        throw new Error(
+          'Narracja jest zbyt gęsta względem rzeczywistych czasów scen po TTS: ' +
+          narrationDensityFindings.map((finding) => finding.message).join(' | ')
+        );
+      }
     }
     console.info(
       `[Narration budget] One TTS request; per-scene video durations: ${plannedSceneDurations.map((duration) => duration.toFixed(2)).join(', ')}s; total=${totalPlannedDuration.toFixed(2)}s; full narration=${wholeNarrationDuration.toFixed(2)}s.`
@@ -8606,6 +8637,7 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
       requireUniquePexelsIds: true,
       requireCaptionAlignment: true,
       requireSourceEvidence: true,
+      skipNarrationDensityCheck: true,
       sourceText: [candidate.title, candidate.description, candidate.summary].filter(Boolean).join('\n'),
     };
     const initialEditorQa = evaluateShortStoryboard(scriptData.scenes, qaOptions);
