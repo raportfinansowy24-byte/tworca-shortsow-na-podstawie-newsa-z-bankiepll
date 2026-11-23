@@ -71,7 +71,7 @@ import { buildShortsEditorQaRevisionInstruction, evaluateRenderedShort, evaluate
 import { buildVisualAnalysisUnavailableReport, buildVisualSemanticReport, parseCompleteVisualSemanticResponse, type VisualSemanticReport, type VisualSemanticSample } from './src/server/shortsVisualSemanticQa';
 import { applyQaRepairAssets, buildQaRepairFailureReport, executeQaRepairOnce, QaRepairCancelledError, resolveUniqueQaRepairAssets, selectQaRepairCandidates, validatedPexelsRepairMetadata } from './src/server/qaRepair';
 import { buildConcatArgs, FAST_H264_OPTIONS, isValidConcatenatedVideo } from './src/server/renderOptimizations';
-import { buildEmotionallyDirectedNarration } from './src/server/emotionalDirection';
+import { buildEmotionallyDirectedNarration, getEmotionallyDirectedNarrationLimitError } from './src/server/emotionalDirection';
 import { getDeploymentInfo } from './src/server/deploymentInfo';
 import { retryVisualQa, runVisualQaWithFallback } from './src/server/visualQaProviders';
 import { mapNarrationAlignmentToScenes } from './src/server/singleNarration';
@@ -5380,7 +5380,22 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
         narrationWordRangeWithCta,
         ctaPlan.spokenText
       );
-      if (hasExpectedSceneCount && hasNarrationMinimum) {
+      const generationTtsModelId = process.env.ELEVENLABS_MODEL_ID?.trim() || 'eleven_multilingual_v2';
+      const candidateNarrationScenes = hasExpectedSceneCount
+        ? parsed.scenes.map((scene, index) => ({
+            ...scene,
+            voiceover_text: index === count - 1
+              ? ctaPlan.spokenText
+              : String(scene.voiceover_text || scene.subtitles || '').trim()
+          }))
+        : [];
+      const narrationLimitError = hasExpectedSceneCount
+        ? getEmotionallyDirectedNarrationLimitError(candidateNarrationScenes, generationTtsModelId)
+        : null;
+      if (narrationLimitError) {
+        console.warn(`[Viral Script] Odrzucono scenariusz przed akceptacją: ${narrationLimitError} Gotowy tekst przekracza limit pojedynczego żądania ElevenLabs.`);
+      }
+      if (hasExpectedSceneCount && hasNarrationMinimum && !narrationLimitError) {
         const usedPexelsIds: number[] = [];
         const scenesWithVideo = [];
 
@@ -5560,6 +5575,17 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
       subtitles: ctaPlan.spokenText,
       voiceover_text: ctaPlan.spokenText
     };
+  }
+  const fallbackTtsModelId = process.env.ELEVENLABS_MODEL_ID?.trim() || 'eleven_multilingual_v2';
+  const fallbackNarrationLimitError = getEmotionallyDirectedNarrationLimitError(
+    fallbackScript.scenes.map((scene) => ({
+      ...scene,
+      voiceover_text: String(scene.voiceover_text || scene.subtitles || '').trim()
+    })),
+    fallbackTtsModelId
+  );
+  if (fallbackNarrationLimitError) {
+    throw new Error(`Scenariusz AI przekroczył limit ElevenLabs, a scenariusz awaryjny również nie mieści się w jednym żądaniu: ${fallbackNarrationLimitError}`);
   }
   const aiDecisions = deriveAiViralDecisions(cleanTopic, bankierArticle?.description || articleContext, bankierArticle?.category || niche);
   const usedPexelsIds: number[] = [];
