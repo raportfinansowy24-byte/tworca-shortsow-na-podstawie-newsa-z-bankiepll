@@ -167,7 +167,7 @@ async function assertNumericRewriteIsRejected(originalText: string, revisedText:
   });
   assert.equal(calls, 2, `${label}: an unsafe numeric rewrite is rejected before the safe expansion`);
   assert.equal(result.rejectedNumericRevisionAttempts, 1, `${label}: unsafe candidate was counted as rejected`);
-  assert.match(result.sceneTexts[0], new RegExp(originalText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').slice(0, 12)));
+  assert.ok(result.sceneTexts[0].includes(originalText), `${label}: original numeric claim remains intact`);
   assert.ok(result.minimumEstimatedDurationSeconds >= 15, `${label}: safe expansion reaches the minimum runtime`);
 }
 
