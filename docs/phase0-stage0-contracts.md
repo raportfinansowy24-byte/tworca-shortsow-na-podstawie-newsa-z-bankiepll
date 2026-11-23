@@ -162,3 +162,45 @@ Do czasu akceptacji właściciela nie wolno:
 - wykonywać płatnych wywołań ani operacji na produkcyjnych danych.
 
 Ten dokument jest propozycją kontraktów Stage 0, a nie ich zatwierdzeniem.
+
+
+## 10. Źródła audytu i mapa kompletności issue
+
+Źródłem audytu jest commit `fe27d4da6e692e2f9b7d8aa732973b071ab16f8a` (`Pass exact scene durations to stock visual QA (#83)`). Kopie źródeł dostępne dla reviewerów w tym PR:
+
+- `docs/audit/phase1/issues_register.json` — pełny rejestr Phase 1, 13 pozycji;
+- `docs/audit/phase2/phase2_plan.md` — plan naprawczy i zależności Phase 2.
+
+Poniższa macierz przypisuje każdą pozycję rejestru do etapu, kontraktu i testu akceptacyjnego. Nazwy testów w tej tabeli są kryteriami przyszłych PR-ów, a nie deklaracją, że zostały już zaimplementowane.
+
+| Issue | Etap Phase 2 | Kontrakt Stage 0 | Test akceptacyjny |
+|---|---|---|---|
+| RF24-P1-001 | Etap 1 — historia i trwałość | Supabase jako źródło autorytatywne; tombstone; historia ≠ purge plików | delete/clear → hydracja/restart nie odtwarza wpisu; idempotencja i kontrola zakresu retencji |
+| RF24-P1-002 | Etap 1 — historia i trwałość | lokalny JSON jako cache/recovery; atomowy writer/outbox | przerwanie przed/po rename, uszkodzony plik, odzyskanie ostatniego snapshotu, debounce |
+| RF24-P1-003 | Etap 2 — kontrola artefaktów | generated exports/history/temp poza Git; fixture’y jawnie wydzielone | clean clone, `git check-ignore`, CI odrzuca nowy artefakt, skan sekretów |
+| RF24-P1-004 | Etap 3 — retry po modelu aktywów | globalne `2 / 90 s / 12`; `exhausted`; brak `Infinity`; bez płatnych wywołań bez zgody | równoległe sceny/fallbacki współdzielą atomowy licznik; limit czasu daje `exhausted`, deadline joba daje `timed_out` |
+| RF24-P1-005 | Etap 3 — timeline pipeline’u | storyboard `scene.duration` jest źródłem prawdy; jedna ciągła ścieżka lektora | nierówne czasy przez `/combine-scenes` → identyczny timeline TTS/captions/QA/FFmpeg; jeden stream audio; `ffprobe` |
+| RF24-P1-006 | Etap 3 — provider-neutral assets | `provider`, `providerAssetId`, `canonicalAssetId`; repair bez nazw Pexels | macierz Pexels/Pixabay/evidence/data visual; właściwy provider w repair i telemetryce |
+| RF24-P2-001 | Etap 4 — lifecycle/SSE | nowy ticket na reconnect; transport error ≠ terminal status | rozłączenie/proxy/401 → świeży ticket, backoff i aktualny stan bez pętli po terminalizacji |
+| RF24-P2-002 | Etap 4 — eksporty | prywatne domyślnie; publikacja jawna; CORS nie jest autoryzacją | anonimowy guessed filename odrzucony; owner ma dostęp; publiczny dopiero po publish; token expiry/replay |
+| RF24-P2-003 | Etap 4 — limity operacyjne | limity query/provider/health i osobny liveness/diagnostics | 0/1/max/+1 query, timeout, 429, cache health, brak wywołań ponad budżet |
+| RF24-P2-004 | Etap 3 — scene count | wspólny kontrakt 4–8, bez cichego dopasowania | osobne przypadki 4/5/6/7/8; 3/9, brak pola i mismatch odrzucone przed renderem |
+| RF24-P2-005 | Etap 3 — fallback | `matched_stock → verified_evidence → data_visual`; jawny `assetKind` i powód | każda polityka i brak providera; brak bypassu; kompletna telemetria per scena |
+| RF24-P3-001 | Etap 4 — lifecycle | `queued → processing → terminal`; pięć rozłącznych statusów i terminalReason | cancel przed/w trakcie/po, global timeout, SIGINT, wyścig zdarzeń; zgodność local/Supabase/UI |
+| RF24-P3-002 | Etap 1 — historia i trwałość | `persisted|pending|degraded|unknown`; outbox z limitem | Supabase timeout/5xx → widoczny degraded; restart i drain outboxa; deduplikacja snapshotów |
+
+## 11. Definicje `verified_evidence` i `data_visual`
+
+`verified_evidence` jest dopuszczalne wyłącznie wtedy, gdy scena ma źródło pierwotne lub wiarygodne źródło wtórne, którego URL/identyfikator, tytuł, autor/publisher, czas publikacji i pobrania oraz fragment potwierdzający konkretne twierdzenie są zapisane w metadanych aktywu. Dowód musi być zgodny z twierdzeniem sceny, zakresem geograficznym i czasowym oraz jednostkami. Odrzucamy evidence bez źródła, niedostępne do weryfikacji, sprzeczne z artykułem, wyrwane z kontekstu albo niepotwierdzające konkretnej sceny. Samo podobieństwo słów kluczowych nie jest weryfikacją.
+
+`data_visual` jest dopuszczalne tylko wtedy, gdy każda wartość ma wskazane źródło danych, identyfikator serii/tabeli lub URL, datę i czas odniesienia, jednostkę, walutę, zakres geograficzny oraz metodologię/agregację. Metadane muszą rozróżniać wartość źródłową od zaokrąglenia lub transformacji prezentacyjnej. Nie wolno tworzyć, interpolować ani wywnioskowywać wartości finansowej bez źródła; jeśli wymaganych danych nie da się zweryfikować, scena musi przejść do bezpiecznej alternatywy albo zakończyć się kontrolowanym błędem, nigdy do zmyślonej grafiki.
+
+## 12. Rzeczywisty baseline testów i CI
+
+**Baseline kodu:** `fe27d4da6e692e2f9b7d8aa732973b071ab16f8a` na `origin/main`. **Baseline dokumentacyjny po poprawkach:** commit `bbd717b0d74e1c1516548f53d2a0d47f6ed42fbb`; jego workflow również zakończył się sukcesem: [GitHub Actions run 45104261840](https://github.com/raportfinansowy24-byte/tworca-shortsow-na-podstawie-newsa-z-bankiepll/actions/runs/45104261840).
+
+Rzeczywiście wykonany baseline CI dla dokumentacyjnego PR obejmował job `validate` w [run 45104218862](https://github.com/raportfinansowy24-byte/tworca-shortsow-na-podstawie-newsa-z-bankiepll/actions/runs/45104218862), SHA `fd0228a9f94aee495d723e5e19ac1ba0772fec63`, zakończony `success`. Workflow wykonał: `npm install --no-audit --no-fund`, `npm run lint`, `npm run build` oraz wszystkie zdefiniowane suite’y kontraktowe/integracyjne, w tym scene contract, storyboard QA, QA repair, source evidence, finance short pipeline, narration timing, single narration, final narration mix, autopilot retry, auth, security/export, render completion, SSE ticket client/store, visual QA providers, stock clip sampling, stock QA duration propagation, stock scene selection, source-evidence visual, scene matching, Pexels/Pixabay provider i Supabase job history. Każdy krok joba `validate` zakończył się sukcesem.
+
+Workflow zawiera także job `deploy_production`, ale warunek uruchomienia wymaga push do `main`; dla PR nie został uruchomiony. Nie wykonano deployu, produkcyjnej generacji ani płatnych wywołań.
+
+**Rozróżnienie:** powyższe wyniki są testami już wykonanymi przez CI. Testy z macierzy issue, w szczególności tombstone, atomowego globalnego retry, pełnego E2E news → MP4, verified evidence/data visual provenance i prywatnego eksportu, pozostają testami planowanymi dla kolejnych implementacyjnych PR-ów i nie są deklarowane jako wykonane.
