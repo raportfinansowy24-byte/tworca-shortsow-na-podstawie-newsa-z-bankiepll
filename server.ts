@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import path from 'path';
 import { createHash } from 'node:crypto';
 import { requestElevenLabsApi as performElevenLabsRequest, type ElevenLabsRequestContext } from './src/server/elevenLabsRequest';
@@ -3666,6 +3667,13 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
 
 // REST API ROUTER
 const router = express.Router();
+const historyMutationRateLimit = rateLimit({
+  windowMs: 60_000,
+  limit: 30,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Zbyt wiele operacji historii. Spróbuj ponownie za chwilę.' }
+});
 
 // Supervisor monitor: opt-in, bounded, deduplicated alerts. It never publishes or mutates jobs.
 const SUPERVISOR_MONITOR_INTERVAL_MS = Math.max(
@@ -7328,7 +7336,7 @@ router.get('/jobs/:jobId', (req, res) => {
 });
 
 // Cancel & Terminate Active Job (/api/jobs/:jobId/cancel)
-router.post('/jobs/:jobId/cancel', async (req, res) => {
+router.post('/jobs/:jobId/cancel', historyMutationRateLimit, async (req, res) => {
   const { jobId } = req.params;
   const reason = (req.body && req.body.reason) || 'Anulowano na żądanie użytkownika';
   const terminated = cancelAndTerminateJob(jobId, reason);
@@ -7348,7 +7356,7 @@ router.post('/jobs/:jobId/cancel', async (req, res) => {
 });
 
 // Delete Single Job (/api/jobs/:jobId)
-router.delete('/jobs/:jobId', async (req, res) => {
+router.delete('/jobs/:jobId', historyMutationRateLimit, async (req, res) => {
   const { jobId } = req.params;
   const job = jobsStore.get(jobId);
 
@@ -7396,7 +7404,7 @@ router.delete('/jobs/:jobId', async (req, res) => {
 });
 
 // Clear Jobs History (/api/jobs)
-router.delete('/jobs', async (req, res) => {
+router.delete('/jobs', historyMutationRateLimit, async (req, res) => {
   const mode = req.query.mode;
   if (mode === 'all') {
     jobsStore.clear();
