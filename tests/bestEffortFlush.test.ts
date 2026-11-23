@@ -66,4 +66,32 @@ try {
   await retryFlusher.flushNow();
 }
 
+let criticalAttempts = 0;
+const criticalFlusher = new BestEffortFlush(async () => {
+  criticalAttempts += 1;
+  if (criticalAttempts === 1) throw new Error('injected critical flush failure');
+}, { delayMs: 100 });
+criticalFlusher.schedule();
+await assert.rejects(criticalFlusher.flushNow(), /injected critical flush failure/);
+assert.equal(criticalAttempts, 1, 'critical flush must execute exactly once before rejecting');
+
+let releaseActiveFailure!: () => void;
+const activeFailureStarted = new Promise<void>((resolve) => {
+  const release = () => resolve();
+  releaseActiveFailure = release;
+});
+let activeFailureCalls = 0;
+const activeFailureFlusher = new BestEffortFlush(async () => {
+  activeFailureCalls += 1;
+  if (activeFailureCalls > 1) return;
+  await activeFailureStarted;
+  throw new Error('injected active background flush failure');
+}, { delayMs: 5 });
+activeFailureFlusher.schedule();
+await new Promise((resolve) => setTimeout(resolve, 15));
+const waitingFlush = activeFailureFlusher.flushNow();
+releaseActiveFailure();
+await assert.rejects(waitingFlush, /injected active background flush failure/);
+assert.equal(activeFailureCalls, 1, 'flushNow must await and propagate the active background failure');
+
 console.log('Best-effort flush tests passed');

@@ -24,7 +24,7 @@ export class BestEffortFlush {
     if (this.timer || this.activeFlush || !this.dirty) return;
     this.timer = setTimeout(() => {
       this.timer = undefined;
-      void this.runFlush();
+      void this.runFlush().catch(() => undefined);
     }, this.options.delayMs ?? 50);
   }
 
@@ -42,6 +42,7 @@ export class BestEffortFlush {
           } catch {
             // Error reporting must never create an unhandled rejection.
           }
+          throw error;
         }
       )
       .finally(() => {
