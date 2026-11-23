@@ -4,21 +4,56 @@ import os from 'node:os';
 import path from 'node:path';
 import { AtomicJsonFile } from '../src/server/atomicJsonFile';
 
+class FailOnceAtomicJsonFile<T> extends AtomicJsonFile<T> {
+  private shouldFail = true;
+  protected override async commit(serialized: string): Promise<void> {
+    if (this.shouldFail) {
+      this.shouldFail = false;
+      throw new Error('injected commit failure');
+    }
+    return super.commit(serialized);
+  }
+}
+
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rf24-atomic-json-'));
-const filePath = path.join(tempDir, 'jobs_history.json');
-const store = new AtomicJsonFile<number[]>({ filePath });
+try {
+  const filePath = path.join(tempDir, 'jobs_history.json');
+  const store = new AtomicJsonFile<number[]>({ filePath });
 
-await Promise.all([
-  store.write([1]),
-  store.write([1, 2]),
-  store.write([1, 2, 3])
-]);
-assert.deepEqual(JSON.parse(fs.readFileSync(filePath, 'utf8')), [1, 2, 3]);
-assert.deepEqual(store.load(), [1, 2, 3]);
-assert.ok(fs.existsSync(`${filePath}.bak`), 'the previous committed snapshot should be retained');
+  await store.write([1]);
+  await store.write([1, 2]);
+  assert.deepEqual(JSON.parse(fs.readFileSync(filePath, 'utf8')), [1, 2]);
+  assert.deepEqual(store.load(), [1, 2]);
+  assert.ok(fs.existsSync(`${filePath}.bak`), 'the previous committed snapshot should be retained');
 
-fs.writeFileSync(filePath, '{invalid json', 'utf8');
-assert.deepEqual(store.load(), [1, 2], 'invalid primary should recover the previous committed snapshot');
+  fs.writeFileSync(filePath, '{invalid json', 'utf8');
+  assert.deepEqual(store.load(), [1], 'invalid primary should recover the previous committed snapshot');
 
-fs.rmSync(tempDir, { recursive: true, force: true });
-console.log('Atomic JSON file tests passed');
+  fs.rmSync(filePath, { force: true });
+  await store.write([3]);
+  assert.deepEqual(store.load(), [3], 'a missing primary should not require deleting the backup first');
+
+  const failPath = path.join(tempDir, 'fail-once.json');
+  const failOnce = new FailOnceAtomicJsonFile<number[]>({ filePath: failPath });
+  await assert.rejects(failOnce.write([10]), /injected commit failure/);
+  await failOnce.write([11]);
+  assert.deepEqual(failOnce.load(), [11], 'a failed commit must not poison later writes');
+
+  const coalescedPath = path.join(tempDir, 'coalesced.json');
+  let commitCount = 0;
+  class CountingAtomicJsonFile extends AtomicJsonFile<number[]> {
+    protected override async commit(serialized: string): Promise<void> {
+      commitCount += 1;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return super.commit(serialized);
+    }
+  }
+  const coalesced = new CountingAtomicJsonFile({ filePath: coalescedPath });
+  await Promise.all(Array.from({ length: 20 }, (_, index) => coalesced.write([index])));
+  assert.ok(commitCount < 20, `expected coalescing, got ${commitCount} commits`);
+  assert.deepEqual(coalesced.load(), [19]);
+
+  console.log('Atomic JSON file tests passed');
+} finally {
+  fs.rmSync(tempDir, { recursive: true, force: true });
+}

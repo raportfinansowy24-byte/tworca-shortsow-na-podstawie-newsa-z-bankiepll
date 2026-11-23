@@ -1436,11 +1436,13 @@ function cancelAndTerminateJob(jobId: string, reason: string = 'Zadanie anulowan
   return wasActive;
 }
 
-function saveJobsToDisk() {
+function saveJobsToDisk(): Promise<void> {
   const jobsArray = Array.from(jobsStore.values());
-  void jobsHistoryFile.write(jobsArray).catch((err: unknown) => {
+  const writePromise = jobsHistoryFile.write(jobsArray);
+  void writePromise.catch((err: unknown) => {
     console.warn('Nie można atomowo zapisać historii zadań na dysk:', (err as Error).message);
   });
+  return writePromise;
 }
 
 function loadJobsFromDisk() {
@@ -7306,7 +7308,7 @@ router.get('/jobs/:jobId', (req, res) => {
 });
 
 // Cancel & Terminate Active Job (/api/jobs/:jobId/cancel)
-router.post('/jobs/:jobId/cancel', (req, res) => {
+router.post('/jobs/:jobId/cancel', async (req, res) => {
   const { jobId } = req.params;
   const reason = (req.body && req.body.reason) || 'Anulowano na żądanie użytkownika';
   const terminated = cancelAndTerminateJob(jobId, reason);
@@ -7316,7 +7318,7 @@ router.post('/jobs/:jobId/cancel', (req, res) => {
     return res.status(404).json({ error: `Nie znaleziono zadania ${jobId}` });
   }
 
-  saveJobsToDisk();
+  await saveJobsToDisk();
   res.json({
     success: true,
     message: `Zadanie ${jobId} zostało natychmiast zatrzymane i wyczyszczone.`,
@@ -7326,7 +7328,7 @@ router.post('/jobs/:jobId/cancel', (req, res) => {
 });
 
 // Delete Single Job (/api/jobs/:jobId)
-router.delete('/jobs/:jobId', (req, res) => {
+router.delete('/jobs/:jobId', async (req, res) => {
   const { jobId } = req.params;
   const job = jobsStore.get(jobId);
 
@@ -7335,6 +7337,7 @@ router.delete('/jobs/:jobId', (req, res) => {
 
   if (!job) {
     // Usunięto z aktywnych procesów lub nie było w bazie
+    await saveJobsToDisk();
     return res.json({ success: true, message: `Zadanie ${jobId} zostało zatrzymane i usunięte.` });
   }
 
@@ -7367,13 +7370,13 @@ router.delete('/jobs/:jobId', (req, res) => {
   }
 
   jobsStore.delete(jobId);
-  saveJobsToDisk();
+  await saveJobsToDisk();
 
   res.json({ success: true, message: `Zadanie ${jobId} zostało zatrzymane i bezpowrotnie usunięte z historii.` });
 });
 
 // Clear Jobs History (/api/jobs)
-router.delete('/jobs', (req, res) => {
+router.delete('/jobs', async (req, res) => {
   const mode = req.query.mode;
   if (mode === 'all') {
     jobsStore.clear();
@@ -7384,7 +7387,7 @@ router.delete('/jobs', (req, res) => {
       }
     }
   }
-  saveJobsToDisk();
+  await saveJobsToDisk();
   res.json({ success: true, message: 'Historia renderowania została pomyślnie wyczyszczona.' });
 });
 
