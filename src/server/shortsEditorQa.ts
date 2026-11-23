@@ -63,6 +63,8 @@ export interface ShortsEditorQaOptions {
   requireBrandedCta?: boolean;
   skipCaptionAlignment?: boolean;
   skipNarrationLengthChecks?: boolean;
+  /** Defer density checks until scene durations come from actual TTS alignment. */
+  skipNarrationDensityCheck?: boolean;
 }
 
 export interface RenderedShortMetrics {
@@ -208,7 +210,7 @@ export function evaluateShortStoryboard(rawScenes: unknown, options: ShortsEdito
     if (!options.skipNarrationLengthChecks && !isFinalCta && typeof maxWords === 'number' && wordCount > maxWords) {
       addFinding({ code: 'scene_copy_too_long', severity: 'warning', message: `Scena ${sceneNumber} ma ${wordCount} słów; zalecane maksimum to ${maxWords}.`, scene: sceneNumber });
     }
-    if (!options.skipNarrationLengthChecks && !isFinalCta && duration > 0 && wordCount / duration > 3.2) {
+    if (!options.skipNarrationLengthChecks && !options.skipNarrationDensityCheck && !isFinalCta && duration > 0 && wordCount / duration > 3.2) {
       addFinding({ code: 'narration_too_dense', severity: 'warning', message: `Tekst sceny ${sceneNumber} jest zbyt gęsty względem jej czasu.`, scene: sceneNumber });
     }
     if (index === 0 && duration > 3.2) {
