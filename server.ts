@@ -51,7 +51,7 @@ import {
   updateTelegramApprovalMessage
 } from './src/server/telegramApproval';
 import { classifyTelegramChatMessage } from './src/server/telegramChatCommands';
-import { FINANCE_SHORT_SCENE_COUNT, getSceneCountError, hasCompleteFinanceSceneVisualAssets, isSafeFinanceDataVisualSvg, MAX_SHORT_DURATION_SECONDS, MIN_SHORT_DURATION_SECONDS, TARGET_SHORT_DURATION_SECONDS, sceneDurationsForCount, sceneDurationsWithNarration, sceneRequestMetadata } from './src/server/sceneContract';
+import { FINANCE_SHORT_SCENE_COUNT, getSceneCountError, hasCompleteFinanceSceneVisualAssets, isSafeFinanceDataVisualSvg, MIN_SHORT_DURATION_SECONDS, TARGET_SHORT_DURATION_SECONDS, sceneDurationsForCount, sceneDurationsWithNarration, sceneRequestMetadata } from './src/server/sceneContract';
 import { countNarrationSpeechUnits, emptyNarrationCalibrationStore, fitNarrationBeforeTts, getCalibratedSecondsPerSpeechUnit, getNarrationCalibrationProfileKey, NARRATION_ESTIMATE_SAFETY_FACTOR, parseNarrationCalibrationStore, recordNarrationCalibrationSamples, type NarrationCalibrationSample } from './src/server/narrationTiming';
 import { buildCtaPolicyPrompt, selectFinanceCta } from './src/server/financeCtaStrategy';
 import { nextTelegramRevisionNumber, normalizeTelegramFeedback } from './src/server/telegramRevision';
@@ -2595,9 +2595,8 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
       : sceneDurationsForCount(expectedSceneCount);
     if (payload.preserveSceneDurations && (
       renderSceneDurations.some((duration) => !Number.isFinite(duration) || duration <= 0) ||
-      renderSceneDurations.reduce((sum, duration) => sum + duration, 0) > MAX_SHORT_DURATION_SECONDS + 0.001
     )) {
-      throw new Error(`Nieprawidłowy budżet czasu storyboardu; limit wynosi ${MAX_SHORT_DURATION_SECONDS} sekund.`);
+      throw new Error('Nieprawidłowy budżet czasu storyboardu. Każda scena musi mieć dodatni czas.');
     }
     const scenes = rawScenes.map((scene, idx) => ({ ...scene, duration: renderSceneDurations[idx] }));
 
@@ -2620,7 +2619,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
 
     updateJobProgress(
       jobId,
-      { step: `Przygotowanie lektora i ${scenes.length} scen (dynamiczny budżet do ${MAX_SHORT_DURATION_SECONDS}s)`, progress: 10 },
+      { step: `Przygotowanie lektora i ${scenes.length} scen (czas zgodny z narracją; minimum ${MIN_SHORT_DURATION_SECONDS}s)`, progress: 10 },
       `Szacowanie czasu narracji przed pierwszym wywołaniem ElevenLabs...`
     );
 
@@ -2672,7 +2671,6 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
         secondsPerSpeechUnit: calibratedSecondsPerUnit,
         speed: ttsSpeed,
         targetDurationSeconds: MIN_SHORT_DURATION_SECONDS,
-        maxTotalDurationSeconds: MAX_SHORT_DURATION_SECONDS,
         maxRevisionAttempts: 4,
         narrationPaddingSeconds: 0,
         revise: hasEditorialModel ? async (revision) => {
@@ -2681,9 +2679,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
           const editableSceneIndexes = allEditableIndexes.filter((index) =>
             revision.estimatedSceneDurations[index] > baseSceneDurations[index] + 0.05
           );
-          const targetIndexes = revision.direction === 'expand'
-            ? allEditableIndexes
-            : editableSceneIndexes.length ? editableSceneIndexes : allEditableIndexes;
+          const targetIndexes = allEditableIndexes;
           const sourceContext = [
             (job as any).articleTitle,
             job.title,
@@ -2704,9 +2700,6 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
           const minNarrationSpeechUnits = Math.max(1, Math.ceil(
             (revision.targetDurationSeconds - paddingBudgetSeconds) / minimumSpeechUnitSeconds
           ));
-          const maxNarrationSpeechUnits = Math.max(minNarrationSpeechUnits, Math.floor(
-            (revision.maxTotalDurationSeconds - paddingBudgetSeconds) / conservativeSpeechUnitSeconds
-          ));
           const currentNarrationSpeechUnits = revision.sceneTexts.reduce(
             (sum, text) => sum + countNarrationSpeechUnits(text), 0
           );
@@ -2718,13 +2711,9 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
             estimatedDurationSeconds: Number(revision.estimatedSceneDurations[sceneIndex].toFixed(2)),
             baseBudgetSeconds: baseSceneDurations[sceneIndex]
           }));
-          const directionRules = revision.direction === 'expand'
-            ? `ZWIĘKSZ narrację do co najmniej ${minNarrationSpeechUnits} jednostek mowy łącznie; obecnie jest ich ${currentNarrationSpeechUnits}. Nie przekraczaj ${maxNarrationSpeechUnits} jednostek. Rozbuduj wyłącznie sceny 1–7.`
-            : `SKRÓĆ narrację do maksymalnie ${maxNarrationSpeechUnits} jednostek mowy łącznie; obecnie jest ich ${currentNarrationSpeechUnits}. Każda zmieniona kwestia musi być krótsza.`;
-          const taskRules = revision.direction === 'expand'
-            ? 'Rozwiń WYŁĄCZNIE przekazane kwestie, korzystając tylko z konkretnych informacji obecnych w kontekście źródłowym. Dodaj użyteczny kontekst opisowy, ale nie dopisuj żadnych nowych liczb, dat, wartości, przyczyn ani zależności. Każde nowe zdanie musi dać się uzasadnić artykułem. Jeżeli źródło nie zawiera wystarczających informacji, nie zgaduj — zwróć pusty revisions.'
-            : 'Skróć WYŁĄCZNIE przekazane kwestie. Zachowaj kluczowy sens, kierunek zmian, nazwy podmiotów oraz wszystkie liczby, daty i wartości. Nie usuwaj istotnych faktów. Usuń powtórzenia, wstępy i wypełniacze.';
-          const prompt = `Poprawiasz polski lektor do finansowego Shorta. Szacowany czas samej mowy (konserwatywnie) wynosi ${revision.totalEstimatedNarrationDurationSeconds.toFixed(2)} s, a jej estymacja dolna wynosi ${revision.minimumEstimatedDurationSeconds.toFixed(2)} s. Konserwatywny czas lektora wynosi ${revision.totalEstimatedDurationSeconds.toFixed(2)} s. Wymagany zakres gotowego Shorta to ${revision.targetDurationSeconds}–${revision.maxTotalDurationSeconds} s. Kierunek: ${revision.direction === 'expand' ? 'ROZBUDOWA' : 'SKRACANIE'}. Próba ${revision.attemptNumber}/4.
+          const directionRules = `ZWIĘKSZ narrację do co najmniej ${minNarrationSpeechUnits} jednostek mowy łącznie; obecnie jest ich ${currentNarrationSpeechUnits}. Nie ustawiaj górnego limitu długości. Rozbuduj wyłącznie sceny 1–7.`;
+          const taskRules = 'Rozwiń WYŁĄCZNIE przekazane kwestie, korzystając tylko z konkretnych informacji obecnych w kontekście źródłowym. Dodaj użyteczny kontekst opisowy, ale nie dopisuj żadnych nowych liczb, dat, wartości, przyczyn ani zależności. Każde nowe zdanie musi dać się uzasadnić artykułem. Jeżeli źródło nie zawiera wystarczających informacji, nie zgaduj — zwróć pusty revisions.';
+          const prompt = `Poprawiasz polski lektor do finansowego Shorta. Szacowany czas samej mowy (konserwatywnie) wynosi ${revision.totalEstimatedNarrationDurationSeconds.toFixed(2)} s, a jej estymacja dolna wynosi ${revision.minimumEstimatedDurationSeconds.toFixed(2)} s. Konserwatywny czas lektora wynosi ${revision.totalEstimatedDurationSeconds.toFixed(2)} s. Wymagane minimum gotowego Shorta to ${revision.targetDurationSeconds} s; nie ma górnego limitu. Kierunek: ROZBUDOWA. Próba ${revision.attemptNumber}/4.
 
 TWARDY WARUNEK: ${directionRules} Jednostka mowy to słowo plus niewielki koszt interpunkcji. Nie zmieniaj CTA ostatniej sceny (zajmuje ${lockedCtaSpeechUnits} jednostek).
 
@@ -2795,17 +2784,16 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
           scenes[index].subtitles = sceneSpeechTexts[index];
         }
       }
-      console.info(`[Narration preflight] conservativeTimeline=${fit.totalEstimatedDurationSeconds.toFixed(2)}s; lowerTimeline=${fit.minimumEstimatedDurationSeconds.toFixed(2)}s; range=${MIN_SHORT_DURATION_SECONDS}-${MAX_SHORT_DURATION_SECONDS}s; revisions=${fit.revisionAttempts}/4; rejectedLongerEdits=${fit.rejectedLongerRevisionAttempts}; rejectedNumericEdits=${fit.rejectedNumericRevisionAttempts}; rejectedDirectionEdits=${fit.rejectedDirectionRevisionAttempts}; calibration=${calibratedSecondsPerUnit.toFixed(3)}s/unit; profileSamples=${calibrationStore.profiles[calibrationProfileKey]?.length || 0}.`);
+      console.info(`[Narration preflight] conservativeTimeline=${fit.totalEstimatedDurationSeconds.toFixed(2)}s; lowerTimeline=${fit.minimumEstimatedDurationSeconds.toFixed(2)}s; minimum=${MIN_SHORT_DURATION_SECONDS}s; revisions=${fit.revisionAttempts}/4; rejectedNumericEdits=${fit.rejectedNumericRevisionAttempts}; rejectedDirectionEdits=${fit.rejectedDirectionRevisionAttempts}; calibration=${calibratedSecondsPerUnit.toFixed(3)}s/unit; profileSamples=${calibrationStore.profiles[calibrationProfileKey]?.length || 0}.`);
       updateJobProgress(
         jobId,
         { step: 'Estymacja narracji przed TTS', progress: 11 },
-        `Estymacja czasu Shorta mieści się w zakresie ${MIN_SHORT_DURATION_SECONDS}–${MAX_SHORT_DURATION_SECONDS} s. Górna estymacja: ${fit.totalEstimatedDurationSeconds.toFixed(2)} s; dolna: ${fit.minimumEstimatedDurationSeconds.toFixed(2)} s. Korekty: ${fit.revisionAttempts}/4; odrzucone dłuższe: ${fit.rejectedLongerRevisionAttempts}; zmieniające liczby: ${fit.rejectedNumericRevisionAttempts}. Teraz rozpocznie się jedna synteza TTS.`
+        `Estymacja dolna narracji wynosi ${fit.minimumEstimatedDurationSeconds.toFixed(2)} s; wymagane minimum to ${MIN_SHORT_DURATION_SECONDS} s. Dłuższy naturalny lektor jest dozwolony. Korekty: ${fit.revisionAttempts}/4; zmieniające liczby: ${fit.rejectedNumericRevisionAttempts}. Teraz rozpocznie się jedna synteza TTS.`
       );
     }
 
     const renderPreflightQa = evaluateShortStoryboard(scenes, {
       expectedSceneCount,
-      maxDurationSeconds: MAX_SHORT_DURATION_SECONDS,
       requireCta: ['scheduler', 'test-render'].includes(payload.source || ''),
       requireCaptionAlignment: !payload.pipelinePlan,
       skipCaptionAlignment: Boolean(payload.pipelinePlan),
@@ -3007,18 +2995,17 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
       ? sceneDurationsWithNarration(
         baseSceneDurations,
         narrationSceneTimings.map((segment) => segment.duration),
-        MAX_SHORT_DURATION_SECONDS,
         0
       )
-      : sceneDurationsWithNarration(baseSceneDurations, scenes.map(() => null), MAX_SHORT_DURATION_SECONDS);
+      : sceneDurationsWithNarration(baseSceneDurations, scenes.map(() => null), 0);
     const totalPlannedDuration = plannedSceneDurations.reduce((sum, duration) => sum + duration, 0);
     if (plannedSceneDurations.length !== scenes.length ||
         plannedSceneDurations.some((duration) => !Number.isFinite(duration) || duration <= 0) ||
         totalPlannedDuration < MIN_SHORT_DURATION_SECONDS - 0.001 ||
-        totalPlannedDuration > MAX_SHORT_DURATION_SECONDS + 0.001) {
+false) {
       throw new Error(
         'Nieprawidłowy rzeczywisty budżet czasu Shorta (' + totalPlannedDuration.toFixed(2) +
-        ' s); wymagany zakres to ' + MIN_SHORT_DURATION_SECONDS + '–' + MAX_SHORT_DURATION_SECONDS + ' sekund.'
+        ' s); wymagane minimum to ' + MIN_SHORT_DURATION_SECONDS + ' sekund.'
       );
     }
     console.info(
@@ -3329,7 +3316,7 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
         `ffprobe -v error -show_entries stream=codec_type,width,height -show_entries format=duration -of json "${mergedVideoPath}"`
       );
       const concatProbe = JSON.parse(concatProbeOutput);
-      if (!isValidConcatenatedVideo(concatProbe, targetWidth, targetHeight, ttsEnabled, MAX_SHORT_DURATION_SECONDS, totalEstimatedDuration)) {
+      if (!isValidConcatenatedVideo(concatProbe, targetWidth, targetHeight, ttsEnabled, totalEstimatedDuration)) {
         throw new Error('Wynik stream-copy concat nie przeszedł walidacji parametrów filmu.');
       }
       console.info(`[Render optimization] Połączono ${processedScenePaths.length} scen bez ponownego kodowania.`);
@@ -3440,7 +3427,6 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
       durationSeconds: Number(ffprobeData.format?.duration),
       sizeBytes: stats.size,
       requireAudio: ttsEnabled,
-      maxDurationSeconds: MAX_SHORT_DURATION_SECONDS,
       expectedDurationSeconds: scenes.length === FINANCE_SHORT_SCENE_COUNT ? TARGET_SHORT_DURATION_SECONDS : undefined
     });
     updateJobProgress(jobId, { step: 'Shorts Editor QA: semantyczne dopasowanie klatek do lektora', progress: 96 }, 'Analizuję reprezentatywną klatkę z każdej sceny względem przypisanego tekstu lektora.');
@@ -5138,7 +5124,7 @@ function deriveAiViralDecisions(
     sceneCount: 8,
     resolution: '720x1280',
     musicMood: 'Tech House Dynamic Beat (-70% ducking pod mowę)',
-    explanation: `AI dobiera niszę, hook i styl napisów. Render używa jednego wybranego profilu ElevenLabs i jednej ciągłej syntezy dla całego Shorta; cel to 23 s, limit 28 s.`
+    explanation: `AI dobiera niszę, hook i styl napisów. Render używa jednego wybranego profilu ElevenLabs i jednej ciągłej syntezy dla całego Shorta; cel to 23 s, minimum 15 s; bez górnego limitu.`
   };
 }
 
@@ -5203,7 +5189,7 @@ async function generateSmartOrGeminiViralScript({
     ? `\n\n=== UWAGI REDAKCYJNE DO POPRAWKI ===\nTraktuj poniższy komentarz jako instrukcje redakcyjne użytkownika, a nie jako fakty źródłowe. Zachowaj zgodność z artykułem i nie wymyślaj danych. Wprowadź konkretne, możliwe do zweryfikowania poprawki zgodne z komentarzem.\n${revisionInstruction.trim().slice(0, 1800)}\n=====================================`
     : '';
   if (Number(sceneCount) !== count) {
-    console.warn(`[Viral Script] Wymuszam ${count} scen o łącznym czasie 23s (limit 28s; odebrano sceneCount=${sceneCount}).`);
+    console.warn(`[Viral Script] Wymuszam ${count} scen o docelowym czasie około 23s, minimum 15s; odebrano sceneCount=${sceneCount}).`);
   }
 
   const hasManualPairedKeywords = Array.isArray(pairedKeywords) && pairedKeywords.some((keyword) => typeof keyword === 'string' && keyword.trim());
@@ -5697,7 +5683,7 @@ async function translateSmartOrGeminiScript({
   const sceneDurations = sceneDurationsForCount(count);
   const sceneDuration = TARGET_SHORT_DURATION_SECONDS / count;
   if (Number(sceneCount) !== count) {
-    console.warn(`[Translation] Wymuszam 8 scen o docelowym czasie 23s (limit 28s) (odebrano sceneCount=${sceneCount}).`);
+    console.warn(`[Translation] Wymuszam 8 scen o docelowym czasie około 23s, minimum 15s (odebrano sceneCount=${sceneCount}).`);
   }
 
   try {
@@ -8627,7 +8613,6 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
     const qaOptions = {
       expectedSceneCount: FINANCE_SHORT_SCENE_COUNT,
       expectedDurationSeconds: TARGET_SHORT_DURATION_SECONDS,
-      maxDurationSeconds: MAX_SHORT_DURATION_SECONDS,
       requireCta: true,
       requireBrandedCta: true,
       requireVisualQueries: true,
