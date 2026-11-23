@@ -121,7 +121,7 @@ Wymagane: brak generowanych plików w nowych commitach i jawna decyzja o cleanup
 
 **Pliki/komponenty:** `server.ts`; `src/server/sceneContract.ts`; `src/server/narrationTiming.ts`; `src/server/stockClipSampling.ts`; `src/server/singleNarration.ts`; testy `sceneContract`, `narrationTiming`, `stockQaDurationPropagation`; nowy test API contract.
 
-**Rozwiązanie docelowe:** jedna funkcja normalizacji kontraktu. Jeżeli caller przekazuje zatwierdzone czasy, są one źródłem prawdy i są walidowane jako kompletne, dodatnie oraz zgodne z całkowitym limitem. Jeżeli caller nie przekazuje czasów, plan pipeline’u generuje harmonogram. Ten sam harmonogram musi trafić do TTS alignment, sampling stocku, napisów, QA i FFmpeg. `lockSceneDurations` powinno wyrażać wynik kontraktu, nie wymuszać go po fakcie.
+**Rozwiązanie docelowe:** jedna funkcja normalizacji kontraktu. Jeżeli caller przekazuje zatwierdzone czasy, są one źródłem prawdy i są walidowane jako kompletne, dodatnie oraz zgodne z minimalnym czasem całego Shorta (15 sekund); nie nakłada się górnego limitu długości. Jeżeli caller nie przekazuje czasów, plan pipeline’u generuje harmonogram. Ten sam harmonogram musi trafić do TTS alignment, sampling stocku, napisów, QA i FFmpeg. `lockSceneDurations` powinno wyrażać wynik kontraktu, nie wymuszać go po fakcie.
 
 **Zależności:** Etap 0; RF24-P2-004 dla scenecount. Nie zmieniać sampling/QA przed ustaleniem kanonicznego harmonogramu.
 
