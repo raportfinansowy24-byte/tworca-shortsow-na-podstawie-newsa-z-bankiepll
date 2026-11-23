@@ -33,6 +33,26 @@ assert.equal(validStoryboard.status, 'pass');
 
 assert.equal(validStoryboard.score, 100);
 
+const longSceneNarration = 'Bank zwiększa marżę kredytową dla nowych klientów w kolejnym kwartale.';
+const unmeasuredNarrationScenes = scenes.map((scene, index) => index === 1
+  ? { ...scene, voiceover_text: longSceneNarration, subtitles: longSceneNarration, duration: 18 / 8 }
+  : scene);
+const beforeTtsDensityReport = evaluateShortStoryboard(unmeasuredNarrationScenes, { skipNarrationDensityCheck: true });
+assert.equal(beforeTtsDensityReport.findings.some((finding) => finding.code === 'narration_too_dense'), false,
+  'pre-TTS QA must not compare longer narration against an arbitrary 2.25-second base scene duration');
+const speechAlignedNarrationScenes = unmeasuredNarrationScenes.map((scene, index) => index === 1
+  ? { ...scene, duration: 3.5 }
+  : scene);
+const speechAlignedDensityReport = evaluateShortStoryboard(speechAlignedNarrationScenes);
+assert.equal(speechAlignedDensityReport.findings.some((finding) => finding.code === 'narration_too_dense'), false,
+  'speech-aligned TTS duration should make a naturally longer narration pass density QA');
+const genuinelyDenseNarrationScenes = unmeasuredNarrationScenes.map((scene, index) => index === 1
+  ? { ...scene, duration: 2.5 }
+  : scene);
+const genuineDensityReport = evaluateShortStoryboard(genuinelyDenseNarrationScenes);
+assert.equal(genuineDensityReport.findings.some((finding) => finding.code === 'narration_too_dense'), true,
+  'density QA remains active when measured speech is genuinely too fast for the scene window');
+
 const repeatedVisualQueries = scenes.map((scene, index) => index === 1 || index === 6
   ? { ...scene, searchKeyword: scenes[0].searchKeyword }
   : scene);
