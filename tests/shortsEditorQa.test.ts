@@ -160,6 +160,16 @@ assert.equal(unboundedNarrationReport.findings.some((finding) =>
 assert.equal(unboundedNarrationReport.findings.some((finding) => finding.severity === 'blocker'), false,
   'a Short longer than 28 seconds with a longer, caption-aligned CTA remains eligible for rendering');
 
+const denseFinalCtaScenes = storyboardWithNaturalLongNarration.map((scene, index) => index === 7
+  ? { ...scene, duration: 2.25, voiceover_text: longCta, subtitles: longCta }
+  : scene);
+const strictCtaDensityReport = evaluateShortStoryboard(denseFinalCtaScenes, { requireCta: true, requireCaptionAlignment: true });
+assert.equal(strictCtaDensityReport.findings.some((finding) => finding.code === 'narration_too_dense' && finding.scene === 8), false,
+  'the measured density gate must preserve the final CTA exception');
+const regularFinalSceneDensityReport = evaluateShortStoryboard(denseFinalCtaScenes, { requireCta: false, requireCaptionAlignment: true });
+assert.equal(regularFinalSceneDensityReport.findings.some((finding) => finding.code === 'narration_too_dense' && finding.scene === 8), true,
+  'a similarly dense non-CTA final scene remains subject to narration-density QA');
+
 const sixWordScenes = [
   'Hook ma cztery słowa',
   'Bank zmienia ważne zasady',
