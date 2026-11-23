@@ -65,6 +65,30 @@ assert.equal(renderScenes[0].visualQuery, fallback.scenes[0].visualQuery);
 assert.equal(renderScenes[0].motionSound.motion, 'hero-zoom');
 assert.equal(renderScenes[7].motionSound.motion, 'end-card');
 assert.ok(Math.abs(renderScenes.reduce((sum, scene) => sum + scene.duration, 0) - 18) < 0.001);
+
+const extendedPlan = {
+  ...fallback,
+  duration: 36,
+  scenes: fallback.scenes.map((scene, index) => ({
+    ...scene,
+    start: index * 4.5,
+    end: (index + 1) * 4.5
+  }))
+};
+const extendedRenderScenes = mapCreativeDirectorPlanToRenderScenes(extendedPlan);
+assert.ok(Math.abs(extendedRenderScenes.reduce((sum, scene) => sum + scene.duration, 0) - 36) < 0.001,
+  'Creative Director preserves a natural 36-second timeline instead of applying a fixed upper cap');
+const tooShortPlan = {
+  ...fallback,
+  duration: 14.9,
+  scenes: fallback.scenes.map((scene, index) => ({
+    ...scene,
+    start: index * (14.9 / 8),
+    end: (index + 1) * (14.9 / 8)
+  }))
+};
+assert.throws(() => mapCreativeDirectorPlanToRenderScenes(tooShortPlan), /co najmniej 15 sekund/);
+
 assert.throws(() => mapCreativeDirectorPlanToRenderScenes({ ...fallback, scenes: fallback.scenes.slice(0, 7) }), /dokładnie 8 scen/);
 assert.throws(() => mapCreativeDirectorPlanToRenderScenes({
   ...fallback,
