@@ -130,11 +130,13 @@ const fourStepFit = await fitNarrationBeforeTts({
   speed: 1,
   targetDurationSeconds: 15,
   maxRevisionAttempts: 4,
-  revise: async ({ sceneTexts, attemptNumber }) => {
+  revise: async ({ sceneTexts }) => {
     fourStepCalls++;
     const candidate = [...sceneTexts];
-    candidate[0] += ' ' + Array.from({ length: 7 + attemptNumber }, () => 'szczegół').join(' ');
-    candidate[1] += ' Dodatkowy opis oparty na źródle.';
+    const expansion = ' Dodatkowy kontekst pomaga zrozumieć skutki decyzji.';
+    for (let index = 0; index < candidate.length - 1; index++) {
+      candidate[index] += expansion;
+    }
     return candidate;
   }
 });
