@@ -1,6 +1,6 @@
 # RaportFinansowy24 — Stage 0: kontrakty i baseline
 
-**Status:** DRAFT — wymaga akceptacji właściciela projektu
+**Status:** CHANGES REQUESTED — decyzje recenzenckie przyjęte, wymaga ponownego przeglądu
 **Zakres:** dokumentacja-only; bez implementacji, migracji, deployu, schedulerów i produkcji
 **Repozytorium:** `raportfinansowy24-byte/tworca-shortsow-na-podstawie-newsa-z-bankiepll`
 **Baseline audytu:** `fe27d4da6e692e2f9b7d8aa732973b071ab16f8a`
@@ -28,15 +28,15 @@ Retry ma decyzję o budżecie w Stage 0, ale nie może być implementowany przed
 
 ### 1. Czas scen
 
-Storyboard, który przechodzi walidację, jest źródłem prawdy dla `scene.duration`. `/combine-scenes` respektuje przekazane czasy i nie nadpisuje ich cichym stałym harmonogramem. Ten sam timeline musi być używany przez TTS alignment, captions, stock sampling, visual QA i FFmpeg.
+Storyboard, który przechodzi walidację, jest źródłem prawdy dla `scene.duration`. `/combine-scenes` respektuje przekazane czasy i nie nadpisuje ich cichym stałym harmonogramem. Ten sam timeline musi być używany przez TTS alignment, captions, stock sampling, visual QA i FFmpeg. Lektor pozostaje jedną ciągłą, nieciętą ścieżką audio; czasy scen służą do mapowania narracji, nie do cięcia lektora na osobne pliki.
 
-Test akceptacyjny: payload z czasami `2.1`, `3.7` i `4.4` sekund; każdy downstream otrzymuje identyczny harmonogram, a `ffprobe` potwierdza zgodny czas finalnego artefaktu.
+Test akceptacyjny: payload z czasami `2.1`, `3.7` i `4.4` sekund; każdy downstream otrzymuje identyczny harmonogram, lektor jest jednym plikiem/strumieniem bez cięć, a `ffprobe` potwierdza zgodny czas finalnego artefaktu.
 
 ### 2. Liczba scen
 
 Rekomendacja: wspólny kontrakt 4–8 scen. Wartości 3 i 9 są odrzucane przed renderem. CTA i wymagane elementy planu muszą być walidowane niezależnie od liczby scen.
 
-Test akceptacyjny: 4, 6 i 8 przechodzą kontrakt; 3 i 9 są odrzucane; brak cichego dzielenia lub dopisywania scen.
+Test akceptacyjny: każda liczba 4, 5, 6, 7 i 8 przechodzi kontrakt; 3 i 9 są odrzucane; brak cichego dzielenia lub dopisywania scen.
 
 ### 3. Polityka assetów i fallbacku
 
@@ -65,7 +65,7 @@ Test akceptacyjny: asset Pexels i asset Pixabay przechodzą przez selection, sam
 
 ### 5. Retry budget
 
-Rekomendacja do akceptacji: maksymalnie 2 próby naprawcze po pierwszej ocenie QA, maksymalnie 90 sekund i maksymalnie 12 wywołań providerów w całym cyklu naprawy jednego joba. Budżet jest globalny dla joba i nie resetuje się per scena. Limit finansowy, jeśli provider go udostępnia, jest dodatkowym ograniczeniem.
+Rekomendacja przyjęta do ponownego przeglądu: maksymalnie 2 próby naprawcze po pierwszej ocenie QA, maksymalnie 90 sekund i maksymalnie 12 wywołań providerów w całym cyklu naprawy jednego joba. Budżet jest globalny dla joba i nie resetuje się per scena. Nie wykonuje się płatnych wywołań bez osobnej zgody właściciela. Limit finansowy, jeśli provider go udostępnia, jest dodatkowym ograniczeniem.
 
 Żaden kod nie może używać `Infinity` jako domyślnego limitu produkcyjnego.
 
@@ -73,7 +73,7 @@ Test akceptacyjny: wymuszony trwały QA failure kończy się po budżecie; żadn
 
 ### 6. Statusy terminalne
 
-Rekomendacja: pięć rozłącznych statusów końcowych:
+Rekomendacja: pięć rozłącznych statusów końcowych. `timed_out` jest zarezerwowany dla przekroczenia globalnego limitu czasu joba; wyczerpanie budżetu napraw QA kończy się jako `exhausted`.
 
 ```text
 completed — poprawne zakończenie
@@ -85,7 +85,9 @@ exhausted — wyczerpany budżet retry/napraw
 
 Status terminalny jest niezmienny wobec opóźnionych eventów, z wyjątkiem jawnej procedury administracyjnej.
 
-Test akceptacyjny: osobne scenariusze dla wszystkich pięciu statusów oraz test opóźnionych/duplikowanych eventów.
+Reguły przejść: `queued → processing`; z `processing` można przejść tylko do jednego z `completed`, `failed`, `cancelled`, `timed_out` albo `exhausted`; status terminalny nie przechodzi do innego statusu terminalnego przez opóźniony lub zduplikowany event. `cancelled` oznacza jawne anulowanie, `timed_out` globalny deadline, a `exhausted` wyczerpanie limitu napraw.
+
+Test akceptacyjny: osobne scenariusze dla wszystkich pięciu statusów, testy przejść `queued/processing`, test opóźnionych/duplikowanych eventów oraz test, że terminalny status pozostaje niezmienny.
 
 ### 7. Historia jobów
 
@@ -95,9 +97,9 @@ Test akceptacyjny: Supabase niedostępne podczas zapisu, restart, drain outboxa,
 
 ### 8. Retencja i usuwanie
 
-Rekomendacja: `delete/clear history` obejmuje job, lokalny cache, dane Supabase, retry metadata, powiązaną telemetrykę oraz pliki należące wyłącznie do joba, zgodnie z polityką retencji. Pliki współdzielone lub opublikowane wymagają jawnego wyjątku i właściciela.
+Rekomendacja: rozdzielić operację usunięcia wpisu historii od trwałego usuwania plików. `delete/clear history` usuwa lub tombstonuje rekord historii, lokalny cache, dane Supabase i retry metadata zgodnie z retencją. Purge plików roboczych i eksportów jest osobną, jawnie raportowaną operacją, która może wymagać dodatkowej zgody; pliki współdzielone lub opublikowane nie są usuwane automatycznie.
 
-Test akceptacyjny: delete pojedynczego joba i clear-all; kontrola wszystkich tabel, cache, plików i ponownej hydracji.
+Test akceptacyjny: delete pojedynczego joba i clear-all; kontrola tabel, cache i ponownej hydracji; osobny test purge’u plików z ochroną przed usunięciem plików innego joba oraz sprawdzenie, że samo usunięcie historii nie kasuje plików bez jawnej operacji purge.
 
 ### 9. Dostęp do eksportów
 
@@ -109,16 +111,16 @@ Test akceptacyjny: anonimowy klient nie pobiera prywatnego eksportu; uprawniony 
 
 | Nr | Decyzja | Rekomendacja | Status |
 |---:|---|---|---|
-| 1 | Źródło czasu scen | storyboard / zaakceptowane `scene.duration` | DO AKCEPTACJI |
-| 2 | Zakres scen | 4–8 | DO AKCEPTACJI |
-| 3 | Fallback | stock → evidence → data visual | DO AKCEPTACJI |
-| 4 | Model providerów | provider-neutral | DO AKCEPTACJI |
-| 5 | Retry | 2 próby / 90 s / 12 wywołań na job | DO AKCEPTACJI |
-| 6 | Wyczerpanie budżetu | osobny `exhausted` | DO AKCEPTACJI |
-| 7 | Historia | Supabase + local cache + outbox | DO AKCEPTACJI |
-| 8 | Retencja | job + dane powiązane + pliki należące do joba | DO AKCEPTACJI |
-| 9 | Eksporty | prywatne domyślnie, publiczne po publikacji | DO AKCEPTACJI |
-| 10 | Statusy | `completed`, `failed`, `cancelled`, `timed_out`, `exhausted` | DO AKCEPTACJI |
+| 1 | Źródło czasu scen | storyboard / zaakceptowane `scene.duration`; jedna niecięta ścieżka lektora | PRZYJĘTE DO AKTUALIZACJI |
+| 2 | Zakres scen | 4–8, testowane osobno 4/5/6/7/8 | PRZYJĘTE DO AKTUALIZACJI |
+| 3 | Fallback | stock → evidence → data visual, bez wymyślania danych | PRZYJĘTE DO AKTUALIZACJI |
+| 4 | Model providerów | provider-neutral | PRZYJĘTE DO AKTUALIZACJI |
+| 5 | Retry | 2 próby / 90 s / 12 wywołań na job; bez płatnych wywołań bez zgody | PRZYJĘTE DO AKTUALIZACJI |
+| 6 | Wyczerpanie budżetu | osobny `exhausted`; `timed_out` tylko dla globalnego deadline’u | PRZYJĘTE DO AKTUALIZACJI |
+| 7 | Historia | Supabase + local cache + outbox | PRZYJĘTE DO AKTUALIZACJI |
+| 8 | Retencja | osobne usunięcie historii i osobny purge plików | WYMAGA PONOWNEGO POTWIERDZENIA |
+| 9 | Eksporty | prywatne domyślnie, publiczne po publikacji | PRZYJĘTE DO AKTUALIZACJI |
+| 10 | Statusy | `completed`, `failed`, `cancelled`, `timed_out`, `exhausted` z regułami przejść | PRZYJĘTE DO AKTUALIZACJI |
 
 ## Zakres techniczny po akceptacji, ale jeszcze bez implementacji
 
@@ -138,7 +140,7 @@ Nie jest to zgoda na edycję kodu. To lista kontraktów do implementacji w kolej
 
 Stage 0 jest zamknięty, gdy:
 
-1. właściciel zatwierdzi albo zmieni wszystkie 10 decyzji;
+1. właściciel zatwierdzi albo zmieni wszystkie 10 decyzji, w tym rozdzielenie historii i purge’u plików;
 2. każda decyzja ma test akceptacyjny;
 3. każda pozycja `issues_register.json` ma przypisany etap i kontrakt;
 4. retry budget ma twarde maksimum;
