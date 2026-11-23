@@ -19,9 +19,8 @@ export type NarrationFitRevisionInput = {
   totalEstimatedNarrationDurationSeconds: number;
   minimumEstimatedDurationSeconds: number;
   totalEstimatedDurationSeconds: number;
-  direction: 'expand' | 'shorten';
+  direction: 'expand';
   targetDurationSeconds: number;
-  maxTotalDurationSeconds: number;
   attemptNumber: number;
 };
 
@@ -254,7 +253,6 @@ export async function fitNarrationBeforeTts(input: {
   secondsPerSpeechUnit: number;
   speed: number;
   targetDurationSeconds: number;
-  maxTotalDurationSeconds: number;
   minimumSecondsPerSpeechUnit?: number;
   narrationPaddingSeconds?: number;
   maxRevisionAttempts?: number;
@@ -266,7 +264,6 @@ export async function fitNarrationBeforeTts(input: {
     secondsPerSpeechUnit,
     speed,
     targetDurationSeconds,
-    maxTotalDurationSeconds,
     narrationPaddingSeconds = 0.12
   } = input;
   const minimumSecondsPerSpeechUnit = input.minimumSecondsPerSpeechUnit ?? secondsPerSpeechUnit;
@@ -278,7 +275,6 @@ export async function fitNarrationBeforeTts(input: {
     throw new Error('Budżety scen i teksty narracji muszą zawierać tyle samo poprawnych elementów.');
   }
   if (!Number.isFinite(targetDurationSeconds) || targetDurationSeconds <= 0 ||
-      !Number.isFinite(maxTotalDurationSeconds) || maxTotalDurationSeconds < targetDurationSeconds ||
       !Number.isFinite(minimumSecondsPerSpeechUnit) || minimumSecondsPerSpeechUnit <= 0 ||
       !Number.isFinite(narrationPaddingSeconds) || narrationPaddingSeconds < 0) {
     throw new Error('Nieprawidłowa konfiguracja limitów estymacji narracji.');
@@ -318,13 +314,10 @@ export async function fitNarrationBeforeTts(input: {
   };
 
   let estimate = calculate();
-  while ((estimate.minimumEstimatedDurationSeconds < targetDurationSeconds - 0.001 ||
-          estimate.totalEstimatedDurationSeconds > maxTotalDurationSeconds + 0.001) &&
+  while (estimate.minimumEstimatedDurationSeconds < targetDurationSeconds - 0.001 &&
          revisionAttempts < maxRevisionAttempts && input.revise) {
     revisionAttempts++;
-    const direction: 'expand' | 'shorten' = estimate.minimumEstimatedDurationSeconds < targetDurationSeconds - 0.001
-      ? 'expand'
-      : 'shorten';
+    const direction = 'expand' as const;
     const revised = await input.revise({
       sceneTexts: [...currentTexts],
       estimatedSceneDurations: [...estimate.estimatedSceneDurations],
@@ -333,7 +326,6 @@ export async function fitNarrationBeforeTts(input: {
       totalEstimatedDurationSeconds: estimate.totalEstimatedDurationSeconds,
       direction,
       targetDurationSeconds,
-      maxTotalDurationSeconds,
       attemptNumber: revisionAttempts
     });
     if (!revised) break;
@@ -361,13 +353,10 @@ export async function fitNarrationBeforeTts(input: {
     const currentSpeechUnits = currentTexts.map((text) => countNarrationSpeechUnits(text));
     const candidateSpeechUnits = candidateTexts.map((text) => countNarrationSpeechUnits(text));
     const wrongDirectionIndex = candidateTexts.findIndex((_text, index) =>
-      direction === 'expand'
-        ? candidateSpeechUnits[index] + 0.001 < currentSpeechUnits[index]
-        : candidateSpeechUnits[index] > currentSpeechUnits[index] + 0.001
+      candidateSpeechUnits[index] + 0.001 < currentSpeechUnits[index]
     );
     if (wrongDirectionIndex >= 0) {
-      if (direction === 'shorten') rejectedLongerRevisionAttempts++;
-      else rejectedDirectionRevisionAttempts++;
+      rejectedDirectionRevisionAttempts++;
       continue;
     }
     const currentTotalUnits = currentSpeechUnits.reduce((sum, units) => sum + units, 0);
@@ -377,22 +366,11 @@ export async function fitNarrationBeforeTts(input: {
       rejectedDirectionRevisionAttempts++;
       continue;
     }
-    if (direction === 'shorten' && candidateTotalUnits >= currentTotalUnits - 0.001) {
-      if (candidateTotalUnits > currentTotalUnits + 0.001) rejectedLongerRevisionAttempts++;
-      else break;
-      continue;
-    }
     if (candidateTexts.every((text, index) => text === currentTexts[index].trim())) break;
     currentTexts = candidateTexts;
     estimate = calculate();
   }
 
-  if (estimate.totalEstimatedDurationSeconds > maxTotalDurationSeconds + 0.001) {
-    throw new Error(
-      `Konserwatywna estymacja czasu Shorta wynosi ${estimate.totalEstimatedDurationSeconds.toFixed(2)} s po ${revisionAttempts} próbach korekty. ` +
-      `Maksymalny czas to ${maxTotalDurationSeconds.toFixed(0)} s. TTS nie został uruchomiony; skróć tekst i spróbuj ponownie.`
-    );
-  }
   if (estimate.minimumEstimatedDurationSeconds < targetDurationSeconds - 0.001) {
     throw new Error(
       `Ostrożna estymacja czasu Shorta wynosi ${estimate.minimumEstimatedDurationSeconds.toFixed(2)} s; minimum to ${targetDurationSeconds.toFixed(0)} s. ` +
@@ -407,7 +385,6 @@ export async function fitNarrationBeforeTts(input: {
     rejectedLongerRevisionAttempts,
     rejectedNumericRevisionAttempts,
     rejectedDirectionRevisionAttempts,
-    reachedTargetDuration: estimate.minimumEstimatedDurationSeconds >= targetDurationSeconds - 0.001 &&
-      estimate.totalEstimatedDurationSeconds <= maxTotalDurationSeconds + 0.001
+    reachedTargetDuration: estimate.minimumEstimatedDurationSeconds >= targetDurationSeconds - 0.001
   };
 }
