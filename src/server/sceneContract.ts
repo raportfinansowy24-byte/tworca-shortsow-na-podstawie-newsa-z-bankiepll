@@ -1,6 +1,6 @@
 export const FINANCE_SHORT_SCENE_COUNT = 8;
 export const MAX_SCENE_COUNT = 8;
-export const MIN_SHORT_DURATION_SECONDS = 17;
+export const MIN_SHORT_DURATION_SECONDS = 15;
 export const TARGET_SHORT_DURATION_SECONDS = 18;
 export const SCENE_NARRATION_PADDING_SECONDS = 0.12;
 
@@ -60,11 +60,6 @@ export function sceneDurationsForCount(sceneCount: number): number[] {
   return Array.from({ length: sceneCount }, () => TARGET_SHORT_DURATION_SECONDS / sceneCount);
 }
 
-/**
- * Size each scene from its actual TTS segment plus a short natural tail.
- * The baseline duration is used only when no aligned speech segment exists.
- * This prevents short narration from being stretched with artificial silence.
- */
 /**
  * Map the continuous narration timing to scene windows.
  * Aligned speech is authoritative; there is no global maximum runtime.
