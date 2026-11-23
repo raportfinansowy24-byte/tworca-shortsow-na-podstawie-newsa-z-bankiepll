@@ -65,16 +65,25 @@ try {
 
   const coalescedPath = path.join(tempDir, 'coalesced.json');
   let commitCount = 0;
+  let activeCommits = 0;
+  let maxActiveCommits = 0;
   class CountingAtomicJsonFile extends AtomicJsonFile<number[]> {
     protected override async commit(serialized: string): Promise<void> {
       commitCount += 1;
+      activeCommits += 1;
+      maxActiveCommits = Math.max(maxActiveCommits, activeCommits);
       await new Promise((resolve) => setTimeout(resolve, 10));
-      return super.commit(serialized);
+      try {
+        await super.commit(serialized);
+      } finally {
+        activeCommits -= 1;
+      }
     }
   }
   const coalesced = new CountingAtomicJsonFile({ filePath: coalescedPath });
   await Promise.all(Array.from({ length: 20 }, (_, index) => coalesced.write([index])));
   assert.ok(commitCount < 20, `expected coalescing, got ${commitCount} commits`);
+  assert.equal(maxActiveCommits, 1, 'coalesced writer must never commit snapshots concurrently');
   assert.deepEqual(coalesced.load(), [19]);
 
   console.log('Atomic JSON file tests passed');
