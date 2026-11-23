@@ -1451,7 +1451,10 @@ function saveJobsToDisk(): Promise<void> {
   return writePromise;
 }
 
-const bestEffortJobsFlush = new BestEffortFlush(() => saveJobsToDisk(), { delayMs: 50 });
+const bestEffortJobsFlush = new BestEffortFlush(() => saveJobsToDisk(), {
+  delayMs: 50,
+  onError: (error) => console.warn('Nie można odroczone zapisać historii zadań; ponowienie zostanie zaplanowane:', (error as Error).message)
+});
 
 async function flushJobsToDisk(): Promise<void> {
   await bestEffortJobsFlush.flushNow();
