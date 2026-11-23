@@ -52,7 +52,7 @@ import {
 } from './src/server/telegramApproval';
 import { classifyTelegramChatMessage } from './src/server/telegramChatCommands';
 import { FINANCE_SHORT_SCENE_COUNT, getSceneCountError, hasCompleteFinanceSceneVisualAssets, isSafeFinanceDataVisualSvg, MIN_SHORT_DURATION_SECONDS, TARGET_SHORT_DURATION_SECONDS, sceneDurationsForCount, sceneDurationsWithNarration, sceneRequestMetadata } from './src/server/sceneContract';
-import { countNarrationSpeechUnits, emptyNarrationCalibrationStore, fitNarrationBeforeTts, getCalibratedSecondsPerSpeechUnit, getNarrationCalibrationProfileKey, NARRATION_ESTIMATE_SAFETY_FACTOR, parseNarrationCalibrationStore, recordNarrationCalibrationSamples, type NarrationCalibrationSample } from './src/server/narrationTiming';
+import { countNarrationSpeechUnits, emptyNarrationCalibrationStore, fitNarrationBeforeTts, getCalibratedSecondsPerSpeechUnit, getNarrationCalibrationProfileKey, getElevenLabsNarrationLimitError, NARRATION_ESTIMATE_SAFETY_FACTOR, parseNarrationCalibrationStore, recordNarrationCalibrationSamples, type NarrationCalibrationSample } from './src/server/narrationTiming';
 import { buildCtaPolicyPrompt, selectFinanceCta } from './src/server/financeCtaStrategy';
 import { nextTelegramRevisionNumber, normalizeTelegramFeedback } from './src/server/telegramRevision';
 import { publishApprovedShortToPostiz } from './src/server/postizPublisher';
@@ -2084,7 +2084,8 @@ async function generateElevenLabsAudio(
     : modelId === 'eleven_v3'
       ? { stability: 0.52 }
       : { stability: 0.58, similarity_boost: 0.8, style: 0, use_speaker_boost: true, speed: safeSpeed };
-  if (text.length > 4500) throw new Error('Łączny tekst narracji przekracza limit bezpiecznej pojedynczej syntezy ElevenLabs (4500 znaków).');
+  const ttsLimitError = getElevenLabsNarrationLimitError(text);
+  if (ttsLimitError) throw new Error(ttsLimitError);
   const cacheKey = createHash('sha256').update(JSON.stringify({
     version: 3,
     text,
@@ -2784,9 +2785,10 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
       );
     }
 
+    const requireFinalCta = ['scheduler', 'test-render'].includes(payload.source || '') || Boolean(payload.requireBrandedCta);
     const renderPreflightQa = evaluateShortStoryboard(scenes, {
       expectedSceneCount,
-      requireCta: ['scheduler', 'test-render'].includes(payload.source || ''),
+      requireCta: requireFinalCta,
       requireCaptionAlignment: !payload.pipelinePlan,
       skipCaptionAlignment: Boolean(payload.pipelinePlan),
       skipNarrationLengthChecks: Boolean(payload.pipelinePlan),
@@ -2823,6 +2825,10 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
         scenes.map((scene, index) => ({ ...scene, voiceover_text: sceneSpeechTexts[index] })),
         configuredTtsModel
       );
+      const ttsLimitError = getElevenLabsNarrationLimitError(ttsInputText);
+      if (ttsLimitError) {
+        throw new Error(`${ttsLimitError} Limit dotyczy jednego żądania dostawcy, nie długości filmu. Tekst nie został automatycznie skrócony ani podzielony; synteza TTS nie została uruchomiona.`);
+      }
       const localNarrationMetadataPath = path.join(jobTempDir, 'short_narration_full.json');
       const fullWordTimings: CaptionWordTiming[] = [];
       const allowAutopilotRetryCache = ['scheduler', 'test-render'].includes(String(payload.source || '')) || Boolean(payload.reuseNarrationCacheJobId || payload.retrySourcePayloadJobId);
@@ -3002,7 +3008,7 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
       // Density is measured against the actual word-aligned TTS timeline, never the 2.25s storyboard placeholder.
       const speechAlignedQa = evaluateShortStoryboard(
         scenes.map((scene, index) => ({ ...scene, duration: plannedSceneDurations[index] })),
-        { skipCaptionAlignment: true }
+        { requireCta: requireFinalCta, requireBrandedCta: payload.requireBrandedCta, skipCaptionAlignment: true }
       );
       const narrationDensityFindings = speechAlignedQa.findings.filter((finding) => finding.code === 'narration_too_dense');
       const existingDensityQa = job.shortMetadata?.editorQa && typeof job.shortMetadata.editorQa === 'object'
@@ -5280,7 +5286,8 @@ REŻYSERIA NARRACJI — BEZ GÓRNEGO LIMITU SŁÓW:
 - Sceny 1–4 powinny zawierać pełne, naturalne frazy rozwijające fakty ze źródła; użyj co najmniej 4 słów, gdy wynika to z treści.
 - Sceny 5–7 powinny zawierać pełne, naturalne frazy; użyj co najmniej 5 słów, gdy wynika to z treści.
 - Scena 8 jest zastępowana zatwierdzonym CTA z backendu; nie wymyślaj ani nie skracaj CTA.
-- Łącznie narracja ma osiągnąć co najmniej ${narrationWordRangeWithCta.min} słów, jeżeli jest to potrzebne do naturalnego spełnienia minimum 15 sekund. Nie istnieje maksymalna liczba słów ani maksymalny czas.
+- Łącznie narracja ma osiągnąć co najmniej ${narrationWordRangeWithCta.min} słów, jeżeli jest to potrzebne do naturalnego spełnienia minimum 15 sekund. Nie istnieje maksymalny czas filmu.
+- Techniczny limit jednego żądania obecnego dostawcy ElevenLabs wynosi 4500 znaków całej narracji. To limit transportu TTS, nie limit czasu Shorta; zachowaj jedną ciągłą ścieżkę i nie dziel jej na części.
 - Pisz pełnymi frazami i zdaniami. Nie usuwaj ważnego wyjaśnienia tylko po to, by zmniejszyć liczbę słów.
 - Nie dodawaj pustych powtórzeń ani wypełniaczy. Każde zdanie musi wnosić potwierdzony fakt, konieczny kontekst albo jasno oznaczoną, ostrożną interpretację.
 - Pisz pełnymi frazami i zdaniami, nie hasłami. Jedna myśl (fakt z newsa) rozłożona na sceny; zdanie może obejmować dwie sceny.
