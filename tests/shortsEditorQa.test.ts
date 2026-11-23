@@ -354,10 +354,9 @@ const sceneWithOrlenClaim = [
     searchKeyword: 'orlen finanse'
   },
   {
-    duration: 2.0,
+    duration: 13,
     voiceover_text: 'Sprawdź raport.',
     subtitles: 'Sprawdź raport.',
-    duration: 13,
     visualMode: 'data_visual',
     visualSvg: buildBrandedCtaSvg('SPRAWDŹ SZCZEGÓŁY'),
     pexelsId: 102,
