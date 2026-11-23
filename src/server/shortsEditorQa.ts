@@ -24,7 +24,7 @@ export function shouldBlockQa(status: ShortsEditorQaStatus, requirePass = false)
 
 export interface NarrationWordRange {
   min: number;
-  max: number;
+  max?: number;
 }
 
 export function hasNarrationWithinWordRanges(
@@ -38,12 +38,13 @@ export function hasNarrationWithinWordRanges(
     const narration = getSceneNarrationText(value);
     return countWords(narration);
   });
-  if (counts.some((count, index) => count < sceneRanges[index].min || count > sceneRanges[index].max)) return false;
+  if (counts.some((count, index) => count < sceneRanges[index].min ||
+      (typeof sceneRanges[index].max === 'number' && count > sceneRanges[index].max!))) return false;
   if (totalRange) {
     const total = totalFinalSceneText === undefined
       ? counts.reduce((sum, count) => sum + count, 0)
       : counts.slice(0, -1).reduce((sum, count) => sum + count, 0) + countWords(totalFinalSceneText);
-    if (total < totalRange.min || total > totalRange.max) return false;
+    if (total < totalRange.min || (typeof totalRange.max === 'number' && total > totalRange.max)) return false;
   }
   return true;
 }
