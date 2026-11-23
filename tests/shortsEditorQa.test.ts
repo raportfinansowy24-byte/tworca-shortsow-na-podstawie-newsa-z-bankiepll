@@ -251,7 +251,7 @@ const extendedMedia = evaluateRenderedShort({
   requireAudio: true,
   expectedDurationSeconds: 18
 });
-assert.equal(extendedMedia.status, 'pass', 'dłuższy lektor może wykorzystać uzgodniony zapas do 28 s');
+assert.equal(extendedMedia.status, 'pass', 'dłuższy naturalny lektor nie jest odrzucany przez górny limit');
 assert.equal(extendedMedia.findings.some((finding) => finding.code === 'output_duration_off_target'), false);
 
 const truncatedMedia = evaluateRenderedShort({
@@ -264,7 +264,7 @@ const truncatedMedia = evaluateRenderedShort({
   requireAudio: true,
   expectedDurationSeconds: 18
 });
-assert.equal(truncatedMedia.status, 'blocked', 'film krótszy niż 17 sekund musi zostać zablokowany');
+assert.equal(truncatedMedia.status, 'blocked', 'film krótszy niż 15 sekund musi zostać zablokowany');
 assert.ok(truncatedMedia.findings.some((finding) => finding.code === 'output_under_minimum_duration'));
 assert.ok(truncatedMedia.findings.some((finding) => finding.code === 'output_duration_off_target'));
 
