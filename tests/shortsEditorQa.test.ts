@@ -128,13 +128,18 @@ const sevenFiveWordScenes = Array.from({ length: 7 }, (_, index) => ({
 }));
 const longCta = 'Wejdź na raport-finansowy24.pl i sprawdź ofertę teraz, aby poznać wszystkie szczegóły i dodatkowe informacje';
 const storyboardWith35Words = [...sevenFiveWordScenes, { duration: 2.5, voiceover_text: longCta, subtitles: longCta }];
-const narrationOptions = { requireCta: true, requireCaptionAlignment: true, maxNarrationWordsExcludingLast: 32, maxWordsPerScene: (index: number) => index < 7 ? 5 : 9 };
-const overLimitReport = evaluateShortStoryboard(storyboardWith35Words, narrationOptions);
-assert.ok(overLimitReport.findings.some((finding) => finding.code === 'total_words_over_limit' && finding.severity === 'blocker' && finding.message === 'Lektor scen 1–7 ma 35 słów; limit to 32.'));
-assert.ok(!overLimitReport.findings.some((finding) => finding.scene === 8 && ['scene_copy_too_long', 'narration_too_dense'].includes(finding.code)));
-const storyboardWith32Words = [...sevenFiveWordScenes.slice(0, 6), { duration: 2.5, voiceover_text: 'Rynek rośnie', subtitles: 'Rynek rośnie' }, storyboardWith35Words[7]];
-const withinLimitReport = evaluateShortStoryboard(storyboardWith32Words, narrationOptions);
-assert.ok(!withinLimitReport.findings.some((finding) => finding.code === 'total_words_over_limit'));
+const narrationOptions = { requireCta: true, requireCaptionAlignment: true };
+const storyboardWithNaturalLongNarration = [
+  ...sevenFiveWordScenes,
+  { duration: 16, voiceover_text: longCta, subtitles: longCta }
+];
+const unboundedNarrationReport = evaluateShortStoryboard(storyboardWithNaturalLongNarration, narrationOptions);
+assert.equal(unboundedNarrationReport.findings.some((finding) =>
+  ['total_words_over_limit', 'scene_copy_too_long', 'duration_over_limit'].includes(finding.code)
+), false, 'natural narration is not blocked by a 32-word cap, per-scene word cap or former 28-second duration cap');
+assert.equal(unboundedNarrationReport.findings.some((finding) => finding.severity === 'blocker'), false,
+  'a Short longer than 28 seconds with a longer, caption-aligned CTA remains eligible for rendering');
+
 const sixWordScenes = [
   'Hook ma cztery słowa',
   'Bank zmienia ważne zasady',
@@ -154,17 +159,18 @@ const autonomousQaOptions = {
   expectedSceneCount: 8,
   expectedDurationSeconds: 18,
   requireCta: true,
-  requireCaptionAlignment: true,
-  maxNarrationWordsExcludingLast: 32,
-  maxWordsPerScene: (index: number) => index < 4 ? 5 : index < 7 ? 6 : 9
+  requireCaptionAlignment: true
 };
 const sixWordSceneReport = evaluateShortStoryboard(sixWordScenes, autonomousQaOptions);
-assert.equal(sixWordSceneReport.status, 'pass', 'sceny 5–7 mogą mieć po 6 słów, jeśli sceny 1–7 nie przekraczają 32 łącznie');
-assert.ok(!sixWordSceneReport.findings.some((finding) => finding.code === 'scene_copy_too_long' && (finding.scene === 5 || finding.scene === 6 || finding.scene === 7)));
+assert.equal(sixWordSceneReport.status, 'pass', 'natural narration with six words in a scene is accepted without a hidden word ceiling');
 
-const mismatchedFinalCaption = storyboardWith35Words.map((scene, index) => index === 7 ? { ...scene, voiceover_text: 'Wejdź na raport-finansowy24.pl, sprawdź, co to zmienia.', subtitles: longCta } : scene);
+const mismatchedFinalCaption = storyboardWithNaturalLongNarration.map((scene, index) => index === 7
+  ? { ...scene, voiceover_text: 'Wejdź na raport-finansowy24.pl, sprawdź, co to zmienia.', subtitles: longCta }
+  : scene);
 const finalCaptionMismatchReport = evaluateShortStoryboard(mismatchedFinalCaption, narrationOptions);
-assert.ok(finalCaptionMismatchReport.findings.some((finding) => finding.code === 'caption_voiceover_mismatch' && finding.severity === 'blocker' && finding.scene === 8));
+assert.ok(finalCaptionMismatchReport.findings.some((finding) =>
+  finding.code === 'caption_voiceover_mismatch' && finding.severity === 'blocker' && finding.scene === 8
+));
 
 const ctaCases = [
   [{ title: 'Kredyt i rata kredytu' }, 'Wejdź na raport-finansowy24.pl, policz ratę kredytu.'],
