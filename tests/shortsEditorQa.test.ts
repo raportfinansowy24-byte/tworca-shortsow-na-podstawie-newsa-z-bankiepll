@@ -23,7 +23,6 @@ const scenes = Array.from({ length: 8 }, (_, index) => {
 const validStoryboard = evaluateShortStoryboard(scenes, {
   expectedSceneCount: 8,
   expectedDurationSeconds: 18,
-  maxDurationSeconds: 28,
   requireCta: true,
   requireVisualQueries: true,
   requireUniquePexelsIds: true,
@@ -154,7 +153,6 @@ const sixWordScenes = [
 const autonomousQaOptions = {
   expectedSceneCount: 8,
   expectedDurationSeconds: 18,
-  maxDurationSeconds: 28,
   requireCta: true,
   requireCaptionAlignment: true,
   maxNarrationWordsExcludingLast: 32,
@@ -225,10 +223,12 @@ const repetitionReport = evaluateShortStoryboard(repeatedNarration, { expectedSc
 assert.ok(repetitionReport.findings.some((finding) => finding.code === 'repeated_narration'));
 assert.notEqual(repetitionReport.status, 'blocked');
 
-const tooLong = scenes.map((scene, index) => index === 7 ? { ...scene, voiceover_text: 'Więcej informacji tutaj.', subtitles: 'Więcej informacji tutaj.', duration: 13 } : scene);
-const durationReport = evaluateShortStoryboard(tooLong, { maxDurationSeconds: 28 });
-assert.equal(durationReport.status, 'blocked');
-assert.ok(durationReport.findings.some((finding) => finding.code === 'duration_over_limit'));
+const longerThanFormerCap = scenes.map((scene, index) => index === 7
+  ? { ...scene, duration: 16 }
+  : { ...scene, duration: 2.25 });
+const longerStoryboardReport = evaluateShortStoryboard(longerThanFormerCap, { expectedDurationSeconds: 18 });
+assert.equal(longerStoryboardReport.status, 'pass', 'a storyboard longer than 28 seconds is valid when its timeline is internally consistent');
+assert.ok(!longerStoryboardReport.findings.some((finding) => finding.code === 'duration_over_limit'));
 
 const validMedia = evaluateRenderedShort({
   hasVideo: true,
@@ -249,7 +249,6 @@ const extendedMedia = evaluateRenderedShort({
   durationSeconds: 24.9,
   sizeBytes: 1_200_000,
   requireAudio: true,
-  maxDurationSeconds: 28,
   expectedDurationSeconds: 18
 });
 assert.equal(extendedMedia.status, 'pass', 'dłuższy lektor może wykorzystać uzgodniony zapas do 28 s');
@@ -263,7 +262,6 @@ const truncatedMedia = evaluateRenderedShort({
   durationSeconds: 14.5,
   sizeBytes: 1_200_000,
   requireAudio: true,
-  maxDurationSeconds: 28,
   expectedDurationSeconds: 18
 });
 assert.equal(truncatedMedia.status, 'blocked', 'film krótszy niż 17 sekund musi zostać zablokowany');
@@ -272,29 +270,29 @@ assert.ok(truncatedMedia.findings.some((finding) => finding.code === 'output_dur
 
 const justBelowMinimum = evaluateRenderedShort({
   hasVideo: true, hasAudio: true, width: 720, height: 1280,
-  durationSeconds: 16.99, sizeBytes: 1_200_000, requireAudio: true, maxDurationSeconds: 28
+  durationSeconds: 14.99, sizeBytes: 1_200_000, requireAudio: true
 });
-assert.equal(justBelowMinimum.status, 'blocked', '16.99 s must fail the 17-second minimum duration gate');
+assert.equal(justBelowMinimum.status, 'blocked', '14.99 s must fail the 15-second minimum duration gate');
 const exactlyMinimum = evaluateRenderedShort({
   hasVideo: true, hasAudio: true, width: 720, height: 1280,
-  durationSeconds: 17, sizeBytes: 1_200_000, requireAudio: true, maxDurationSeconds: 28
+  durationSeconds: 15, sizeBytes: 1_200_000, requireAudio: true
 });
-assert.equal(exactlyMinimum.status, 'pass', '17.00 s is accepted');
+assert.equal(exactlyMinimum.status, 'pass', '15.00 s is accepted');
 const lastAttemptDuration = evaluateRenderedShort({
   hasVideo: true, hasAudio: true, width: 720, height: 1280,
-  durationSeconds: 17.34, sizeBytes: 1_200_000, requireAudio: true, maxDurationSeconds: 28
+  durationSeconds: 15.34, sizeBytes: 1_200_000, requireAudio: true
 });
-assert.equal(lastAttemptDuration.status, 'pass', '17.34 s must pass the 17-second minimum duration gate');
-const exactlyMaximum = evaluateRenderedShort({
+assert.equal(lastAttemptDuration.status, 'pass', '15.34 s passes the 15-second minimum duration gate');
+const justAboveFormerCap = evaluateRenderedShort({
   hasVideo: true, hasAudio: true, width: 720, height: 1280,
-  durationSeconds: 28, sizeBytes: 1_200_000, requireAudio: true, maxDurationSeconds: 28
+  durationSeconds: 28.01, sizeBytes: 1_200_000, requireAudio: true
 });
-assert.equal(exactlyMaximum.status, 'pass', '28.00 s is accepted');
-const beyondMaximum = evaluateRenderedShort({
+assert.equal(justAboveFormerCap.status, 'pass', '28.01 s is no longer rejected by an arbitrary maximum');
+const muchLongerMedia = evaluateRenderedShort({
   hasVideo: true, hasAudio: true, width: 720, height: 1280,
-  durationSeconds: 28.01, sizeBytes: 1_200_000, requireAudio: true, maxDurationSeconds: 28
+  durationSeconds: 42.5, sizeBytes: 1_200_000, requireAudio: true
 });
-assert.equal(beyondMaximum.status, 'blocked', '28.01 s exceeds the strict 28-second hard duration cap');
+assert.equal(muchLongerMedia.status, 'pass', 'a longer natural narration is accepted without a hard upper duration cap');
 
 
 const brokenMedia = evaluateRenderedShort({
@@ -309,7 +307,6 @@ const brokenMedia = evaluateRenderedShort({
 assert.equal(brokenMedia.status, 'blocked');
 assert.ok(brokenMedia.findings.some((finding) => finding.code === 'missing_audio_stream'));
 assert.ok(brokenMedia.findings.some((finding) => finding.code === 'wrong_aspect_ratio'));
-assert.ok(brokenMedia.findings.some((finding) => finding.code === 'output_over_duration_limit'));
 assert.ok(brokenMedia.findings.some((finding) => finding.code === 'empty_output_file'));
 
 const semanticResults = parseVisualSemanticResponse(JSON.stringify({ results: [
