@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { motionSoundSpecForBeat, type MotionSoundSpec } from './motionSoundRenderer';
-import { MAX_SHORT_DURATION_SECONDS } from './sceneContract';
+import { MIN_SHORT_DURATION_SECONDS, TARGET_SHORT_DURATION_SECONDS } from './sceneContract';
 
 export interface CreativeDirectorArticle {
   title: string;
@@ -171,7 +171,7 @@ CTA wymagane przez politykę redakcyjną: ${ctaText || 'Wejdź na raport-finanso
 PARAMETRY:
 Platforma: ${platform}
 Język: ${language}
-Długość docelowa: ${duration} sekund; limit bezwzględny ${MAX_SHORT_DURATION_SECONDS} sekund
+Długość docelowa: ${duration} sekund; minimum ${MIN_SHORT_DURATION_SECONDS} sekund; bez górnego limitu. Zachowaj naturalny czas narracji.
 Liczba beatów/scen: ${sceneCount}
 
 WYMAGANY JSON:
@@ -372,16 +372,16 @@ export function mapCreativeDirectorPlanToRenderScenes(
   if (!plan || !Array.isArray(plan.scenes) || plan.scenes.length !== 8) {
     throw new Error('Storyboard do renderu musi zawierać dokładnie 8 scen.');
   }
-  const targetDuration = Number(plan.duration) || 18;
-  if (Math.abs(targetDuration - 18) > 0.01 || targetDuration > MAX_SHORT_DURATION_SECONDS) {
-    throw new Error(`Storyboard do renderu musi celować w 18 sekund i nie może przekraczać ${MAX_SHORT_DURATION_SECONDS} sekund.`);
+  const targetDuration = Number(plan.duration) || TARGET_SHORT_DURATION_SECONDS;
+  if (!Number.isFinite(targetDuration) || targetDuration < MIN_SHORT_DURATION_SECONDS) {
+    throw new Error(`Storyboard do renderu musi trwać co najmniej ${MIN_SHORT_DURATION_SECONDS} sekund.`);
   }
 
   let previousEnd = 0;
   const sourceDurations = plan.scenes.map((scene, index) => {
     const start = Number(scene.start);
     const end = Number(scene.end);
-    if (!Number.isFinite(start) || !Number.isFinite(end) || start < -0.1 || end <= start || end > MAX_SHORT_DURATION_SECONDS + 0.1) {
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start < -0.1 || end <= start || end > targetDuration + 0.1) {
       throw new Error(`Storyboard zawiera nieprawidłowy zakres czasu w scenie ${index + 1}.`);
     }
     if (start < previousEnd - 0.1) {
@@ -394,8 +394,8 @@ export function mapCreativeDirectorPlanToRenderScenes(
   });
 
   const sourceTotal = sourceDurations.reduce((sum, seconds) => sum + seconds, 0);
-  if (Math.abs(previousEnd - targetDuration) > 0.75 || sourceTotal < 15 || sourceTotal > 20.5) {
-    throw new Error('Zakresy scen storyboardu muszą obejmować około 18 sekund. Wygeneruj storyboard ponownie.');
+  if (Math.abs(previousEnd - targetDuration) > 0.75 || sourceTotal < MIN_SHORT_DURATION_SECONDS) {
+    throw new Error('Zakresy scen storyboardu muszą pokrywać cały plan i trwać co najmniej 15 sekund. Wygeneruj storyboard ponownie.');
   }
   const scale = targetDuration / sourceTotal;
   const normalizedDurations = sourceDurations.map((seconds) => Number((seconds * scale).toFixed(3)));
