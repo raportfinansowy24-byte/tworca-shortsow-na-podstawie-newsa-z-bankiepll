@@ -15,6 +15,22 @@ class FailOnceAtomicJsonFile<T> extends AtomicJsonFile<T> {
   }
 }
 
+class FailAfterBackupAtomicJsonFile<T> extends AtomicJsonFile<T> {
+  private shouldFail = true;
+
+  constructor(options: ConstructorParameters<typeof AtomicJsonFile<T>>[0]) {
+    super({
+      ...options,
+      afterBackup: async () => {
+        if (this.shouldFail) {
+          this.shouldFail = false;
+          throw new Error('injected failure after backup promotion');
+        }
+      }
+    });
+  }
+}
+
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rf24-atomic-json-'));
 try {
   const filePath = path.join(tempDir, 'jobs_history.json');
@@ -38,6 +54,14 @@ try {
   await assert.rejects(failOnce.write([10]), /injected commit failure/);
   await failOnce.write([11]);
   assert.deepEqual(failOnce.load(), [11], 'a failed commit must not poison later writes');
+
+  const rotationPath = path.join(tempDir, 'rotation-failure.json');
+  const rotationFailure = new FailAfterBackupAtomicJsonFile<number[]>({ filePath: rotationPath });
+  await rotationFailure.write([20]);
+  await assert.rejects(rotationFailure.write([21]), /injected failure after backup promotion/);
+  assert.deepEqual(rotationFailure.load(), [20], 'failure after primary backup must recover the previous snapshot');
+  await rotationFailure.write([22]);
+  assert.deepEqual(rotationFailure.load(), [22], 'writer must continue after rotation recovery');
 
   const coalescedPath = path.join(tempDir, 'coalesced.json');
   let commitCount = 0;

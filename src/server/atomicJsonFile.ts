@@ -6,6 +6,7 @@ export interface AtomicJsonFileOptions<T> {
   parse?: (raw: string) => T;
   serialize?: (value: T) => string;
   beforePromote?: () => void | Promise<void>;
+  afterBackup?: () => void | Promise<void>;
 }
 
 type Waiter = { resolve: () => void; reject: (error: unknown) => void };
@@ -60,13 +61,22 @@ export class AtomicJsonFile<T> {
         this.pending = { serialized, waiters: [{ resolve, reject }] };
       }
     });
-    if (!this.drainPromise) {
-      this.drainPromise = this.drain().finally(() => {
-        this.drainPromise = undefined;
-        if (this.pending) void this.drain();
-      });
-    }
+    this.startDrain();
     return promise;
+  }
+
+  private startDrain(): Promise<void> {
+    if (this.drainPromise) return this.drainPromise;
+
+    const drainPromise = Promise.resolve().then(() => this.drain());
+    const trackedPromise = drainPromise.finally(() => {
+      if (this.drainPromise === trackedPromise) {
+        this.drainPromise = undefined;
+      }
+      if (this.pending) this.startDrain();
+    });
+    this.drainPromise = trackedPromise;
+    return trackedPromise;
   }
 
   private async drain(): Promise<void> {
@@ -106,6 +116,7 @@ export class AtomicJsonFile<T> {
       if (primaryIsValid) {
         // POSIX rename replaces the old backup atomically; there is no rm window.
         await fs.promises.rename(this.filePath, this.backupPath);
+        await this.options.afterBackup?.();
       }
       await fs.promises.rename(tempPath, this.filePath);
       await syncDirectory(directory);
@@ -121,9 +132,17 @@ async function syncDirectory(directory: string): Promise<void> {
   try {
     handle = await fs.promises.open(directory, 'r');
     await handle.sync();
-  } catch {
+  } catch (error) {
+    if (!isUnsupportedDirectorySyncError(error)) throw error;
     // Directory fsync is not supported on every development filesystem.
   } finally {
     await handle?.close().catch(() => undefined);
   }
+}
+
+function isUnsupportedDirectorySyncError(error: unknown): boolean {
+  const code = typeof error === 'object' && error !== null && 'code' in error
+    ? (error as { code?: unknown }).code
+    : undefined;
+  return code === 'EINVAL' || code === 'ENOTSUP' || code === 'EOPNOTSUPP';
 }

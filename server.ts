@@ -1445,6 +1445,15 @@ function saveJobsToDisk(): Promise<void> {
   return writePromise;
 }
 
+async function updateJobProgressAndFlush(
+  jobId: string,
+  update: Partial<Job>,
+  logMsg?: string
+): Promise<void> {
+  updateJobProgress(jobId, update, logMsg);
+  await saveJobsToDisk();
+}
+
 function loadJobsFromDisk() {
   try {
     if (!fs.existsSync(EXPORTS_DIR)) {
@@ -1712,7 +1721,7 @@ async function createTelegramRevisionJob(parentJobId: string, feedback: string):
   };
 
   jobsStore.set(jobId, revisionJob);
-  saveJobsToDisk();
+  await saveJobsToDisk();
   queueShortJobSnapshot(revisionJob as ShortJobSnapshot, true);
   updateJobProgress(parentJobId, {
     telegramApprovalStatus: 'rework_created',
@@ -3537,7 +3546,7 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
       console.warn(`[Thumbnail Warning] Nie udało się wygenerować miniatury dla zadania ${jobId}:`, (thumbErr as Error).message);
     }
 
-    updateJobProgress(
+    await updateJobProgressAndFlush(
       jobId,
       {
         status: 'completed',
@@ -3604,7 +3613,7 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
   } catch (error) {
     const errorMsg = (error as Error).message || 'Unknown video processing error';
     console.error(`❌ Error processing job ${jobId}:`, error);
-    updateJobProgress(
+    await updateJobProgressAndFlush(
       jobId,
       {
         status: 'failed',
@@ -6411,7 +6420,7 @@ router.post('/auto-pilot-shorts', async (req, res) => {
     };
 
     jobsStore.set(jobId, newJob);
-    saveJobsToDisk();
+    await saveJobsToDisk();
     queueShortJobSnapshot(newJob as ShortJobSnapshot, true);
     if (pipelineRunId) {
       void updatePipelineRunStatus(pipelineRunId, 'queued', jobId);
@@ -6603,7 +6612,7 @@ router.post('/combine-scenes', async (req, res) => {
   };
 
   jobsStore.set(jobId, newJob);
-  saveJobsToDisk();
+  await saveJobsToDisk();
   queueShortJobSnapshot(newJob as ShortJobSnapshot, true);
 
   const isAsync = payload.async === true || Boolean(payload.webhookUrl);
@@ -6870,7 +6879,7 @@ const handleInboundWebhook = async (req: express.Request, res: express.Response)
         updatedAt: new Date().toISOString()
       };
       jobsStore.set(jobId, newJob);
-      saveJobsToDisk();
+      await saveJobsToDisk();
       queueShortJobSnapshot(newJob as ShortJobSnapshot, true);
 
       // Start asynchronous job
@@ -8731,7 +8740,7 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
       console.warn('[Autopilot Retry] Nie udało się zapisać dokładnego payloadu do wznowienia: ' + (error as Error).message);
     }
     jobsStore.set(jobId, newJob);
-    saveJobsToDisk();
+    await saveJobsToDisk();
     queueShortJobSnapshot(newJob as ShortJobSnapshot, true);
     void recordAutopilotPipelineRun({
       runId: jobId, jobId, title: candidate.title, articleUrl: candidate.link,
