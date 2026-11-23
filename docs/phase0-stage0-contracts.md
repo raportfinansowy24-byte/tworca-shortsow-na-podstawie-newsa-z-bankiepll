@@ -118,7 +118,7 @@ Test akceptacyjny: anonimowy klient nie pobiera prywatnego eksportu; uprawniony 
 | 5 | Retry | 2 próby / 90 s / 12 wywołań na job; bez płatnych wywołań bez zgody | PRZYJĘTE DO AKTUALIZACJI |
 | 6 | Wyczerpanie budżetu | osobny `exhausted`; `timed_out` tylko dla globalnego deadline’u | PRZYJĘTE DO AKTUALIZACJI |
 | 7 | Historia | Supabase + local cache + outbox | PRZYJĘTE DO AKTUALIZACJI |
-| 8 | Retencja | osobne usunięcie historii i osobny purge plików | WYMAGA PONOWNEGO POTWIERDZENIA |
+| 8 | Retencja | osobne usunięcie historii i osobny purge plików | PRZYJĘTE — DO WERYFIKACJI TESTAMI |
 | 9 | Eksporty | prywatne domyślnie, publiczne po publikacji | PRZYJĘTE DO AKTUALIZACJI |
 | 10 | Statusy | `completed`, `failed`, `cancelled`, `timed_out`, `exhausted` z regułami przejść | PRZYJĘTE DO AKTUALIZACJI |
 
