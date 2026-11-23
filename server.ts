@@ -2675,11 +2675,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
         narrationPaddingSeconds: 0,
         revise: hasEditorialModel ? async (revision) => {
           const lastSceneIndex = revision.sceneTexts.length - 1;
-          const allEditableIndexes = revision.sceneTexts.map((_text, index) => index).filter((index) => index < lastSceneIndex);
-          const editableSceneIndexes = allEditableIndexes.filter((index) =>
-            revision.estimatedSceneDurations[index] > baseSceneDurations[index] + 0.05
-          );
-          const targetIndexes = allEditableIndexes;
+          const allEditableIndexes = revision.sceneTexts.map((_text, index) => index).filter((index) => index < lastSceneIndex);const targetIndexes = allEditableIndexes;
           const sourceContext = [
             (job as any).articleTitle,
             job.title,
@@ -2694,10 +2690,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
           ].filter((value) => typeof value === 'string' && value.trim()).join('\\n').slice(0, 9000);
           const paddingBudgetSeconds = 0; // One full narration track; no per-scene audio padding is added.
           const minimumSpeechUnitSeconds = (calibratedSecondsPerUnit / NARRATION_ESTIMATE_SAFETY_FACTOR) /
-            Math.min(1.2, Math.max(0.7, ttsSpeed));
-          const conservativeSpeechUnitSeconds = calibratedSecondsPerUnit /
-            Math.min(1.2, Math.max(0.7, ttsSpeed));
-          const minNarrationSpeechUnits = Math.max(1, Math.ceil(
+            Math.min(1.2, Math.max(0.7, ttsSpeed));const minNarrationSpeechUnits = Math.max(1, Math.ceil(
             (revision.targetDurationSeconds - paddingBudgetSeconds) / minimumSpeechUnitSeconds
           ));
           const currentNarrationSpeechUnits = revision.sceneTexts.reduce(
@@ -3001,8 +2994,7 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
     const totalPlannedDuration = plannedSceneDurations.reduce((sum, duration) => sum + duration, 0);
     if (plannedSceneDurations.length !== scenes.length ||
         plannedSceneDurations.some((duration) => !Number.isFinite(duration) || duration <= 0) ||
-        totalPlannedDuration < MIN_SHORT_DURATION_SECONDS - 0.001 ||
-false) {
+        totalPlannedDuration < MIN_SHORT_DURATION_SECONDS - 0.001) {
       throw new Error(
         'Nieprawidłowy rzeczywisty budżet czasu Shorta (' + totalPlannedDuration.toFixed(2) +
         ' s); wymagane minimum to ' + MIN_SHORT_DURATION_SECONDS + ' sekund.'
