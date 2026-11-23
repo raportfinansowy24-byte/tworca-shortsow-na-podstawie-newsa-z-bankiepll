@@ -7158,7 +7158,7 @@ router.get('/jobs/recent-completed', async (req, res) => {
 });
 
 // Endpoint: Dedicated Video Thumbnail Generator & Retriever (/api/jobs/:jobId/thumbnail)
-router.get('/jobs/:jobId/thumbnail', async (req, res) => {
+router.get('/jobs/:jobId/thumbnail', historyMutationRateLimit, async (req, res) => {
   const { jobId } = req.params;
   const job = jobsStore.get(jobId);
   if (!job || !job.outputFilename) {
