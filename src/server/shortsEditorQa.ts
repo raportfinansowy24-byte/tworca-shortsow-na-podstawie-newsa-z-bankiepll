@@ -72,7 +72,6 @@ export interface RenderedShortMetrics {
   durationSeconds?: number;
   sizeBytes?: number;
   requireAudio?: boolean;
-  maxDurationSeconds?: number;
   expectedDurationSeconds?: number;
   expectedAspectRatio?: number;
 }
