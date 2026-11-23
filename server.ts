@@ -2593,9 +2593,8 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
     const renderSceneDurations = payload.preserveSceneDurations
       ? rawScenes.map((scene) => Number(scene.duration))
       : sceneDurationsForCount(expectedSceneCount);
-    if (payload.preserveSceneDurations && (
-      renderSceneDurations.some((duration) => !Number.isFinite(duration) || duration <= 0) ||
-    )) {
+    if (payload.preserveSceneDurations &&
+        renderSceneDurations.some((duration) => !Number.isFinite(duration) || duration <= 0)) {
       throw new Error('Nieprawidłowy budżet czasu storyboardu. Każda scena musi mieć dodatni czas.');
     }
     const scenes = rawScenes.map((scene, idx) => ({ ...scene, duration: renderSceneDurations[idx] }));
