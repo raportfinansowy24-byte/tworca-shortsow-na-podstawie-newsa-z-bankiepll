@@ -46,7 +46,6 @@ export function isValidConcatenatedVideo(
   expectedWidth: number,
   expectedHeight: number,
   requireAudio: boolean,
-  maxDurationSeconds: number,
   expectedDurationSeconds: number
 ): boolean {
   const video = probe.streams?.find((stream) => stream.codec_type === 'video');
@@ -55,7 +54,7 @@ export function isValidConcatenatedVideo(
   return Boolean(
     video && video.width === expectedWidth && video.height === expectedHeight &&
     (!requireAudio || hasAudio) && Number.isFinite(duration) && duration > 0 &&
-    duration <= maxDurationSeconds + 0.001 && Number.isFinite(expectedDurationSeconds) &&
+    Number.isFinite(expectedDurationSeconds) &&
     expectedDurationSeconds > 0 && Math.abs(duration - expectedDurationSeconds) <= 0.5
   );
 }
