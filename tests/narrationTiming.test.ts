@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import {
   DEFAULT_SECONDS_PER_SPEECH_UNIT,
+  ELEVENLABS_MAX_SINGLE_REQUEST_CHARACTERS,
+  getElevenLabsNarrationLimitError,
   NARRATION_ESTIMATE_SAFETY_FACTOR,
   countNarrationSpeechUnits,
   emptyNarrationCalibrationStore,
@@ -13,6 +15,10 @@ import {
 } from '../src/server/narrationTiming';
 
 assert.equal(countNarrationSpeechUnits(''), 0);
+assert.equal(ELEVENLABS_MAX_SINGLE_REQUEST_CHARACTERS, 4500);
+assert.equal(getElevenLabsNarrationLimitError('x'.repeat(4500)), null, 'the provider character ceiling is inclusive');
+assert.equal(getElevenLabsNarrationLimitError('x'.repeat(4501))?.includes('4500'), true, 'over-limit narration is rejected before the single TTS request');
+assert.equal(getElevenLabsNarrationLimitError(' x\ny '), null, 'line breaks are normalized before character counting');
 assert.ok(countNarrationSpeechUnits('RPP obniża stopy, a banki zmieniają raty.') > 6);
 assert.ok(Math.abs(estimateNarrationDurationSeconds('Dzień dobry.', DEFAULT_SECONDS_PER_SPEECH_UNIT, 1) - 0.928) < 0.001);
 assert.ok(estimateNarrationDurationSeconds('Dzień dobry.', 0.4, 1.2) < estimateNarrationDurationSeconds('Dzień dobry.', 0.4, 1));
