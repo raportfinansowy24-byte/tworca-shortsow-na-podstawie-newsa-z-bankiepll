@@ -2,7 +2,6 @@ export const FINANCE_SHORT_SCENE_COUNT = 8;
 export const MAX_SCENE_COUNT = 8;
 export const MIN_SHORT_DURATION_SECONDS = 17;
 export const TARGET_SHORT_DURATION_SECONDS = 18;
-export const MAX_SHORT_DURATION_SECONDS = 28;
 export const SCENE_NARRATION_PADDING_SECONDS = 0.12;
 
 export function getSceneCountError(expectedSceneCount: unknown, actualSceneCount: number): string | null {
@@ -66,19 +65,22 @@ export function sceneDurationsForCount(sceneCount: number): number[] {
  * The baseline duration is used only when no aligned speech segment exists.
  * This prevents short narration from being stretched with artificial silence.
  */
+/**
+ * Map the continuous narration timing to scene windows.
+ * Aligned speech is authoritative; there is no global maximum runtime.
+ * Missing alignment alone uses the storyboard's base duration.
+ */
 export function sceneDurationsWithNarration(
   baseSceneDurations: number[],
   narrationDurations: Array<number | null | undefined>,
-  maxTotalDurationSeconds = MAX_SHORT_DURATION_SECONDS,
   narrationPaddingSeconds = SCENE_NARRATION_PADDING_SECONDS
 ): number[] {
   if (!Array.isArray(baseSceneDurations) || baseSceneDurations.length === 0 ||
       !Array.isArray(narrationDurations) || narrationDurations.length !== baseSceneDurations.length) {
     throw new Error('Budżety scen i długości narracji muszą zawierać tyle samo elementów.');
   }
-  if (!Number.isFinite(maxTotalDurationSeconds) || maxTotalDurationSeconds <= 0 ||
-      !Number.isFinite(narrationPaddingSeconds) || narrationPaddingSeconds < 0) {
-    throw new Error('Nieprawidłowa konfiguracja limitu czasu Shorta.');
+  if (!Number.isFinite(narrationPaddingSeconds) || narrationPaddingSeconds < 0) {
+    throw new Error('Nieprawidłowy zapas czasu scen.');
   }
 
   baseSceneDurations.forEach((baseDuration, index) => {
@@ -92,41 +94,12 @@ export function sceneDurationsWithNarration(
     }
   });
 
-  // A supplied alignment is authoritative: do not stretch a speech segment
-  // to the old storyboard allocation. Missing alignment alone uses the base.
-  // Padding is reduced uniformly only when the full Short approaches the 28s cap.
-  const durationsWithPaddingScale = (paddingScale: number) => baseSceneDurations.map((baseDuration, index) => {
+  return baseSceneDurations.map((baseDuration, index) => {
     const narrationDuration = narrationDurations[index];
-    if (narrationDuration === null || narrationDuration === undefined) return baseDuration;
-    return narrationDuration + narrationPaddingSeconds * paddingScale;
+    return narrationDuration === null || narrationDuration === undefined
+      ? baseDuration
+      : narrationDuration + narrationPaddingSeconds;
   });
-  const totalDuration = (durations: number[]) => durations.reduce((sum, duration) => sum + duration, 0);
-  const unpaddedDurations = durationsWithPaddingScale(0);
-  const unpaddedTotal = totalDuration(unpaddedDurations);
-  if (unpaddedTotal > maxTotalDurationSeconds + 0.001) {
-    throw new Error(
-      `Narracja wymaga łącznie ${unpaddedTotal.toFixed(2)} s bez dodatkowego zapasu scen. ` +
-      `Maksymalny czas Shorta to ${maxTotalDurationSeconds.toFixed(0)} s. ` +
-      'Lektor nie został przyspieszony ani ucięty. Skróć tekst scen i spróbuj ponownie.'
-    );
-  }
-
-  const fullyPaddedDurations = durationsWithPaddingScale(1);
-  if (totalDuration(fullyPaddedDurations) <= maxTotalDurationSeconds) return fullyPaddedDurations;
-
-  // Find the largest uniform share of the requested per-scene padding that
-  // fits. This preserves all speech while keeping the concatenated video cap.
-  let low = 0;
-  let high = 1;
-  for (let iteration = 0; iteration < 48; iteration++) {
-    const midpoint = (low + high) / 2;
-    if (totalDuration(durationsWithPaddingScale(midpoint)) <= maxTotalDurationSeconds) {
-      low = midpoint;
-    } else {
-      high = midpoint;
-    }
-  }
-  return durationsWithPaddingScale(low);
 }
 
 export function sceneRequestMetadata(sourceValue: unknown, requestIdValue: unknown, fallbackSource: string) {
