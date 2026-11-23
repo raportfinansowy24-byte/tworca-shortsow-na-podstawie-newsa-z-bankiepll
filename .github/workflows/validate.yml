@@ -108,6 +108,8 @@ jobs:
         run: npm run test:pixabay-video-provider
       - name: Supabase job history tests
         run: npm run test:supabase-history
+      - name: Atomic local history tests
+        run: npm run test:atomic-json
 
 
   deploy_production:

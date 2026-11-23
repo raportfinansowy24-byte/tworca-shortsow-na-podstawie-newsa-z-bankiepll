@@ -56,6 +56,7 @@ import { nextTelegramRevisionNumber, normalizeTelegramFeedback } from './src/ser
 import { publishApprovedShortToPostiz } from './src/server/postizPublisher';
 import { constantTimeTokenMatch, createApiAuthMiddleware, createAppSessionToken, getAppAuthConfiguration, SESSION_TTL_SECONDS } from './src/server/apiAuth';
 import { getPexelsSearchCache, hasSupabaseHistoryConfiguration, loadShortJobsFromSupabase, persistShortJobSnapshot, queueShortJobSnapshot, setPexelsSearchCache, upsertShortJobExport, upsertShortJobsBatch, type DriveExportStatus, type ShortJobSnapshot } from './src/server/supabaseJobStore';
+import { AtomicJsonFile } from './src/server/atomicJsonFile';
 import { buildCreativeDirectorFallback, buildCreativeDirectorPrompt, loadBrandContext, mapCreativeDirectorPlanToRenderScenes, parseCreativeDirectorPlan, type CreativeDirectorArticle, type CreativeDirectorPlan } from './src/server/creativeDirector';
 import { buildFinanceSceneDataVisual, buildFinanceShortPlan, selectHookVariantFromLearningSignals, validateFinanceShortPlan, type FinanceShortPlan } from './src/server/shortPipeline';
 import { buildBrandedCtaSvg } from './src/server/brandEndCard';
@@ -1375,6 +1376,7 @@ interface ActiveJobExecution {
 
 const JOBS_DB_PATH = path.join(EXPORTS_DIR, 'jobs_history.json');
 const jobsStore = new Map<string, Job>();
+const jobsHistoryFile = new AtomicJsonFile<Job[]>({ filePath: JOBS_DB_PATH });
 const activeJobExecutions = new Map<string, ActiveJobExecution>();
 const sseSubscribers = new Map<string, Set<express.Response>>();
 
@@ -1435,15 +1437,10 @@ function cancelAndTerminateJob(jobId: string, reason: string = 'Zadanie anulowan
 }
 
 function saveJobsToDisk() {
-  try {
-    if (!fs.existsSync(EXPORTS_DIR)) {
-      fs.mkdirSync(EXPORTS_DIR, { recursive: true });
-    }
-    const jobsArray = Array.from(jobsStore.values());
-    fs.writeFileSync(JOBS_DB_PATH, JSON.stringify(jobsArray, null, 2), 'utf-8');
-  } catch (err) {
-    console.warn('Nie można zapisać historii zadań na dysk:', (err as Error).message);
-  }
+  const jobsArray = Array.from(jobsStore.values());
+  void jobsHistoryFile.write(jobsArray).catch((err: unknown) => {
+    console.warn('Nie można atomowo zapisać historii zadań na dysk:', (err as Error).message);
+  });
 }
 
 function loadJobsFromDisk() {
@@ -1451,23 +1448,20 @@ function loadJobsFromDisk() {
     if (!fs.existsSync(EXPORTS_DIR)) {
       fs.mkdirSync(EXPORTS_DIR, { recursive: true });
     }
-    if (fs.existsSync(JOBS_DB_PATH)) {
-      const data = fs.readFileSync(JOBS_DB_PATH, 'utf-8');
-      const jobsArray: Job[] = JSON.parse(data);
-      if (Array.isArray(jobsArray)) {
-        jobsArray.forEach(job => {
-          if (job && job.id) {
-            // Jeśli zadanie zostało przerwane przez restart serwera, oznacz jako przerwane
-            if (job.status === 'processing' || job.status === 'queued') {
-              job.status = 'failed';
-              job.step = 'Zadanie przerwane (restart środowiska)';
-              job.error = 'Proces renderowania został przerwany wskutek restartu serwera.';
-            }
-            jobsStore.set(job.id, job);
+    const jobsArray = jobsHistoryFile.load();
+    if (Array.isArray(jobsArray)) {
+      jobsArray.forEach(job => {
+        if (job && job.id) {
+          // Jeśli zadanie zostało przerwane przez restart serwera, oznacz jako przerwane
+          if (job.status === 'processing' || job.status === 'queued') {
+            job.status = 'failed';
+            job.step = 'Zadanie przerwane (restart środowiska)';
+            job.error = 'Proces renderowania został przerwany wskutek restartu serwera.';
           }
-        });
-        console.log(`[Historia] Załadowano ${jobsStore.size} zadań renderowania z pamięci dyskowej (${JOBS_DB_PATH})`);
-      }
+          jobsStore.set(job.id, job);
+        }
+      });
+      console.log(`[Historia] Załadowano ${jobsStore.size} zadań renderowania z pamięci dyskowej (${JOBS_DB_PATH})`);
     }
 
     // Auto-discover exported .mp4 files on disk that might be missing from jobs_history.json
