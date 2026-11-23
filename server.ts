@@ -11,7 +11,7 @@ import { downloadRemoteFile, postWebhook } from './src/server/safeHttp';
 import { isPublicExportFilename, isSafeExportPath, parseByteRange } from './src/server/byteRange';
 import { runCompletionCallback } from './src/server/renderDeadline';
 import { createStreamTicketStore, STREAM_TICKET_TTL_MS } from './src/server/streamTickets';
-import { exec, spawn, ChildProcess } from 'child_process';
+import { exec, execFile, spawn, ChildProcess } from 'child_process';
 import { promisify } from 'util';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
@@ -87,6 +87,7 @@ import { GEMINI_PRIMARY_MODEL, getGeminiApiKeys, getGeminiFallbackModels, withGe
 import { GEMINI_NARRATION_REVISION_BUDGET_MS, GEMINI_REQUEST_BUDGET_MS, getGeminiHttpOptions, getGeminiRemainingBudgetMs } from './src/server/geminiRequestPolicy';
 
 const execPromise = promisify(exec);
+const execFilePromise = promisify(execFile);
 const serverStartedAt = new Date().toISOString();
 
 async function generateGeminiContentWithFallback(params: { contents: any; config?: any; deadlineAt?: number }) {
@@ -207,7 +208,10 @@ async function analyzeRenderedVisualFit(
       for (let frameIndex = 0; frameIndex < timestamps.length; frameIndex++) {
         const timestampSeconds = timestamps[frameIndex];
         const framePath = path.join(tempDir, `visual_qa_scene_${index + 1}_frame_${frameIndex + 1}.jpg`);
-        await execPromise(`ffmpeg -v error -y -ss ${timestampSeconds.toFixed(3)} -i "${videoPath}" -frames:v 1 -vf "scale=512:-2" -q:v 6 "${framePath}"`);
+        await execFilePromise('ffmpeg', [
+          '-v', 'error', '-y', '-ss', timestampSeconds.toFixed(3), '-i', videoPath,
+          '-frames:v', '1', '-vf', 'scale=512:-2', '-q:v', '6', framePath
+        ]);
         if (!fs.existsSync(framePath) || fs.statSync(framePath).size === 0) throw new Error(`Nie udało się pobrać próbki ${frameIndex + 1} obrazu dla sceny ${index + 1}.`);
         imageParts.push({ text: `SCENA ${index + 1}, KLATKA ${frameIndex + 1}/${timestamps.length} — próbka z ${timestampSeconds.toFixed(2)} s filmu. Tekst lektora tej sceny: ${narration || '[brak tekstu]'}` });
         imageParts.push({ inlineData: { mimeType: 'image/jpeg', data: fs.readFileSync(framePath).toString('base64') } });
@@ -1801,9 +1805,12 @@ async function ensureAntonFont(): Promise<boolean> {
 // Helper to generate a stylized vertical video background or audio when remote download fails
 function generateLocalFallbackVideo(destPath: string, duration = 6): Promise<void> {
   return new Promise((resolve, reject) => {
+    const safeDuration = Number.isFinite(duration) && duration > 0 && duration <= 60 ? duration : 6;
     if (destPath.endsWith('.mp3') || destPath.endsWith('.wav') || destPath.endsWith('.m4a')) {
-      const audioCmd = `ffmpeg -y -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 -c:a libmp3lame -b:a 128k -t ${duration} "${destPath}"`;
-      exec(audioCmd, (err) => {
+      execFile('ffmpeg', [
+        '-y', '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',
+        '-c:a', 'libmp3lame', '-b:a', '128k', '-t', String(safeDuration), destPath
+      ], (err) => {
         if (err) return reject(err);
         resolve();
       });
@@ -1818,8 +1825,12 @@ function generateLocalFallbackVideo(destPath: string, duration = 6): Promise<voi
       { bg: '0x3b0764', grid: '0x6b21a8' }
     ];
     const choice = palette[Math.floor(Math.random() * palette.length)];
-    const ffmpegCmd = `ffmpeg -y -f lavfi -i "color=c=${choice.bg}:s=720x1280:d=${duration},drawgrid=w=60:h=60:t=1:c=${choice.grid}@0.2" -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 -c:v libx264 -pix_fmt yuv420p -c:a aac -t ${duration} "${destPath}"`;
-    exec(ffmpegCmd, (err) => {
+    const filter = `color=c=${choice.bg}:s=720x1280:d=${safeDuration},drawgrid=w=60:h=60:t=1:c=${choice.grid}@0.2`;
+    execFile('ffmpeg', [
+      '-y', '-f', 'lavfi', '-i', filter,
+      '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',
+      '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-t', String(safeDuration), destPath
+    ], (err) => {
       if (err) {
         console.error('[Fallback Video Error]', err);
         return reject(err);
