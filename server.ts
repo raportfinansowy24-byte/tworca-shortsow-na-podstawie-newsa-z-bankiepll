@@ -2790,8 +2790,6 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
       requireCaptionAlignment: !payload.pipelinePlan,
       skipCaptionAlignment: Boolean(payload.pipelinePlan),
       skipNarrationLengthChecks: Boolean(payload.pipelinePlan),
-      maxNarrationWordsExcludingLast: payload.pipelinePlan ? undefined : 32,
-      maxWordsPerScene: payload.pipelinePlan ? undefined : (index: number) => index < 4 ? 5 : index < 7 ? 6 : 9,
       sourceText: payload.sourceArticleText,
       requireSourceEvidence: payload.requireSourceEvidence,
       requireBrandedCta: payload.requireBrandedCta
@@ -5159,16 +5157,12 @@ async function generateSmartOrGeminiViralScript({
   const offerMatchPrompt = buildOfferMatchPromptInstructions(offerMatch);
   const ctaPlan = selectFinanceCta(bankierArticle || { title: cleanTopic, category: niche }, offerMatch);
   const narrationSceneWordRanges = [
-    ...Array.from({ length: 4 }, () => ({ min: 4, max: 5 })),
-    ...Array.from({ length: 3 }, () => ({ min: 5, max: 6 }))
+    ...Array.from({ length: 4 }, () => ({ min: 4 })),
+    ...Array.from({ length: 3 }, () => ({ min: 5 }))
   ];
   const ctaWordCount = ctaPlan.spokenText.trim().split(/\s+/).filter(Boolean).length;
   const narrationWordRangeWithCta = {
     min: narrationSceneWordRanges.reduce((total, range) => total + range.min, 0) + ctaWordCount,
-    max: Math.min(
-      narrationSceneWordRanges.reduce((total, range) => total + range.max, 0),
-      32
-    ) + ctaWordCount
   };
   const financeCardSource = {
     title: String(bankierArticle?.title || cleanTopic),
@@ -5241,7 +5235,7 @@ WIARYGODNOŚĆ:
 - Bez gwarantowanych zysków, fałszywej pilności i indywidualnych rekomendacji inwestycyjnych.
 - Dobieraj ujęcia do konkretnego tematu newsa; nie stosuj ogólnego finansowego B-rollu, gdy nie pasuje do faktu.
 
-DOKŁADNIE 8 SCEN. STANDARDOWY UKŁAD TO 18 SEKUND; RENDERER MOŻE WYDŁUŻYĆ SCENY, ALE CAŁY FILM NIE MOŻE PRZEKROCZYĆ 28 SEKUND:
+ DOKŁADNIE 8 SCEN. Preferowany cel redakcyjny to około 18 sekund. Gotowy Short ma trwać co najmniej 15 sekund i nie ma górnego limitu. Renderer dopasowuje czas scen do jednej ciągłej ścieżki lektora:
 1. HOOK: jeden konkretny fakt ze źródła.
 2. KONTEKST: temat newsa.
 3. PROBLEM: co jest stawką.
@@ -5251,11 +5245,13 @@ DOKŁADNIE 8 SCEN. STANDARDOWY UKŁAD TO 18 SEKUND; RENDERER MOŻE WYDŁUŻYĆ S
 7. WNIOSEK: praktyczna rzecz do sprawdzenia.
 8. CTA: krótka wypowiedź podana przez backend.
 
-REŻYSERIA I LIMIT NARRACJI:
-- Sceny 1–4: 4–5 wypowiadanych słów na scenę.
-- Sceny 5–7: 5–6 wypowiadanych słów na scenę.
-- Scena 8: maks. 4 słowa; backend zastąpi ją zatwierdzonym CTA.
-- Łącznie po zastąpieniu placeholdera docelowym CTA: ${narrationWordRangeWithCta.min}–${narrationWordRangeWithCta.max} wypowiadanych słów. Zakres uwzględnia faktyczną długość CTA; nie skracaj scen poniżej podanych minimów ani nie dodawaj wypełniaczy.
+REŻYSERIA NARRACJI — BEZ GÓRNEGO LIMITU SŁÓW:
+- Sceny 1–4 powinny zawierać pełne, naturalne frazy rozwijające fakty ze źródła; użyj co najmniej 4 słów, gdy wynika to z treści.
+- Sceny 5–7 powinny zawierać pełne, naturalne frazy; użyj co najmniej 5 słów, gdy wynika to z treści.
+- Scena 8 jest zastępowana zatwierdzonym CTA z backendu; nie wymyślaj ani nie skracaj CTA.
+- Łącznie narracja ma osiągnąć co najmniej ${narrationWordRangeWithCta.min} słów, jeżeli jest to potrzebne do naturalnego spełnienia minimum 15 sekund. Nie istnieje maksymalna liczba słów ani maksymalny czas.
+- Pisz pełnymi frazami i zdaniami. Nie usuwaj ważnego wyjaśnienia tylko po to, by zmniejszyć liczbę słów.
+- Nie dodawaj pustych powtórzeń ani wypełniaczy. Każde zdanie musi wnosić potwierdzony fakt, konieczny kontekst albo jasno oznaczoną, ostrożną interpretację.
 - Pisz pełnymi frazami i zdaniami, nie hasłami. Jedna myśl (fakt z newsa) rozłożona na sceny; zdanie może obejmować dwie sceny.
 - Nie czytaj adresów URL, domen, ścieżek ani hashtagów lektorem. Link docelowy znajduje się w opisie publikacji.
 - Zachowaj najważniejsze fakty; usuń powtórzenia, wstępy i zbędne łączniki zamiast dodawać słowa.
@@ -5340,13 +5336,13 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
     if (modelResult && modelResult.text) {
       const parsed = JSON.parse(modelResult.text);
       const hasExpectedSceneCount = parsed && Array.isArray(parsed.scenes) && parsed.scenes.length === count;
-      const hasConciseSceneCopy = hasExpectedSceneCount && hasNarrationWithinWordRanges(
+      const hasNarrationMinimum = hasExpectedSceneCount && hasNarrationWithinWordRanges(
         parsed.scenes,
-        [...narrationSceneWordRanges, { min: 1, max: 4 }],
+        [...narrationSceneWordRanges, { min: 1 }],
         narrationWordRangeWithCta,
         ctaPlan.spokenText
       );
-      if (hasExpectedSceneCount && hasConciseSceneCopy) {
+      if (hasExpectedSceneCount && hasNarrationMinimum) {
         const usedPexelsIds: number[] = [];
         const scenesWithVideo = [];
 
@@ -5681,7 +5677,7 @@ async function translateSmartOrGeminiScript({
     const prompt = `Jesteś ekspertem automatycznego tłumaczenia i tworzenia krótkich scen wideo (Shorts / TikTok / Reels).
 Przetłumacz i podziel poniższy tekst / transkrypcję z nagrania wideo na język: "${targetLanguage}".
 Podziel go na ${count} scen z uderzającymi napisami oraz dobierz angielskie słowa kluczowe tła wideo Pexels dla każdej sceny.
-To adaptacja do krótkiego formatu, nie tłumaczenie dosłowne: zachowaj najważniejsze fakty. Sceny 1–4 mają maksymalnie 5 słów, sceny 5–8 maksymalnie 6 słów. Docelowy czas orientacyjny Shorta to 23 s; gotowy film ma trwać co najmniej 15 s i nie ma górnego limitu. Zachowaj naturalny czas lektora; CTA pozostaje częścią ciągłej narracji.
+To adaptacja do krótkiego formatu, nie tłumaczenie dosłowne: zachowaj najważniejsze fakty i pełne, naturalne frazy. Nie narzucaj maksymalnej liczby słów ani czasu trwania scen. Preferowany cel to około 18 s; gotowy film ma trwać co najmniej 15 s i nie ma górnego limitu. Zachowaj naturalne tempo oryginalnego lektora; CTA pozostaje częścią ciągłej narracji.
 
 Tekst do przetłumaczenia:
 "${scriptText}"
@@ -5728,11 +5724,11 @@ Wymagania JSON:
     if (modelResult && modelResult.text) {
       const parsed = JSON.parse(modelResult.text);
       const hasExpectedSceneCount = parsed && Array.isArray(parsed.scenes) && parsed.scenes.length === count;
-      const hasConciseSceneCopy = hasExpectedSceneCount && hasNarrationWithinWordRanges(
+      const hasNarrationPerScene = hasExpectedSceneCount && hasNarrationWithinWordRanges(
         parsed.scenes,
-        sceneDurations.map((duration) => ({ min: 1, max: duration <= 2 ? 5 : 6 }))
+        sceneDurations.map(() => ({ min: 1 }))
       );
-      if (hasExpectedSceneCount && hasConciseSceneCopy) {
+      if (hasExpectedSceneCount && hasNarrationPerScene) {
         const usedPexelsIds: number[] = [];
         const scenesWithVideo = [];
 
@@ -8611,8 +8607,6 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
       requireCaptionAlignment: true,
       requireSourceEvidence: true,
       sourceText: [candidate.title, candidate.description, candidate.summary].filter(Boolean).join('\n'),
-      maxNarrationWordsExcludingLast: 32,
-      maxWordsPerScene: (index: number) => index < 4 ? 5 : index < 7 ? 6 : 9
     };
     const initialEditorQa = evaluateShortStoryboard(scriptData.scenes, qaOptions);
     const qaRepairResult = await repairUntilPass({
