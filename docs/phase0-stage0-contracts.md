@@ -28,9 +28,9 @@ Retry ma decyzję o budżecie w Stage 0, ale nie może być implementowany przed
 
 ### 1. Czas scen
 
-Storyboard, który przechodzi walidację, jest źródłem prawdy dla `scene.duration`. `/combine-scenes` respektuje przekazane czasy i nie nadpisuje ich cichym stałym harmonogramem. Ten sam timeline musi być używany przez TTS alignment, captions, stock sampling, visual QA i FFmpeg. Lektor pozostaje jedną ciągłą, nieciętą ścieżką audio; czasy scen służą do mapowania narracji, nie do cięcia lektora na osobne pliki.
+Storyboard, który przechodzi walidację, jest źródłem prawdy dla `scene.duration`. `/combine-scenes` respektuje przekazane czasy i nie nadpisuje ich cichym stałym harmonogramem. Ten sam timeline musi być używany przez TTS alignment, captions, stock sampling, visual QA i FFmpeg. Lektor pozostaje jedną ciągłą, nieciętą ścieżką audio; czasy scen służą do mapowania narracji, nie do cięcia lektora na osobne pliki. Gotowy Short ma trwać **co najmniej 15 sekund; nie ma górnego limitu długości**. Około 18 sekund pozostaje preferowanym celem redakcyjnym, a nie limitem maksymalnym. Nie przyspieszaj, nie ucinaj i nie skracaj poprawnej narracji wyłącznie po to, aby zmieścić ją w arbitralnym maksimum.
 
-Test akceptacyjny: payload z czasami `2.1`, `3.7` i `4.4` sekund; każdy downstream otrzymuje identyczny harmonogram, lektor jest jednym plikiem/strumieniem bez cięć, a `ffprobe` potwierdza zgodny czas finalnego artefaktu.
+Test akceptacyjny: payload z czasami `2.1`, `3.7` i `4.4` sekund; każdy downstream otrzymuje identyczny harmonogram, lektor jest jednym plikiem/strumieniem bez cięć, a `ffprobe` potwierdza zgodny czas finalnego artefaktu. QA odrzuca `14.99 s`, akceptuje `15.00 s` oraz akceptuje naturalny wynik dłuższy niż wcześniejszy limit 28 s (np. `42.5 s`), jeżeli zgadza się z zaakceptowanym timeline.
 
 ### 2. Liczba scen
 
