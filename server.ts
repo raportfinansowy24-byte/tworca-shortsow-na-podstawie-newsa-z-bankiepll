@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import path from 'path';
 import { createHash } from 'node:crypto';
 import { requestElevenLabsApi as performElevenLabsRequest, type ElevenLabsRequestContext } from './src/server/elevenLabsRequest';
@@ -11,7 +12,8 @@ import { downloadRemoteFile, postWebhook } from './src/server/safeHttp';
 import { isPublicExportFilename, isSafeExportPath, parseByteRange } from './src/server/byteRange';
 import { runCompletionCallback } from './src/server/renderDeadline';
 import { createStreamTicketStore, STREAM_TICKET_TTL_MS } from './src/server/streamTickets';
-import { exec, spawn, ChildProcess } from 'child_process';
+import { BestEffortFlush } from './src/server/bestEffortFlush';
+import { exec, execFile, spawn, ChildProcess } from 'child_process';
 import { promisify } from 'util';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
@@ -56,6 +58,7 @@ import { nextTelegramRevisionNumber, normalizeTelegramFeedback } from './src/ser
 import { publishApprovedShortToPostiz } from './src/server/postizPublisher';
 import { constantTimeTokenMatch, createApiAuthMiddleware, createAppSessionToken, getAppAuthConfiguration, SESSION_TTL_SECONDS } from './src/server/apiAuth';
 import { getPexelsSearchCache, hasSupabaseHistoryConfiguration, loadShortJobsFromSupabase, persistShortJobSnapshot, queueShortJobSnapshot, setPexelsSearchCache, upsertShortJobExport, upsertShortJobsBatch, type DriveExportStatus, type ShortJobSnapshot } from './src/server/supabaseJobStore';
+import { AtomicJsonFile } from './src/server/atomicJsonFile';
 import { buildCreativeDirectorFallback, buildCreativeDirectorPrompt, loadBrandContext, mapCreativeDirectorPlanToRenderScenes, parseCreativeDirectorPlan, type CreativeDirectorArticle, type CreativeDirectorPlan } from './src/server/creativeDirector';
 import { buildFinanceSceneDataVisual, buildFinanceShortPlan, selectHookVariantFromLearningSignals, validateFinanceShortPlan, type FinanceShortPlan } from './src/server/shortPipeline';
 import { buildBrandedCtaSvg } from './src/server/brandEndCard';
@@ -86,6 +89,7 @@ import { GEMINI_PRIMARY_MODEL, getGeminiApiKeys, getGeminiFallbackModels, withGe
 import { GEMINI_NARRATION_REVISION_BUDGET_MS, GEMINI_REQUEST_BUDGET_MS, getGeminiHttpOptions, getGeminiRemainingBudgetMs } from './src/server/geminiRequestPolicy';
 
 const execPromise = promisify(exec);
+const execFilePromise = promisify(execFile);
 const serverStartedAt = new Date().toISOString();
 
 async function generateGeminiContentWithFallback(params: { contents: any; config?: any; deadlineAt?: number }) {
@@ -206,7 +210,10 @@ async function analyzeRenderedVisualFit(
       for (let frameIndex = 0; frameIndex < timestamps.length; frameIndex++) {
         const timestampSeconds = timestamps[frameIndex];
         const framePath = path.join(tempDir, `visual_qa_scene_${index + 1}_frame_${frameIndex + 1}.jpg`);
-        await execPromise(`ffmpeg -v error -y -ss ${timestampSeconds.toFixed(3)} -i "${videoPath}" -frames:v 1 -vf "scale=512:-2" -q:v 6 "${framePath}"`);
+        await execFilePromise('ffmpeg', [
+          '-v', 'error', '-y', '-ss', timestampSeconds.toFixed(3), '-i', videoPath,
+          '-frames:v', '1', '-vf', 'scale=512:-2', '-q:v', '6', framePath
+        ]);
         if (!fs.existsSync(framePath) || fs.statSync(framePath).size === 0) throw new Error(`Nie udało się pobrać próbki ${frameIndex + 1} obrazu dla sceny ${index + 1}.`);
         imageParts.push({ text: `SCENA ${index + 1}, KLATKA ${frameIndex + 1}/${timestamps.length} — próbka z ${timestampSeconds.toFixed(2)} s filmu. Tekst lektora tej sceny: ${narration || '[brak tekstu]'}` });
         imageParts.push({ inlineData: { mimeType: 'image/jpeg', data: fs.readFileSync(framePath).toString('base64') } });
@@ -1375,6 +1382,7 @@ interface ActiveJobExecution {
 
 const JOBS_DB_PATH = path.join(EXPORTS_DIR, 'jobs_history.json');
 const jobsStore = new Map<string, Job>();
+const jobsHistoryFile = new AtomicJsonFile<Job[]>({ filePath: JOBS_DB_PATH });
 const activeJobExecutions = new Map<string, ActiveJobExecution>();
 const sseSubscribers = new Map<string, Set<express.Response>>();
 
@@ -1434,16 +1442,31 @@ function cancelAndTerminateJob(jobId: string, reason: string = 'Zadanie anulowan
   return wasActive;
 }
 
-function saveJobsToDisk() {
-  try {
-    if (!fs.existsSync(EXPORTS_DIR)) {
-      fs.mkdirSync(EXPORTS_DIR, { recursive: true });
-    }
-    const jobsArray = Array.from(jobsStore.values());
-    fs.writeFileSync(JOBS_DB_PATH, JSON.stringify(jobsArray, null, 2), 'utf-8');
-  } catch (err) {
-    console.warn('Nie można zapisać historii zadań na dysk:', (err as Error).message);
-  }
+function saveJobsToDisk(): Promise<void> {
+  const jobsArray = Array.from(jobsStore.values());
+  const writePromise = jobsHistoryFile.write(jobsArray);
+  void writePromise.catch((err: unknown) => {
+    console.warn('Nie można atomowo zapisać historii zadań na dysk:', (err as Error).message);
+  });
+  return writePromise;
+}
+
+const bestEffortJobsFlush = new BestEffortFlush(() => saveJobsToDisk(), {
+  delayMs: 50,
+  onError: (error) => console.warn('Nie można odroczone zapisać historii zadań; ponowienie zostanie zaplanowane:', (error as Error).message)
+});
+
+async function flushJobsToDisk(): Promise<void> {
+  await bestEffortJobsFlush.flushNow();
+}
+
+async function updateJobProgressAndFlush(
+  jobId: string,
+  update: Partial<Job>,
+  logMsg?: string
+): Promise<void> {
+  updateJobProgress(jobId, update, logMsg);
+  await flushJobsToDisk();
 }
 
 function loadJobsFromDisk() {
@@ -1451,23 +1474,20 @@ function loadJobsFromDisk() {
     if (!fs.existsSync(EXPORTS_DIR)) {
       fs.mkdirSync(EXPORTS_DIR, { recursive: true });
     }
-    if (fs.existsSync(JOBS_DB_PATH)) {
-      const data = fs.readFileSync(JOBS_DB_PATH, 'utf-8');
-      const jobsArray: Job[] = JSON.parse(data);
-      if (Array.isArray(jobsArray)) {
-        jobsArray.forEach(job => {
-          if (job && job.id) {
-            // Jeśli zadanie zostało przerwane przez restart serwera, oznacz jako przerwane
-            if (job.status === 'processing' || job.status === 'queued') {
-              job.status = 'failed';
-              job.step = 'Zadanie przerwane (restart środowiska)';
-              job.error = 'Proces renderowania został przerwany wskutek restartu serwera.';
-            }
-            jobsStore.set(job.id, job);
+    const jobsArray = jobsHistoryFile.load();
+    if (Array.isArray(jobsArray)) {
+      jobsArray.forEach(job => {
+        if (job && job.id) {
+          // Jeśli zadanie zostało przerwane przez restart serwera, oznacz jako przerwane
+          if (job.status === 'processing' || job.status === 'queued') {
+            job.status = 'failed';
+            job.step = 'Zadanie przerwane (restart środowiska)';
+            job.error = 'Proces renderowania został przerwany wskutek restartu serwera.';
           }
-        });
-        console.log(`[Historia] Załadowano ${jobsStore.size} zadań renderowania z pamięci dyskowej (${JOBS_DB_PATH})`);
-      }
+          jobsStore.set(job.id, job);
+        }
+      });
+      console.log(`[Historia] Załadowano ${jobsStore.size} zadań renderowania z pamięci dyskowej (${JOBS_DB_PATH})`);
     }
 
     // Auto-discover exported .mp4 files on disk that might be missing from jobs_history.json
@@ -1592,7 +1612,7 @@ function updateJobProgress(
     });
   }
 
-  saveJobsToDisk();
+  bestEffortJobsFlush.schedule();
   const importantUpdate = Boolean(
     update.status || update.outputUrl || update.outputFilename || update.exportStatus ||
     update.driveUrl || update.driveFileId || update.error || update.telegramApprovalStatus
@@ -1716,7 +1736,7 @@ async function createTelegramRevisionJob(parentJobId: string, feedback: string):
   };
 
   jobsStore.set(jobId, revisionJob);
-  saveJobsToDisk();
+  await flushJobsToDisk();
   queueShortJobSnapshot(revisionJob as ShortJobSnapshot, true);
   updateJobProgress(parentJobId, {
     telegramApprovalStatus: 'rework_created',
@@ -1796,9 +1816,12 @@ async function ensureAntonFont(): Promise<boolean> {
 // Helper to generate a stylized vertical video background or audio when remote download fails
 function generateLocalFallbackVideo(destPath: string, duration = 6): Promise<void> {
   return new Promise((resolve, reject) => {
+    const safeDuration = Number.isFinite(duration) && duration > 0 && duration <= 60 ? duration : 6;
     if (destPath.endsWith('.mp3') || destPath.endsWith('.wav') || destPath.endsWith('.m4a')) {
-      const audioCmd = `ffmpeg -y -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 -c:a libmp3lame -b:a 128k -t ${duration} "${destPath}"`;
-      exec(audioCmd, (err) => {
+      execFile('ffmpeg', [
+        '-y', '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',
+        '-c:a', 'libmp3lame', '-b:a', '128k', '-t', String(safeDuration), destPath
+      ], (err) => {
         if (err) return reject(err);
         resolve();
       });
@@ -1813,8 +1836,12 @@ function generateLocalFallbackVideo(destPath: string, duration = 6): Promise<voi
       { bg: '0x3b0764', grid: '0x6b21a8' }
     ];
     const choice = palette[Math.floor(Math.random() * palette.length)];
-    const ffmpegCmd = `ffmpeg -y -f lavfi -i "color=c=${choice.bg}:s=720x1280:d=${duration},drawgrid=w=60:h=60:t=1:c=${choice.grid}@0.2" -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 -c:v libx264 -pix_fmt yuv420p -c:a aac -t ${duration} "${destPath}"`;
-    exec(ffmpegCmd, (err) => {
+    const filter = `color=c=${choice.bg}:s=720x1280:d=${safeDuration},drawgrid=w=60:h=60:t=1:c=${choice.grid}@0.2`;
+    execFile('ffmpeg', [
+      '-y', '-f', 'lavfi', '-i', filter,
+      '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',
+      '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-t', String(safeDuration), destPath
+    ], (err) => {
       if (err) {
         console.error('[Fallback Video Error]', err);
         return reject(err);
@@ -2159,7 +2186,10 @@ type CaptionWordTiming = { word: string; start: number; end: number };
 async function getAudioDuration(audioPath: string): Promise<number> {
   if (!fs.existsSync(audioPath)) return 0;
   try {
-    const { stdout } = await execPromise(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${audioPath}"`);
+    const { stdout } = await execFilePromise('ffprobe', [
+      '-v', 'error', '-show_entries', 'format=duration',
+      '-of', 'default=noprint_wrappers=1:nokey=1', audioPath
+    ]);
     const duration = Number.parseFloat(stdout.trim());
     return Number.isFinite(duration) && duration > 0 ? duration : 0;
   } catch {
@@ -3533,7 +3563,10 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
     const thumbnailPath = path.join(EXPORTS_DIR, thumbnailFilename);
     let thumbnailUrl: string | undefined = undefined;
     try {
-      await execPromise(`ffmpeg -y -ss 00:00:01.200 -i "${finalOutputPath}" -vframes 1 -q:v 2 "${thumbnailPath}"`);
+      await execFilePromise('ffmpeg', [
+        '-y', '-ss', '00:00:01.200', '-i', finalOutputPath,
+        '-vframes', '1', '-q:v', '2', thumbnailPath
+      ]);
       if (fs.existsSync(thumbnailPath)) {
         thumbnailUrl = `${baseUrl}/exports/${thumbnailFilename}`;
       }
@@ -3541,7 +3574,7 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
       console.warn(`[Thumbnail Warning] Nie udało się wygenerować miniatury dla zadania ${jobId}:`, (thumbErr as Error).message);
     }
 
-    updateJobProgress(
+    await updateJobProgressAndFlush(
       jobId,
       {
         status: 'completed',
@@ -3608,7 +3641,7 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
   } catch (error) {
     const errorMsg = (error as Error).message || 'Unknown video processing error';
     console.error(`❌ Error processing job ${jobId}:`, error);
-    updateJobProgress(
+    await updateJobProgressAndFlush(
       jobId,
       {
         status: 'failed',
@@ -3650,6 +3683,13 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
 
 // REST API ROUTER
 const router = express.Router();
+const historyMutationRateLimit = rateLimit({
+  windowMs: 60_000,
+  limit: 30,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Zbyt wiele operacji historii. Spróbuj ponownie za chwilę.' }
+});
 
 // Supervisor monitor: opt-in, bounded, deduplicated alerts. It never publishes or mutates jobs.
 const SUPERVISOR_MONITOR_INTERVAL_MS = Math.max(
@@ -6415,7 +6455,7 @@ router.post('/auto-pilot-shorts', async (req, res) => {
     };
 
     jobsStore.set(jobId, newJob);
-    saveJobsToDisk();
+    await flushJobsToDisk();
     queueShortJobSnapshot(newJob as ShortJobSnapshot, true);
     if (pipelineRunId) {
       void updatePipelineRunStatus(pipelineRunId, 'queued', jobId);
@@ -6607,7 +6647,7 @@ router.post('/combine-scenes', async (req, res) => {
   };
 
   jobsStore.set(jobId, newJob);
-  saveJobsToDisk();
+  await flushJobsToDisk();
   queueShortJobSnapshot(newJob as ShortJobSnapshot, true);
 
   const isAsync = payload.async === true || Boolean(payload.webhookUrl);
@@ -6874,7 +6914,7 @@ const handleInboundWebhook = async (req: express.Request, res: express.Response)
         updatedAt: new Date().toISOString()
       };
       jobsStore.set(jobId, newJob);
-      saveJobsToDisk();
+      await flushJobsToDisk();
       queueShortJobSnapshot(newJob as ShortJobSnapshot, true);
 
       // Start asynchronous job
@@ -7121,7 +7161,7 @@ router.get('/jobs/recent-completed', async (req, res) => {
 });
 
 // Endpoint: Dedicated Video Thumbnail Generator & Retriever (/api/jobs/:jobId/thumbnail)
-router.get('/jobs/:jobId/thumbnail', async (req, res) => {
+router.get('/jobs/:jobId/thumbnail', historyMutationRateLimit, async (req, res) => {
   const { jobId } = req.params;
   const job = jobsStore.get(jobId);
   if (!job || !job.outputFilename) {
@@ -7141,7 +7181,10 @@ router.get('/jobs/:jobId/thumbnail', async (req, res) => {
   const videoPath = path.join(EXPORTS_DIR, job.outputFilename);
   if (fs.existsSync(videoPath)) {
     try {
-      await execPromise(`ffmpeg -y -ss 00:00:01.200 -i "${videoPath}" -vframes 1 -q:v 2 "${thumbPath}"`);
+      await execFilePromise('ffmpeg', [
+        '-y', '-ss', '00:00:01.200', '-i', videoPath,
+        '-vframes', '1', '-q:v', '2', thumbPath
+      ]);
       if (fs.existsSync(thumbPath)) {
         res.setHeader('Content-Type', 'image/jpeg');
         res.setHeader('Cache-Control', 'public, max-age=86400');
@@ -7312,7 +7355,7 @@ router.get('/jobs/:jobId', (req, res) => {
 });
 
 // Cancel & Terminate Active Job (/api/jobs/:jobId/cancel)
-router.post('/jobs/:jobId/cancel', (req, res) => {
+router.post('/jobs/:jobId/cancel', historyMutationRateLimit, async (req, res) => {
   const { jobId } = req.params;
   const reason = (req.body && req.body.reason) || 'Anulowano na żądanie użytkownika';
   const terminated = cancelAndTerminateJob(jobId, reason);
@@ -7322,7 +7365,7 @@ router.post('/jobs/:jobId/cancel', (req, res) => {
     return res.status(404).json({ error: `Nie znaleziono zadania ${jobId}` });
   }
 
-  saveJobsToDisk();
+  await flushJobsToDisk();
   res.json({
     success: true,
     message: `Zadanie ${jobId} zostało natychmiast zatrzymane i wyczyszczone.`,
@@ -7332,7 +7375,7 @@ router.post('/jobs/:jobId/cancel', (req, res) => {
 });
 
 // Delete Single Job (/api/jobs/:jobId)
-router.delete('/jobs/:jobId', (req, res) => {
+router.delete('/jobs/:jobId', historyMutationRateLimit, async (req, res) => {
   const { jobId } = req.params;
   const job = jobsStore.get(jobId);
 
@@ -7341,6 +7384,7 @@ router.delete('/jobs/:jobId', (req, res) => {
 
   if (!job) {
     // Usunięto z aktywnych procesów lub nie było w bazie
+    await flushJobsToDisk();
     return res.json({ success: true, message: `Zadanie ${jobId} zostało zatrzymane i usunięte.` });
   }
 
@@ -7373,13 +7417,13 @@ router.delete('/jobs/:jobId', (req, res) => {
   }
 
   jobsStore.delete(jobId);
-  saveJobsToDisk();
+  await flushJobsToDisk();
 
-  res.json({ success: true, message: `Zadanie ${jobId} zostało zatrzymane i bezpowrotnie usunięte z historii.` });
+  res.json({ success: true, message: `Zadanie ${jobId} zostało zatrzymane i usunięte z lokalnej historii cache.` });
 });
 
 // Clear Jobs History (/api/jobs)
-router.delete('/jobs', (req, res) => {
+router.delete('/jobs', historyMutationRateLimit, async (req, res) => {
   const mode = req.query.mode;
   if (mode === 'all') {
     jobsStore.clear();
@@ -7390,7 +7434,7 @@ router.delete('/jobs', (req, res) => {
       }
     }
   }
-  saveJobsToDisk();
+  await flushJobsToDisk();
   res.json({ success: true, message: 'Historia renderowania została pomyślnie wyczyszczona.' });
 });
 
@@ -8734,7 +8778,7 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
       console.warn('[Autopilot Retry] Nie udało się zapisać dokładnego payloadu do wznowienia: ' + (error as Error).message);
     }
     jobsStore.set(jobId, newJob);
-    saveJobsToDisk();
+    await flushJobsToDisk();
     queueShortJobSnapshot(newJob as ShortJobSnapshot, true);
     void recordAutopilotPipelineRun({
       runId: jobId, jobId, title: candidate.title, articleUrl: candidate.link,
