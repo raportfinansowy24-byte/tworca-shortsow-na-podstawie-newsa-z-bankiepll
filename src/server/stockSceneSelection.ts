@@ -1,4 +1,5 @@
 import { selectRelevantArticleVisualEntities } from './articleVisualEntities';
+import { getCanonicalStockAssetId } from './stockAssetIdentity';
 
 export interface StockSceneSearchInput {
   query: string;
@@ -123,8 +124,8 @@ export function selectDiverseStockCandidates<T extends { source: 'pexels' | 'pix
 ): T[] {
   const deduped = new Map<string, T>();
   for (const candidate of candidates) {
-    if (!Number.isSafeInteger(candidate.pexelsId) || !candidate.pexelsId) continue;
-    const key = candidate.stockId || candidate.source + ':' + candidate.pexelsId;
+    const key = getCanonicalStockAssetId(candidate);
+    if (!key) continue;
     const existing = deduped.get(key);
     if (!existing || (candidate.selectionScore || 0) > (existing.selectionScore || 0)) deduped.set(key, candidate);
   }

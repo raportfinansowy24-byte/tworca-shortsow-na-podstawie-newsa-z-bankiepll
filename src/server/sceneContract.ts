@@ -1,3 +1,5 @@
+import { getCanonicalStockAssetId } from './stockAssetIdentity';
+
 export const FINANCE_SHORT_SCENE_COUNT = 8;
 export const MAX_SCENE_COUNT = 8;
 export const MIN_SHORT_DURATION_SECONDS = 17;
@@ -20,9 +22,9 @@ export function getSceneCountError(expectedSceneCount: unknown, actualSceneCount
 
 export function hasUniquePexelsSceneIds(scenes: unknown): boolean {
   if (!Array.isArray(scenes) || scenes.length !== FINANCE_SHORT_SCENE_COUNT) return false;
-  const ids = scenes.map((scene: any) => scene?.pexelsId);
-  return scenes.every((scene: any) => ['pexels', 'pixabay'].includes(scene?.source) && Number.isSafeInteger(scene?.pexelsId) && scene.pexelsId > 0 && (scene.source !== 'pixabay' || (Number.isSafeInteger(scene?.pixabayId) && typeof scene.pixabayId === 'number' && scene.pixabayId > 0 && scene.stockId === 'pixabay:' + scene.pixabayId))) &&
-    new Set(ids).size === FINANCE_SHORT_SCENE_COUNT;
+  const identities = scenes.map((scene: any) => getCanonicalStockAssetId(scene));
+  return identities.every((identity: string | null) => identity !== null) &&
+    new Set(identities).size === FINANCE_SHORT_SCENE_COUNT;
 }
 
 export function isSafeFinanceDataVisualSvg(value: unknown): value is string {
@@ -36,17 +38,17 @@ export function isSafeFinanceDataVisualSvg(value: unknown): value is string {
 
 export function hasCompleteFinanceSceneVisualAssets(scenes: unknown): boolean {
   if (!Array.isArray(scenes) || scenes.length !== FINANCE_SHORT_SCENE_COUNT) return false;
-  const pexelsIds: number[] = [];
+  const stockAssetIds: string[] = [];
   for (const scene of scenes as any[]) {
     if (scene?.visualMode === 'data_visual') {
       if (!isSafeFinanceDataVisualSvg(scene.visualSvg)) return false;
       continue;
     }
-    if (!['pexels', 'pixabay'].includes(scene?.source) || !Number.isSafeInteger(scene?.pexelsId) || scene.pexelsId <= 0) return false;
-    if (scene.source === 'pixabay' && (!Number.isSafeInteger(scene?.pixabayId) || typeof scene.pixabayId !== 'number' || scene.pixabayId <= 0 || scene.stockId !== 'pixabay:' + scene.pixabayId)) return false;
-    pexelsIds.push(scene.pexelsId);
+    const identity = getCanonicalStockAssetId(scene);
+    if (!identity) return false;
+    stockAssetIds.push(identity);
   }
-  return new Set(pexelsIds).size === pexelsIds.length;
+  return new Set(stockAssetIds).size === stockAssetIds.length;
 }
 
 export function sceneDurationsForCount(sceneCount: number): number[] {
