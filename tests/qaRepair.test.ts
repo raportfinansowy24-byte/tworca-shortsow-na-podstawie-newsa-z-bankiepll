@@ -152,7 +152,7 @@ assert.throws(() => validateQaRepairAssetBatch([commonPexelsResult, { ...commonP
 assert.throws(() => validateQaRepairAssetBatch([commonPexelsResult, { ...commonPixabayResult, sceneIndex: 0 }]), /tej samej sceny/);
 
 const sharedApply = applyQaRepairResultBatch(
-  [{ voiceover_text: 'Nie zmieniaj narracji', duration: 2.25 }, { voiceover_text: 'Zachowaj lektora', duration: 2.25 }],
+  ([{ voiceover_text: 'Nie zmieniaj narracji', duration: 2.25 }, { voiceover_text: 'Zachowaj lektora', duration: 2.25 }] as Array<Record<string, unknown>>),
   [commonPixabayResult, commonPexelsResult]
 );
 assert.equal(sharedApply[0].source, 'pixabay');
