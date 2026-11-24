@@ -3556,31 +3556,28 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
                 photographer: resolved.photographer,
                 photographerUrl: resolved.photographerUrl
               };
+              emitQaRepairEvent({
+                eventType: 'asset_selected',
+                sceneIndex: candidate.sceneIndex,
+                provider: replacement.source,
+                providerAssetId: replacement.source === 'pixabay' ? replacement.pixabayId : replacement.pexelsId,
+                canonicalAssetId: replacement.stockId || (replacement.source === 'pixabay' ? `pixabay:${replacement.pixabayId}` : `pexels:${replacement.pexelsId}`),
+                causeCode: 'visual_narration_mismatch',
+                reason: candidate.reason,
+                action: 'replace_blocked_scene_asset',
+                outcome: 'selected',
+                details: {
+                  originalQuery: candidate.originalQuery,
+                  repairQuery: candidate.repairQuery,
+                  width: replacement.width,
+                  height: replacement.height
+                }
+              });
               console.info(`[Shorts Editor QA repair] Replaced only blocked scene ${candidate.sceneIndex + 1}: "${candidate.originalQuery}" -> "${candidate.repairQuery}"; narration preserved.`);
               return replacement;
             }, isRepairJobActive);
           }, async (replacements) => {
             if (!isRepairJobActive()) throw new QaRepairCancelledError();
-            for (const replacement of replacements) {
-              const candidate = repairCandidates.find((entry) => entry.sceneIndex === replacement.sceneIndex);
-              emitQaRepairEvent({
-                eventType: 'asset_selected',
-                sceneIndex: replacement.sceneIndex,
-                provider: replacement.source,
-                providerAssetId: replacement.source === 'pixabay' ? replacement.pixabayId : replacement.pexelsId,
-                canonicalAssetId: replacement.stockId || (replacement.source === 'pixabay' ? `pixabay:${replacement.pixabayId}` : `pexels:${replacement.pexelsId}`),
-                causeCode: 'visual_narration_mismatch',
-                reason: candidate?.reason,
-                action: 'replace_blocked_scene_asset',
-                outcome: 'selected',
-                details: {
-                  originalQuery: candidate?.originalQuery,
-                  repairQuery: candidate?.repairQuery,
-                  width: replacement.width,
-                  height: replacement.height
-                }
-              });
-            }
             const repairedScenes = applyQaRepairAssets(scenes as any, replacements);
             const repairPayload: CombineScenesPayload = {
               ...payload,
