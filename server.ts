@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import rateLimit from 'express-rate-limit';
 import path from 'path';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { requestElevenLabsApi as performElevenLabsRequest, type ElevenLabsRequestContext } from './src/server/elevenLabsRequest';
 import fs from 'fs';
 import https from 'https';
@@ -66,7 +66,7 @@ import { buildFinancialChartSvg } from './src/server/financeChartVisual';
 import { selectAdaptiveBackgroundMusic } from './src/server/adaptiveMusicStrategy';
 import { generateHighlightBoardAss, type HighlightBoardOptions } from './src/server/highlightBoards';
 import { buildMotionFilter, generateSceneSoundEffect, motionSoundSpecForBeat } from './src/server/motionSoundRenderer';
-import { getLearningSignals, recordHookVariants, recordPipelineEvent, recordPipelineRun, recordAutopilotPipelineRun, recordRetentionMetric, updatePipelineRunStatus } from './src/server/pipelineTelemetry';
+import { getLearningSignals, recordHookVariants, recordPipelineEvent, recordPipelineRun, recordAutopilotPipelineRun, recordRetentionMetric, recordQaRepairTelemetry, updatePipelineRunStatus } from './src/server/pipelineTelemetry';
 import { buildShortsEditorQaRevisionInstruction, evaluateRenderedShort, evaluateShortStoryboard, hasNarrationWithinWordRanges, shouldBlockQa } from './src/server/shortsEditorQa';
 import { buildVisualAnalysisUnavailableReport, buildVisualSemanticReport, parseCompleteVisualSemanticResponse, type VisualSemanticReport, type VisualSemanticSample } from './src/server/shortsVisualSemanticQa';
 import { applyQaRepairAssets, buildQaRepairFailureReport, executeQaRepairOnce, QaRepairCancelledError, resolveUniqueQaRepairAssets, selectQaRepairCandidates, validatedPexelsRepairMetadata } from './src/server/qaRepair';
@@ -3481,6 +3481,45 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
       if (payload.qaRepairAttempt !== 1 && renderedQa.status !== 'blocked' && visualSemanticQa.status === 'blocked' && payload.qaRepairArticle) {
         const repairCandidates = selectQaRepairCandidates(scenes as any, combinedQa as any, payload.qaRepairArticle);
         if (repairCandidates.length > 0) {
+          const repairId = randomUUID();
+          const repairAttemptNumber = Math.max(1, Number(payload.qaRepairAttempt || 0) + 1);
+          const repairQaBefore = {
+            status: combinedQa.status,
+            score: combinedQa.score,
+            findings: combinedQa.findings.map((finding) => ({
+              code: finding.code,
+              severity: finding.severity,
+              scene: finding.scene
+            }))
+          };
+          const emitQaRepairEvent = (event: {
+            eventType: 'repair_started' | 'asset_selected' | 'repair_succeeded' | 'repair_failed' | 'repair_cancelled';
+            sceneIndex?: number;
+            provider?: 'pexels' | 'pixabay';
+            providerAssetId?: string | number;
+            canonicalAssetId?: string;
+            causeCode?: string;
+            reason?: string;
+            action?: string;
+            outcome?: string;
+            qaAfter?: { status?: string; score?: number; findings?: Array<{ code?: string; severity?: string; scene?: number }> };
+            details?: { candidateCount?: number; originalQuery?: string; repairQuery?: string; width?: number; height?: number; durationSeconds?: number };
+          }) => {
+            void recordQaRepairTelemetry({
+              repairId,
+              jobId,
+              attempt: repairAttemptNumber,
+              qaBefore: repairQaBefore,
+              ...event
+            });
+          };
+          emitQaRepairEvent({
+            eventType: 'repair_started',
+            causeCode: 'visual_narration_mismatch',
+            action: 'replace_blocked_stock_assets',
+            outcome: 'started',
+            details: { candidateCount: repairCandidates.length }
+          });
           type Replacement = { sceneIndex: number; visualQuery: string; videoUrl: string; thumbnailUrl?: string; pexelsId: number; source: 'pexels' | 'pixabay'; pixabayId?: number; stockId?: string; sourcePageUrl?: string; width?: number; height?: number; searchKeyword?: string; photographer?: string; photographerUrl?: string };
           const isRepairJobActive = () => {
             const currentJob = jobsStore.get(jobId);
@@ -3522,6 +3561,26 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
             }, isRepairJobActive);
           }, async (replacements) => {
             if (!isRepairJobActive()) throw new QaRepairCancelledError();
+            for (const replacement of replacements) {
+              const candidate = repairCandidates.find((entry) => entry.sceneIndex === replacement.sceneIndex);
+              emitQaRepairEvent({
+                eventType: 'asset_selected',
+                sceneIndex: replacement.sceneIndex,
+                provider: replacement.source,
+                providerAssetId: replacement.source === 'pixabay' ? replacement.pixabayId : replacement.pexelsId,
+                canonicalAssetId: replacement.stockId || (replacement.source === 'pixabay' ? `pixabay:${replacement.pixabayId}` : `pexels:${replacement.pexelsId}`),
+                causeCode: 'visual_narration_mismatch',
+                reason: candidate?.reason,
+                action: 'replace_blocked_scene_asset',
+                outcome: 'selected',
+                details: {
+                  originalQuery: candidate?.originalQuery,
+                  repairQuery: candidate?.repairQuery,
+                  width: replacement.width,
+                  height: replacement.height
+                }
+              });
+            }
             const repairedScenes = applyQaRepairAssets(scenes as any, replacements);
             const repairPayload: CombineScenesPayload = {
               ...payload,
@@ -3538,19 +3597,61 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
             clearTimeout(totalJobTimeout);
             await processCombineScenesJob(jobId, repairPayload, baseUrl);
           }, isRepairJobActive);
+          const repairQaAfter = (() => {
+            const currentQa = jobsStore.get(jobId)?.shortMetadata?.editorQa as Record<string, any> | undefined;
+            const postRender = currentQa?.postRender;
+            if (!postRender || typeof postRender !== 'object') return undefined;
+            return {
+              status: typeof postRender.status === 'string' ? postRender.status : undefined,
+              score: typeof postRender.score === 'number' ? postRender.score : undefined,
+              findings: Array.isArray(postRender.findings) ? postRender.findings.map((finding: any) => ({
+                code: finding?.code,
+                severity: finding?.severity,
+                scene: finding?.scene
+              })) : []
+            };
+          })();
           if (execution.status === 'cancelled') {
+            emitQaRepairEvent({
+              eventType: 'repair_cancelled',
+              causeCode: 'job_cancelled',
+              action: 'replace_blocked_stock_assets',
+              outcome: 'cancelled',
+              qaAfter: repairQaAfter
+            });
             console.info(`[Shorts Editor QA repair] Job ${jobId} is no longer active; skipping rerender.`);
             return;
           }
           if (execution.status === 'stock_search_failed') {
             const failure = execution.error || 'nieznany błąd Pexels';
+            emitQaRepairEvent({
+              eventType: 'repair_failed',
+              causeCode: 'stock_provider_error',
+              reason: failure,
+              action: 'resolve_replacement_assets',
+              outcome: 'asset_resolution_failed'
+            });
             const report = repairCandidates.map((candidate) => `Scena ${candidate.sceneIndex + 1}: narracja="${candidate.narration}"; pierwotne zapytanie="${candidate.originalQuery}"; powód odrzucenia="${candidate.reason}"; zapytanie naprawcze="${candidate.repairQuery}"; ponowne QA=nieuruchomione — wyszukiwanie Pexels nie powiodło się: ${failure}.`).join('\n');
             updateJobProgress(jobId, { shortMetadata: { ...jobBeforeQaUpdate?.shortMetadata, editorQa: { ...previousEditorQa, postRender: combinedQa, repair: { attempt: 1, status: 'stock_search_failed', report } } } }, `[Shorts Editor QA repair] Nie udało się pobrać nowego klipu. Nie uruchamiam kolejnego renderu. ${report}`);
             throw new Error(`Shorts Editor QA zablokowało render; naprawa materiału nie powiodła się.\n${report}`);
           }
           if (execution.status === 'render_failed') {
+            emitQaRepairEvent({
+              eventType: 'repair_failed',
+              causeCode: 'rerender_failed',
+              reason: execution.error || 'Nieznany błąd ponownego renderu.',
+              action: 'rerender_and_revalidate',
+              outcome: 'failed',
+              qaAfter: repairQaAfter
+            });
             throw new Error(`Shorts Editor QA: jedyny rerender naprawczy nie powiódł się: ${execution.error || 'nieznany błąd'}`);
           }
+          emitQaRepairEvent({
+            eventType: 'repair_succeeded',
+            action: 'rerender_and_revalidate',
+            outcome: 'passed',
+            qaAfter: repairQaAfter
+          });
           return;
         }
       }
