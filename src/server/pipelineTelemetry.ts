@@ -218,7 +218,7 @@ export function toQaRepairTelemetryRow(
     provider_asset_id: event.providerAssetId === undefined ? null : String(event.providerAssetId).slice(0, 120),
     canonical_asset_id: event.canonicalAssetId?.slice(0, 160) || null,
     cause_code: event.causeCode?.slice(0, 120) || null,
-    reason: event.reason?.slice(0, 1000) || null,
+    reason: event.reason?.replace(/https?:\\/\\/[^\\s)]+/giu, '[url]')?.replace(/(?:sb_secret_|sk-[A-Za-z0-9_-])[A-Za-z0-9_-]{8,}/gu, '[redacted]')?.slice(0, 1000) || null,
     action: event.action?.slice(0, 120) || null,
     outcome: event.outcome?.slice(0, 80) || null,
     qa_before: snapshot(event.qaBefore),
