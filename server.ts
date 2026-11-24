@@ -3492,6 +3492,7 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
               scene: finding.scene
             }))
           };
+          let repairTelemetryWriteChain: Promise<void> = Promise.resolve();
           const emitQaRepairEvent = (event: {
             eventType: 'repair_started' | 'asset_selected' | 'repair_succeeded' | 'repair_failed' | 'repair_cancelled';
             sceneIndex?: number;
@@ -3504,14 +3505,20 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
             outcome?: string;
             qaAfter?: { status?: string; score?: number; findings?: Array<{ code?: string; severity?: string; scene?: number }> };
             details?: { candidateCount?: number; originalQuery?: string; repairQuery?: string; width?: number; height?: number; durationSeconds?: number };
-          }) => {
-            void recordQaRepairTelemetry({
-              repairId,
-              jobId,
-              attempt: repairAttemptNumber,
-              qaBefore: repairQaBefore,
-              ...event
+          }): Promise<void> => {
+            repairTelemetryWriteChain = repairTelemetryWriteChain.catch(() => undefined).then(async () => {
+              const saved = await recordQaRepairTelemetry({
+                repairId,
+                jobId,
+                attempt: repairAttemptNumber,
+                qaBefore: repairQaBefore,
+                ...event
+              });
+              if (!saved) console.warn(`[QA repair telemetry] Event ${event.eventType} was not persisted for job ${jobId}.`);
+            }).catch((error) => {
+              console.warn('[QA repair telemetry] Persistence failed:', error instanceof Error ? error.message.slice(0, 240) : 'unknown error');
             });
+            return repairTelemetryWriteChain;
           };
           emitQaRepairEvent({
             eventType: 'repair_started',
@@ -3609,7 +3616,7 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
             };
           })();
           if (execution.status === 'cancelled') {
-            emitQaRepairEvent({
+            await emitQaRepairEvent({
               eventType: 'repair_cancelled',
               causeCode: 'job_cancelled',
               action: 'replace_blocked_stock_assets',
@@ -3621,7 +3628,7 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
           }
           if (execution.status === 'stock_search_failed') {
             const failure = execution.error || 'nieznany błąd Pexels';
-            emitQaRepairEvent({
+            await emitQaRepairEvent({
               eventType: 'repair_failed',
               causeCode: 'stock_provider_error',
               reason: failure,
@@ -3654,7 +3661,7 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
             });
             throw new Error(`Shorts Editor QA: naprawa nie została potwierdzona (status: ${execution.status}).`);
           }
-          emitQaRepairEvent({
+          await emitQaRepairEvent({
             eventType: 'repair_succeeded',
             action: 'rerender_and_revalidate',
             outcome: 'passed',
