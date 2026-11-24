@@ -3643,6 +3643,17 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
             });
             throw new Error(`Shorts Editor QA: jedyny rerender naprawczy nie powiódł się: ${execution.error || 'nieznany błąd'}`);
           }
+          if (execution.status !== 'completed') {
+            emitQaRepairEvent({
+              eventType: 'repair_failed',
+              causeCode: 'repair_not_executed',
+              reason: `Naprawa zakończyła się statusem ${execution.status} bez potwierdzonego rerenderu i QA.`,
+              action: 'rerender_and_revalidate',
+              outcome: execution.status,
+              qaAfter: repairQaAfter
+            });
+            throw new Error(`Shorts Editor QA: naprawa nie została potwierdzona (status: ${execution.status}).`);
+          }
           emitQaRepairEvent({
             eventType: 'repair_succeeded',
             action: 'rerender_and_revalidate',
