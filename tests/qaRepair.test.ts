@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { normalizeQaRepairAssetResult, validateQaRepairAssetBatch } from '../src/server/qaRepairResult';
+import { applyQaRepairResultBatch, normalizeQaRepairAssetResult, validateQaRepairAssetBatch } from '../src/server/qaRepairResult';
 import { applyQaRepairAssets, buildQaRepairFailureReport, canAttemptQaRepair, executeQaRepairOnce, QaRepairCancelledError, resolveUniqueQaRepairAssets, selectQaRepairCandidates, validatedPexelsRepairMetadata, type QaRepairReport, type QaRepairScene } from '../src/server/qaRepair';
 
 const article = { title: 'NBP pozostaje w centrum sporu o decyzję RPP', description: 'Narodowy Bank Polski i Rada Polityki Pieniężnej.' };
@@ -150,3 +150,15 @@ assert.throws(() => normalizeQaRepairAssetResult({ ...commonPixabayResult, canon
 assert.throws(() => normalizeQaRepairAssetResult({ ...commonPexelsResult, sourcePageUrl: 'https://evil.example/asset' }), /niezaufany URL/);
 assert.throws(() => validateQaRepairAssetBatch([commonPexelsResult, { ...commonPexelsResult, sceneIndex: 2 }]), /powielony materiał/);
 assert.throws(() => validateQaRepairAssetBatch([commonPexelsResult, { ...commonPixabayResult, sceneIndex: 0 }]), /tej samej sceny/);
+
+const sharedApply = applyQaRepairResultBatch(
+  [{ voiceover_text: 'Nie zmieniaj narracji', duration: 2.25 }, { voiceover_text: 'Zachowaj lektora', duration: 2.25 }],
+  [commonPixabayResult, commonPexelsResult]
+);
+assert.equal(sharedApply[0].source, 'pixabay');
+assert.equal(sharedApply[0].stockId, 'pixabay:123');
+assert.equal(sharedApply[0].voiceover_text, 'Nie zmieniaj narracji');
+assert.equal(sharedApply[0].duration, 2.25);
+assert.equal(sharedApply[1].source, 'pexels');
+assert.equal(sharedApply[1].stockId, 'pexels:7001');
+assert.equal(sharedApply[1].voiceover_text, 'Zachowaj lektora');
