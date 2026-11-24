@@ -50,7 +50,7 @@ assert.ok(nbpQueries.some((value) => /National Bank of Poland/i.test(value)));
 
 const mixed = [
   ...Array.from({ length: 6 }, (_, index) => ({ source: 'pexels' as const, pexelsId: index + 1, selectionScore: 100 - index })),
-  ...Array.from({ length: 5 }, (_, index) => ({ source: 'pixabay' as const, pexelsId: 1_000_000_000_000 + index + 1, stockId: 'pixabay:' + (index + 1), selectionScore: 90 - index })),
+  ...Array.from({ length: 5 }, (_, index) => ({ source: 'pixabay' as const, pexelsId: 1_000_000_000_000 + index + 1, pixabayId: index + 1, stockId: 'pixabay:' + (index + 1), selectionScore: 90 - index })),
   { source: 'pexels' as const, pexelsId: 1, selectionScore: 200 }
 ];
 const diverse = selectDiverseStockCandidates(mixed, 8, 4);
