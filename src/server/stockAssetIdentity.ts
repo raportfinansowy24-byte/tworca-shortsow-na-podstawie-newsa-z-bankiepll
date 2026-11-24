@@ -1,3 +1,5 @@
+import { PIXABAY_INTERNAL_ID_OFFSET } from './pixabayVideoProvider';
+
 export type StockAssetProvider = 'pexels' | 'pixabay';
 
 export interface StockAssetIdentityInput {
@@ -24,7 +26,8 @@ export function getCanonicalStockAssetId(value: StockAssetIdentityInput): string
   }
 
   if (!Number.isSafeInteger(value.pixabayId) || Number(value.pixabayId) <= 0) return null;
-  if (!Number.isSafeInteger(value.pexelsId) || Number(value.pexelsId) <= 0) return null;
+  const expectedInternalId = PIXABAY_INTERNAL_ID_OFFSET + Number(value.pixabayId);
+  if (!Number.isSafeInteger(expectedInternalId) || value.pexelsId !== expectedInternalId) return null;
   const canonical = 'pixabay:' + String(value.pixabayId);
   if (value.stockId !== canonical) return null;
   return canonical;
