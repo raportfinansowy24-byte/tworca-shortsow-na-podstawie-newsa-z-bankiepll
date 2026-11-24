@@ -1,4 +1,4 @@
-export const MAX_STORYBOARD_QA_REPAIR_ATTEMPTS = Number.POSITIVE_INFINITY;
+export const MAX_STORYBOARD_QA_REPAIR_ATTEMPTS = 2;
 export const MAX_AUTOPILOT_RETRY_QUEUE_SIZE = 50;
 
 export interface RetryableAutopilotArticle {
@@ -159,9 +159,9 @@ export interface QaRepairLoopResult<T, R extends { status: string }> {
 }
 
 /**
- * Keep repairing a storyboard until QA passes. Production uses an unlimited
- * attempt count; an explicit finite maxAttempts remains available to tests and
- * controlled callers. Failed provider calls never discard the current candidate.
+ * Bound provider spend per render. Each job gets at most two repair attempts;
+ * a later user-triggered retry is a separate job and retains its own attempt budget.
+ * Failed provider calls never discard the current candidate.
  */
 export async function repairUntilPass<T, R extends { status: string }>(options: {
   initialValue: T;
