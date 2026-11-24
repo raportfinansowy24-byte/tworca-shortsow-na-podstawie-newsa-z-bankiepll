@@ -31,22 +31,20 @@ assert.equal(repaired.attempts, 2);
 assert.equal(reviseCalls, 2);
 assert.equal(repaired.value, 'unique-storyboard');
 
-let unlimitedRepairCalls = 0;
-const repairedWithoutAttemptLimit = await repairUntilPass<string, QaReport>({
-  initialValue: 'requires-many-revisions',
+let defaultRepairCalls = 0;
+const repairedWithDefaultLimit = await repairUntilPass<string, QaReport>({
+  initialValue: 'always-invalid',
   initialReport,
   revise: async (_report, attempt) => {
-    unlimitedRepairCalls += 1;
-    return attempt < 7 ? 'still-invalid-' + attempt : 'fixed-after-seven';
+    defaultRepairCalls += 1;
+    return 'still-invalid-' + attempt;
   },
-  evaluate: (value) => value === 'fixed-after-seven'
-    ? { status: 'pass', message: 'PASS after seven revisions' }
-    : initialReport,
+  evaluate: () => initialReport,
   sleep: async () => {}
 });
-assert.equal(repairedWithoutAttemptLimit.passed, true, 'domyślna pętla QA nie kończy się po pięciu poprawkach');
-assert.equal(repairedWithoutAttemptLimit.attempts, 7, 'domyślna pętla kontynuuje aż do QA PASS');
-assert.equal(unlimitedRepairCalls, 7);
+assert.equal(repairedWithDefaultLimit.passed, false, 'domyślna pętla QA kończy się po osiągnięciu limitu');
+assert.equal(repairedWithDefaultLimit.attempts, 2, 'domyślny limit wynosi dwie poprawki na render');
+assert.equal(defaultRepairCalls, 2, 'dostawca AI jest wywoływany maksymalnie dwa razy w jednym renderze');
 
 let previousErrorObserved = false;
 const repairedAfterTransientError = await repairUntilPass<string, QaReport>({
