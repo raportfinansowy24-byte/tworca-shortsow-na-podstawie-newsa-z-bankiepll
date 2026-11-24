@@ -155,6 +155,104 @@ export async function updatePipelineRunStatus(runId: string, status: PipelineRun
   warnError('updatePipelineRunStatus', error);
 }
 
+export type QaRepairTelemetryEventType =
+  | 'repair_started'
+  | 'asset_selected'
+  | 'repair_succeeded'
+  | 'repair_failed'
+  | 'repair_cancelled';
+
+export interface QaRepairTelemetryQaSnapshot {
+  status?: string;
+  score?: number;
+  findings?: Array<{ code?: string; severity?: string; scene?: number }>;
+}
+
+export interface QaRepairTelemetryRecord {
+  repairId: string;
+  jobId: string;
+  attempt: number;
+  eventType: QaRepairTelemetryEventType;
+  sceneIndex?: number;
+  provider?: 'pexels' | 'pixabay';
+  providerAssetId?: string | number;
+  canonicalAssetId?: string;
+  causeCode?: string;
+  reason?: string;
+  action?: string;
+  outcome?: string;
+  qaBefore?: QaRepairTelemetryQaSnapshot;
+  qaAfter?: QaRepairTelemetryQaSnapshot;
+  details?: {
+    candidateCount?: number;
+    originalQuery?: string;
+    repairQuery?: string;
+    width?: number;
+    height?: number;
+    durationSeconds?: number;
+  };
+}
+
+/** Build a privacy-conscious append-only row; narration and signed media URLs are never persisted. */
+export function toQaRepairTelemetryRow(
+  event: QaRepairTelemetryRecord,
+  occurredAt = new Date().toISOString()
+): Record<string, unknown> {
+  const snapshot = (value?: QaRepairTelemetryQaSnapshot) => ({
+    status: typeof value?.status === 'string' ? value.status.slice(0, 40) : null,
+    score: typeof value?.score === 'number' && Number.isFinite(value.score) ? value.score : null,
+    findings: Array.isArray(value?.findings) ? value.findings.slice(0, 30).map((finding) => ({
+      code: typeof finding.code === 'string' ? finding.code.slice(0, 100) : null,
+      severity: typeof finding.severity === 'string' ? finding.severity.slice(0, 30) : null,
+      scene: Number.isInteger(finding.scene) ? finding.scene : null
+    })) : []
+  });
+  const details = event.details || {};
+  return {
+    repair_id: event.repairId,
+    job_id: event.jobId,
+    attempt: Math.max(1, Math.trunc(event.attempt)),
+    event_type: event.eventType,
+    scene_index: Number.isInteger(event.sceneIndex) ? event.sceneIndex : null,
+    provider: event.provider || null,
+    provider_asset_id: event.providerAssetId === undefined ? null : String(event.providerAssetId).slice(0, 120),
+    canonical_asset_id: event.canonicalAssetId?.slice(0, 160) || null,
+    cause_code: event.causeCode?.slice(0, 120) || null,
+    reason: event.reason?.slice(0, 1000) || null,
+    action: event.action?.slice(0, 120) || null,
+    outcome: event.outcome?.slice(0, 80) || null,
+    qa_before: snapshot(event.qaBefore),
+    qa_after: snapshot(event.qaAfter),
+    metadata: {
+      candidate_count: Number.isInteger(details.candidateCount) ? details.candidateCount : null,
+      original_query: details.originalQuery?.slice(0, 240) || null,
+      repair_query: details.repairQuery?.slice(0, 240) || null,
+      width: Number.isFinite(details.width) ? details.width : null,
+      height: Number.isFinite(details.height) ? details.height : null,
+      duration_seconds: Number.isFinite(details.durationSeconds) ? details.durationSeconds : null
+    },
+    occurred_at: occurredAt
+  };
+}
+
+export async function recordQaRepairTelemetry(event: QaRepairTelemetryRecord): Promise<boolean> {
+  const supabase = getClient();
+  if (!supabase) return false;
+  try {
+    const { error } = await supabase
+      .from('short_qa_repair_events')
+      .insert(toQaRepairTelemetryRow(event));
+    if (error) {
+      warnError('recordQaRepairTelemetry', error);
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.warn('[Pipeline telemetry] recordQaRepairTelemetry failed:', error instanceof Error ? error.message.slice(0, 300) : 'unknown error');
+    return false;
+  }
+}
+
 export async function recordPipelineEvent(event: PipelineEventRecord): Promise<void> {
   const supabase = getClient();
   if (!supabase) return;
