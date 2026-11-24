@@ -2,6 +2,19 @@ import { getCanonicalStockAssetId, type StockAssetProvider } from './stockAssetI
 import { isTrustedPixabayMediaUrl } from './pixabayVideoProvider';
 import { isTrustedStockPreviewUrl } from './pexelsCandidateVisualQa';
 
+function isTrustedProviderUrl(value: string, provider: StockAssetProvider): boolean {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:') return false;
+    const host = url.hostname.toLowerCase();
+    if (provider === 'pixabay') return isTrustedPixabayMediaUrl(value);
+    return isTrustedStockPreviewUrl(value) &&
+      (host === 'pexels.com' || host.endsWith('.pexels.com'));
+  } catch {
+    return false;
+  }
+}
+
 export interface QaRepairAssetResult {
   sceneIndex: number;
   provider: StockAssetProvider;
@@ -50,12 +63,9 @@ export function normalizeQaRepairAssetResult(input: QaRepairAssetInput): QaRepai
       (input.provider === 'pixabay' && input.providerAssetId !== input.pixabayId)) {
     throw new Error('Identyfikator dostawcy nie zgadza się z metadanymi materiału QA.');
   }
-  const trustedPage = input.provider === 'pixabay'
-    ? isTrustedPixabayMediaUrl(input.sourcePageUrl)
-    : isTrustedStockPreviewUrl(input.sourcePageUrl) &&
-      new URL(input.sourcePageUrl).hostname.endsWith('pexels.com');
-  if (!trustedPage || !isTrustedStockPreviewUrl(input.videoUrl) ||
-      (input.thumbnailUrl && !isTrustedStockPreviewUrl(input.thumbnailUrl))) {
+  if (!isTrustedProviderUrl(input.sourcePageUrl, input.provider) ||
+      !isTrustedProviderUrl(input.videoUrl, input.provider) ||
+      (input.thumbnailUrl && !isTrustedProviderUrl(input.thumbnailUrl, input.provider))) {
     throw new Error('Materiał naprawczy QA zawiera niezaufany URL.');
   }
   if (![input.width, input.height].every((value) => Number.isFinite(value) && value > 0)) {
