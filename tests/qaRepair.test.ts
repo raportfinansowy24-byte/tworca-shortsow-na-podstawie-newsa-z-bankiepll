@@ -155,12 +155,12 @@ const sharedApply = applyQaRepairResultBatch(
   ([{ voiceover_text: 'Nie zmieniaj narracji', duration: 2.25 }, { voiceover_text: 'Zachowaj lektora', duration: 2.25 }] as Array<Record<string, unknown>>),
   [commonPixabayResult, commonPexelsResult]
 );
-assert.equal(sharedApply[0].source, 'pixabay');
-assert.equal(sharedApply[0].stockId, 'pixabay:123');
+assert.equal(sharedApply[0].source, 'pexels', 'wynik trafia do sceny wskazanej przez sceneIndex, niezależnie od kolejności batcha');
+assert.equal(sharedApply[0].stockId, 'pexels:7001');
 assert.equal(sharedApply[0].voiceover_text, 'Nie zmieniaj narracji');
 assert.equal(sharedApply[0].duration, 2.25);
-assert.equal(sharedApply[1].source, 'pexels');
-assert.equal(sharedApply[1].stockId, 'pexels:7001');
+assert.equal(sharedApply[1].source, 'pixabay');
+assert.equal(sharedApply[1].stockId, 'pixabay:123');
 assert.equal(sharedApply[1].voiceover_text, 'Zachowaj lektora');
 
 assert.throws(() => normalizeQaRepairAssetResult({
