@@ -242,3 +242,14 @@ const boundedTelemetry = toQaRepairTelemetryRow({
 assert.equal(boundedTelemetry.attempt, 1);
 assert.equal(String(boundedTelemetry.reason).length, 1000);
 assert.equal(String((boundedTelemetry.metadata as Record<string, unknown>).original_query).length, 240);
+
+
+const redactedTelemetry = toQaRepairTelemetryRow({
+  repairId: '00000000-0000-4000-8000-000000000001',
+  jobId: 'job-repair-123',
+  attempt: 1,
+  eventType: 'repair_failed',
+  reason: 'Download failed https://cdn.example.test/private/file.mp4?signature=abc sb_secret_1234567890abcdef'
+});
+assert.equal(String(redactedTelemetry.reason).includes('https://'), false, 'signed URLs are redacted from failure reasons');
+assert.equal(String(redactedTelemetry.reason).includes('sb_secret_'), false, 'secret-like tokens are redacted from failure reasons');
