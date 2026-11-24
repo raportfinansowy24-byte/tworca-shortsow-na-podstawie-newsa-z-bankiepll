@@ -3604,7 +3604,9 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
           const repairQaAfter = (() => {
             const currentQa = jobsStore.get(jobId)?.shortMetadata?.editorQa as Record<string, any> | undefined;
             const postRender = currentQa?.postRender;
-            if (!postRender || typeof postRender !== 'object') return undefined;
+            // The repair setup stores the original blocked QA in postRender before rerendering.
+            // Do not report that pre-repair snapshot as qaAfter if the rerender failed before QA.
+            if (!postRender || typeof postRender !== 'object' || postRender === combinedQa) return undefined;
             return {
               status: typeof postRender.status === 'string' ? postRender.status : undefined,
               score: typeof postRender.score === 'number' ? postRender.score : undefined,
