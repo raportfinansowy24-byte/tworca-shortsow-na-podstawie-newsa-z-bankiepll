@@ -162,3 +162,20 @@ assert.equal(sharedApply[0].duration, 2.25);
 assert.equal(sharedApply[1].source, 'pexels');
 assert.equal(sharedApply[1].stockId, 'pexels:7001');
 assert.equal(sharedApply[1].voiceover_text, 'Zachowaj lektora');
+
+assert.throws(() => normalizeQaRepairAssetResult({
+  ...commonPexelsResult,
+  videoUrl: 'https://cdn.pixabay.com/video/2024/01/01/123-123456_large.mp4'
+}), /niezaufany URL/, 'Pexels nie może używać pliku wideo Pixabay');
+assert.throws(() => normalizeQaRepairAssetResult({
+  ...commonPexelsResult,
+  thumbnailUrl: 'https://cdn.pixabay.com/video/2024/01/01/123-123456_small.jpg'
+}), /niezaufany URL/, 'Pexels nie może używać miniatury Pixabay');
+assert.throws(() => normalizeQaRepairAssetResult({
+  ...commonPixabayResult,
+  videoUrl: 'https://videos.pexels.com/video-files/7001/example.mp4'
+}), /niezaufany URL/, 'Pixabay nie może używać pliku wideo Pexels');
+assert.throws(() => normalizeQaRepairAssetResult({
+  ...commonPexelsResult,
+  sourcePageUrl: 'https://evil.example/pexels.com/video'
+}), /niezaufany URL/, 'odrzuć host podszywający się pod Pexels');
