@@ -77,3 +77,33 @@ export function validateQaRepairAssetBatch(results: QaRepairAssetResult[]): QaRe
   }
   return results;
 }
+
+
+/** Apply normalized results without branching on provider in the repair consumer. */
+export function applyQaRepairResultBatch<T extends Record<string, unknown>>(
+  scenes: T[],
+  results: QaRepairAssetResult[]
+): T[] {
+  const validated = validateQaRepairAssetBatch(results);
+  const updated = scenes.slice();
+  for (const result of validated) {
+    if (!updated[result.sceneIndex]) throw new Error(`Nieprawidłowy numer sceny naprawy: ${result.sceneIndex + 1}.`);
+    updated[result.sceneIndex] = {
+      ...updated[result.sceneIndex],
+      source: result.provider,
+      pexelsId: result.pexelsId,
+      pixabayId: result.pixabayId,
+      stockId: result.canonicalAssetId,
+      sourcePageUrl: result.sourcePageUrl,
+      videoUrl: result.videoUrl,
+      thumbnailUrl: result.thumbnailUrl,
+      width: result.width,
+      height: result.height,
+      searchKeyword: result.searchKeyword,
+      visualQuery: result.searchKeyword,
+      photographer: result.photographer,
+      photographerUrl: result.photographerUrl
+    };
+  }
+  return updated;
+}
