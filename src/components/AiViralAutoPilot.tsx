@@ -61,29 +61,39 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onJobStarted
     if (!jobId) { setActiveJob(null); return; }
     let cancelled = false;
     let source: EventSource | null = null;
+    let poll: number | null = null;
+    const stopTrackingIfFinished = (job: JobStatusResponse) => {
+      if (job.status === 'queued' || job.status === 'processing') return;
+      if (poll !== null) window.clearInterval(poll);
+      source?.close();
+      source = null;
+    };
     const refreshJob = async () => {
       try {
         const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`, { cache: 'no-store' });
         if (response.ok) {
           const job = await response.json() as JobStatusResponse;
-          if (!cancelled) setActiveJob(job);
+          if (!cancelled) {
+            setActiveJob(job);
+            stopTrackingIfFinished(job);
+          }
         }
       } catch { /* Preserve the last known state during transient network failures. */ }
     };
     void refreshJob();
-    const poll = window.setInterval(() => void refreshJob(), 2500);
+    poll = window.setInterval(() => void refreshJob(), 2500);
     void openJobEventSource(jobId).then((eventSource) => {
       if (cancelled) { eventSource.close(); return; }
       source = eventSource;
       eventSource.onmessage = (event) => {
         try {
           const job = JSON.parse(event.data) as JobStatusResponse;
-          if (!cancelled) setActiveJob(job);
+          if (!cancelled) { setActiveJob(job); stopTrackingIfFinished(job); }
         } catch { /* HTTP polling remains the fallback for malformed events. */ }
       };
       eventSource.onerror = () => { eventSource.close(); if (source === eventSource) source = null; };
     }).catch(() => { /* HTTP polling remains active when SSE is unavailable. */ });
-    return () => { cancelled = true; window.clearInterval(poll); source?.close(); };
+    return () => { cancelled = true; if (poll !== null) window.clearInterval(poll); source?.close(); };
   }, [schedulerState?.lastRunJobId]);
 
   const handleToggle = async () => {
