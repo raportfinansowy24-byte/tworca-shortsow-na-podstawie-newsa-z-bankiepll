@@ -20,6 +20,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onJobStarted
   const [activeJob, setActiveJob] = useState<JobStatusResponse | null>(null);
   const lastNotifiedJobId = useRef<string | null>(null);
   const hasLoadedInitialState = useRef(false);
+  const missingJobIds = useRef(new Set<string>());
 
   const refreshSchedulerState = useCallback(async () => {
     try {
@@ -58,7 +59,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onJobStarted
   // Show the real autopilot job state on this page. Polling remains active as a fallback to SSE.
   useEffect(() => {
     const jobId = schedulerState?.lastRunJobId;
-    if (!jobId) { setActiveJob(null); return; }
+    if (!jobId || missingJobIds.current.has(jobId)) { setActiveJob(null); return; }
     let cancelled = false;
     let source: EventSource | null = null;
     let poll: number | null = null;
@@ -71,6 +72,14 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onJobStarted
     const refreshJob = async () => {
       try {
         const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`, { cache: 'no-store' });
+        if (response.status === 404) {
+          missingJobIds.current.add(jobId);
+          if (poll !== null) window.clearInterval(poll);
+          source?.close();
+          source = null;
+          if (!cancelled) setActiveJob(null);
+          return;
+        }
         if (response.ok) {
           const job = await response.json() as JobStatusResponse;
           if (!cancelled) {
