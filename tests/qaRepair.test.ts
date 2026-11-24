@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { applyQaRepairResultBatch, normalizeQaRepairAssetResult, validateQaRepairAssetBatch } from '../src/server/qaRepairResult';
 import { applyQaRepairAssets, buildQaRepairFailureReport, canAttemptQaRepair, executeQaRepairOnce, QaRepairCancelledError, resolveUniqueQaRepairAssets, selectQaRepairCandidates, validatedPexelsRepairMetadata, type QaRepairReport, type QaRepairScene } from '../src/server/qaRepair';
 
 const article = { title: 'NBP pozostaje w centrum sporu o decyzję RPP', description: 'Narodowy Bank Polski i Rada Polityki Pieniężnej.' };
@@ -127,3 +128,54 @@ const noSecondAttempt = await executeQaRepairOnce(1, candidates, async () => [{ 
 assert.equal(noSecondAttempt.status, 'skipped');
 assert.equal(rerenderCalls, 1, 'po nieudanej naprawie nie ma nieograniczonej pętli');
 console.log('QA repair tests passed');
+
+
+const commonPexelsResult = normalizeQaRepairAssetResult({
+  sceneIndex: 0, provider: 'pexels', providerAssetId: 7001, pexelsId: 7001,
+  stockId: 'pexels:7001', videoUrl: 'https://videos.pexels.com/video-files/7001/7001-hd_1080_1920_25fps.mp4',
+  sourcePageUrl: 'https://www.pexels.com/video/example-7001/', thumbnailUrl: 'https://images.pexels.com/photos/7001/pexels-photo-7001.jpeg',
+  width: 1080, height: 1920, searchKeyword: 'bank office'
+});
+assert.equal(commonPexelsResult.canonicalAssetId, 'pexels:7001');
+const commonPixabayResult = normalizeQaRepairAssetResult({
+  sceneIndex: 1, provider: 'pixabay', providerAssetId: 123, pexelsId: 1_000_000_000_123,
+  pixabayId: 123, stockId: 'pixabay:123', videoUrl: 'https://cdn.pixabay.com/video/2024/01/01/123-123456_large.mp4',
+  sourcePageUrl: 'https://pixabay.com/videos/example-123/', thumbnailUrl: 'https://cdn.pixabay.com/video/2024/01/01/123-123456_small.jpg',
+  width: 1080, height: 1920, searchKeyword: 'bank office'
+});
+assert.equal(commonPixabayResult.canonicalAssetId, 'pixabay:123');
+assert.deepEqual(validateQaRepairAssetBatch([commonPexelsResult, commonPixabayResult]).map((item) => item.canonicalAssetId), ['pexels:7001', 'pixabay:123']);
+assert.throws(() => normalizeQaRepairAssetResult({ ...commonPixabayResult, providerAssetId: 999 }), /Identyfikator dostawcy/);
+assert.throws(() => normalizeQaRepairAssetResult({ ...commonPixabayResult, canonicalAssetId: 'pexels:123' }), /Niespójna kanoniczna/);
+assert.throws(() => normalizeQaRepairAssetResult({ ...commonPexelsResult, sourcePageUrl: 'https://evil.example/asset' }), /niezaufany URL/);
+assert.throws(() => validateQaRepairAssetBatch([commonPexelsResult, { ...commonPexelsResult, sceneIndex: 2 }]), /powielony materiał/);
+assert.throws(() => validateQaRepairAssetBatch([commonPexelsResult, { ...commonPixabayResult, sceneIndex: 0 }]), /tej samej sceny/);
+
+const sharedApply = applyQaRepairResultBatch(
+  ([{ voiceover_text: 'Nie zmieniaj narracji', duration: 2.25 }, { voiceover_text: 'Zachowaj lektora', duration: 2.25 }] as Array<Record<string, unknown>>),
+  [commonPixabayResult, commonPexelsResult]
+);
+assert.equal(sharedApply[0].source, 'pexels', 'wynik trafia do sceny wskazanej przez sceneIndex, niezależnie od kolejności batcha');
+assert.equal(sharedApply[0].stockId, 'pexels:7001');
+assert.equal(sharedApply[0].voiceover_text, 'Nie zmieniaj narracji');
+assert.equal(sharedApply[0].duration, 2.25);
+assert.equal(sharedApply[1].source, 'pixabay');
+assert.equal(sharedApply[1].stockId, 'pixabay:123');
+assert.equal(sharedApply[1].voiceover_text, 'Zachowaj lektora');
+
+assert.throws(() => normalizeQaRepairAssetResult({
+  ...commonPexelsResult,
+  videoUrl: 'https://cdn.pixabay.com/video/2024/01/01/123-123456_large.mp4'
+}), /niezaufany URL/, 'Pexels nie może używać pliku wideo Pixabay');
+assert.throws(() => normalizeQaRepairAssetResult({
+  ...commonPexelsResult,
+  thumbnailUrl: 'https://cdn.pixabay.com/video/2024/01/01/123-123456_small.jpg'
+}), /niezaufany URL/, 'Pexels nie może używać miniatury Pixabay');
+assert.throws(() => normalizeQaRepairAssetResult({
+  ...commonPixabayResult,
+  videoUrl: 'https://videos.pexels.com/video-files/7001/example.mp4'
+}), /niezaufany URL/, 'Pixabay nie może używać pliku wideo Pexels');
+assert.throws(() => normalizeQaRepairAssetResult({
+  ...commonPexelsResult,
+  sourcePageUrl: 'https://evil.example/pexels.com/video'
+}), /niezaufany URL/, 'odrzuć host podszywający się pod Pexels');
