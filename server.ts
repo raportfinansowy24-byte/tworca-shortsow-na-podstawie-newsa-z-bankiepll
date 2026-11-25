@@ -3596,7 +3596,7 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
               qaRepairSceneDurations: plannedSceneDurations
             };
             const repairSummary = repairCandidates.map((candidate) => `Scena ${candidate.sceneIndex + 1}: narracja="${candidate.narration}"; query="${candidate.originalQuery}" -> "${candidate.repairQuery}"; powód="${candidate.reason}".`).join('\n');
-            updateJobProgress(jobId, { shortMetadata: { ...jobBeforeQaUpdate?.shortMetadata, editorQa: { ...previousEditorQa, postRender: combinedQa, repair: { attempt: 1, status: 'rerendering', scenes: repairCandidates } } } }, `[Shorts Editor QA repair] Uruchamiam jedyną próbę naprawy dla scen ${repairCandidates.map((candidate) => candidate.sceneIndex + 1).join(', ')}. Narracja bez zmian.\n${repairSummary}`);
+            updateJobProgress(jobId, { shortMetadata: { ...jobBeforeQaUpdate?.shortMetadata, editorQa: { ...previousEditorQa, postRender: undefined, repair: { attempt: 1, status: 'rerendering', scenes: repairCandidates } } } }, `[Shorts Editor QA repair] Uruchamiam jedyną próbę naprawy dla scen ${repairCandidates.map((candidate) => candidate.sceneIndex + 1).join(', ')}. Narracja bez zmian.\n${repairSummary}`);
             if (!isRepairJobActive()) throw new QaRepairCancelledError();
             clearTimeout(totalJobTimeout);
             await processCombineScenesJob(jobId, repairPayload, baseUrl);
@@ -3609,8 +3609,7 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
           const repairQaAfter = (() => {
             const currentQa = jobsStore.get(jobId)?.shortMetadata?.editorQa as Record<string, any> | undefined;
             const postRender = currentQa?.postRender;
-            // The repair setup stores the original blocked QA in postRender before rerendering.
-            // Do not report that pre-repair snapshot as qaAfter if the rerender failed before QA.
+            // Clear postRender before rerendering; only a fresh QA pass may populate qaAfter.
             if (!postRender || typeof postRender !== 'object' || postRender === combinedQa) return undefined;
             return {
               status: typeof postRender.status === 'string' ? postRender.status : undefined,
