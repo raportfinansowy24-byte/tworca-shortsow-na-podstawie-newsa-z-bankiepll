@@ -57,7 +57,8 @@ export async function resolveUniqueQaRepairAssets<Candidate, Asset extends { pex
   candidates: Candidate[],
   existingIds: number[],
   resolve: (candidate: Candidate, usedIds: number[]) => Promise<Asset>,
-  shouldContinue: () => boolean = () => true
+  shouldContinue: () => boolean = () => true,
+  onAccepted?: (asset: Asset, candidate: Candidate) => Promise<void> | void
 ): Promise<Asset[]> {
   const usedIds = new Set(existingIds.filter((id) => Number.isSafeInteger(id) && id > 0));
   const resolvedAssets: Asset[] = [];
@@ -69,6 +70,7 @@ export async function resolveUniqueQaRepairAssets<Candidate, Asset extends { pex
       throw new Error(`Dostawca stocków zwrócił nieprawidłowy lub powielony identyfikator klipu: ${String(asset.pexelsId)}.`);
     }
     usedIds.add(asset.pexelsId);
+    await onAccepted?.(asset, candidate);
     resolvedAssets.push(asset);
   }
   return resolvedAssets;
