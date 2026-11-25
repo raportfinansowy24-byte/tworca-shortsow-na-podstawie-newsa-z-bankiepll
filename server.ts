@@ -57,7 +57,7 @@ import { buildCtaPolicyPrompt, selectFinanceCta } from './src/server/financeCtaS
 import { nextTelegramRevisionNumber, normalizeTelegramFeedback } from './src/server/telegramRevision';
 import { publishApprovedShortToPostiz } from './src/server/postizPublisher';
 import { constantTimeTokenMatch, createApiAuthMiddleware, createAppSessionToken, getAppAuthConfiguration, SESSION_TTL_SECONDS } from './src/server/apiAuth';
-import { getPexelsSearchCache, hasSupabaseHistoryConfiguration, loadShortJobsFromSupabase, persistShortJobSnapshot, queueShortJobSnapshot, setPexelsSearchCache, upsertShortJobExport, upsertShortJobsBatch, type DriveExportStatus, type ShortJobSnapshot } from './src/server/supabaseJobStore';
+import { getPexelsSearchCache, hasSupabaseHistoryConfiguration, loadShortJobsFromSupabase, persistShortJobSnapshot, queueShortJobSnapshot, setPexelsSearchCache, upsertShortJobExport, type DriveExportStatus, type ShortJobSnapshot } from './src/server/supabaseJobStore';
 import { AtomicJsonFile } from './src/server/atomicJsonFile';
 import { buildCreativeDirectorFallback, buildCreativeDirectorPrompt, loadBrandContext, mapCreativeDirectorPlanToRenderScenes, parseCreativeDirectorPlan, type CreativeDirectorArticle, type CreativeDirectorPlan } from './src/server/creativeDirector';
 import { buildFinanceSceneDataVisual, buildFinanceShortPlan, selectHookVariantFromLearningSignals, validateFinanceShortPlan, type FinanceShortPlan } from './src/server/shortPipeline';
@@ -1543,8 +1543,11 @@ async function hydrateJobsFromSupabase(): Promise<void> {
     }
 
     if (changed) saveJobsToDisk();
-    // Idempotently backfill the local JSON history after the migration is installed.
-    await upsertShortJobsBatch(Array.from(jobsStore.values()));
+    // Persist hydrated/local snapshots through the same per-job queue as live updates.
+    // This prevents a late startup hydration from bulk-upserting stale snapshots over newer writes.
+    for (const job of jobsStore.values()) {
+      queueShortJobSnapshot(job as ShortJobSnapshot, true);
+    }
   } catch (error) {
     console.warn('[Supabase] Nie udało się zsynchronizować historii przy starcie:', (error as Error).message);
   }
@@ -9550,7 +9553,19 @@ async function startServer() {
   void runTtsCacheRetention();
   const ttsCacheRetentionTimer = setInterval(() => { void runTtsCacheRetention(); }, 6 * 60 * 60 * 1000);
   ttsCacheRetentionTimer.unref?.();
-  void hydrateJobsFromSupabase();
+  let historyHydrationTimer: ReturnType<typeof setTimeout> | undefined;
+  const historyHydrationTimeout = new Promise<void>((resolve) => {
+    historyHydrationTimer = setTimeout(() => {
+      console.warn('[Supabase] Synchronizacja historii przekroczyła limit startowy 10 s; serwer uruchamia się, a synchronizacja może zakończyć się w tle.');
+      resolve();
+    }, 10_000);
+    historyHydrationTimer.unref?.();
+  });
+  try {
+    await Promise.race([hydrateJobsFromSupabase(), historyHydrationTimeout]);
+  } finally {
+    if (historyHydrationTimer) clearTimeout(historyHydrationTimer);
+  }
   ensureTikTokSansFont().catch(console.error);
   ensureAntonFont().catch(console.error);
   void refreshOfferCatalogSnapshot();
