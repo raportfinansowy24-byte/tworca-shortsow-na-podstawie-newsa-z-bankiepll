@@ -253,3 +253,52 @@ const redactedTelemetry = toQaRepairTelemetryRow({
 });
 assert.equal(String(redactedTelemetry.reason).includes('https://'), false, 'signed URLs are redacted from failure reasons');
 assert.equal(String(redactedTelemetry.reason).includes('sb_secret_'), false, 'secret-like tokens are redacted from failure reasons');
+
+
+// Accepted replacements are persisted immediately, even if a later candidate fails.
+const acceptedTelemetry: number[] = [];
+await assert.rejects(
+  resolveUniqueQaRepairAssets(
+    [{ id: 1 }, { id: 2 }],
+    [],
+    async (candidate: { id: number }) => {
+      if (candidate.id === 2) throw new Error('second lookup failed');
+      return { pexelsId: 901 };
+    },
+    () => true,
+    (asset) => { acceptedTelemetry.push(asset.pexelsId!); }
+  ),
+  /second lookup failed/
+);
+assert.deepEqual(acceptedTelemetry, [901], 'pierwszy zaakceptowany asset jest emitowany przed błędem kolejnego lookupu');
+
+const duplicateAcceptedTelemetry: number[] = [];
+await assert.rejects(
+  resolveUniqueQaRepairAssets(
+    [{ id: 1 }, { id: 2 }],
+    [],
+    async () => ({ pexelsId: 902 }),
+    () => true,
+    (asset) => { duplicateAcceptedTelemetry.push(asset.pexelsId!); }
+  ),
+  /powielony identyfikator/
+);
+assert.deepEqual(duplicateAcceptedTelemetry, [902], 'duplikat nie uruchamia callbacka onAccepted');
+
+const querySecretsRow = toQaRepairTelemetryRow({
+  repairId: '00000000-0000-4000-8000-000000000001',
+  jobId: 'job-query-secrets',
+  attempt: 1,
+  eventType: 'repair_failed',
+  details: {
+    originalQuery: 'source https://private.example/path?sig=abc sb_secret_1234567890abcdef',
+    repairQuery: 'repair https://cdn.example/private sk-1234567890abcdefghijklmnop'
+  }
+});
+const querySecretsMetadata = querySecretsRow.metadata as Record<string, unknown>;
+assert.equal(String(querySecretsMetadata.original_query).includes('https://'), false, 'URL w original_query jest redagowany');
+assert.equal(String(querySecretsMetadata.original_query).includes('sb_secret_'), false, 'Supabase secret w original_query jest redagowany');
+assert.equal(String(querySecretsMetadata.repair_query).includes('https://'), false, 'URL w repair_query jest redagowany');
+assert.equal(String(querySecretsMetadata.repair_query).includes('sk-'), false, 'API key w repair_query jest redagowany');
+assert.equal(String(querySecretsMetadata.original_query).length <= 240, true, 'original_query ma limit długości');
+assert.equal(String(querySecretsMetadata.repair_query).length <= 240, true, 'repair_query ma limit długości');
