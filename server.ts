@@ -9550,7 +9550,14 @@ async function startServer() {
   void runTtsCacheRetention();
   const ttsCacheRetentionTimer = setInterval(() => { void runTtsCacheRetention(); }, 6 * 60 * 60 * 1000);
   ttsCacheRetentionTimer.unref?.();
-  await hydrateJobsFromSupabase();
+  const historyHydrationTimeout = new Promise<void>((resolve) => {
+    const timer = setTimeout(() => {
+      console.warn('[Supabase] Synchronizacja historii przekroczyła limit startowy 10 s; serwer uruchamia się, a synchronizacja może zakończyć się w tle.');
+      resolve();
+    }, 10_000);
+    timer.unref?.();
+  });
+  await Promise.race([hydrateJobsFromSupabase(), historyHydrationTimeout]);
   ensureTikTokSansFont().catch(console.error);
   ensureAntonFont().catch(console.error);
   void refreshOfferCatalogSnapshot();
