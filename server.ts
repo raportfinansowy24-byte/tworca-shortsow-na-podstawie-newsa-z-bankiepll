@@ -3565,9 +3565,7 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
               };
               return replacement;
             }, isRepairJobActive);
-            for (const replacement of acceptedReplacements) {
-              const candidate = candidates.find((item) => item.sceneIndex === replacement.sceneIndex);
-              if (!candidate) throw new Error(`Brak kandydata dla zaakceptowanego zamiennika sceny ${replacement.sceneIndex + 1}.`);
+            }, isRepairJobActive, async (replacement, candidate) => {
               emitQaRepairEvent({
                 eventType: 'asset_selected',
                 sceneIndex: candidate.sceneIndex,
@@ -3586,7 +3584,6 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
                 }
               });
               console.info(`[Shorts Editor QA repair] Accepted unique replacement for scene ${candidate.sceneIndex + 1}: "${candidate.originalQuery}" -> "${candidate.repairQuery}"; narration preserved.`);
-            }
             return acceptedReplacements;
           }, async (replacements) => {
             if (!isRepairJobActive()) throw new QaRepairCancelledError();
