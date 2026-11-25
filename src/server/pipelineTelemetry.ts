@@ -233,8 +233,8 @@ export function toQaRepairTelemetryRow(
     qa_after: snapshot(event.qaAfter),
     metadata: {
       candidate_count: Number.isInteger(details.candidateCount) ? details.candidateCount : null,
-      original_query: details.originalQuery?.slice(0, 240) || null,
-      repair_query: details.repairQuery?.slice(0, 240) || null,
+      original_query: sanitizeQaRepairTelemetryText(details.originalQuery)?.slice(0, 240) || null,
+      repair_query: sanitizeQaRepairTelemetryText(details.repairQuery)?.slice(0, 240) || null,
       width: Number.isFinite(details.width) ? details.width : null,
       height: Number.isFinite(details.height) ? details.height : null,
       duration_seconds: Number.isFinite(details.durationSeconds) ? details.durationSeconds : null
