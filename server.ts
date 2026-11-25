@@ -9550,7 +9550,7 @@ async function startServer() {
   void runTtsCacheRetention();
   const ttsCacheRetentionTimer = setInterval(() => { void runTtsCacheRetention(); }, 6 * 60 * 60 * 1000);
   ttsCacheRetentionTimer.unref?.();
-  void hydrateJobsFromSupabase();
+  await hydrateJobsFromSupabase();
   ensureTikTokSansFont().catch(console.error);
   ensureAntonFont().catch(console.error);
   void refreshOfferCatalogSnapshot();
