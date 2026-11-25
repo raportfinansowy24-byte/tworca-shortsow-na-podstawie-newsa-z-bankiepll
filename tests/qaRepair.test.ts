@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { applyQaRepairResultBatch, normalizeQaRepairAssetResult, validateQaRepairAssetBatch } from '../src/server/qaRepairResult';
+import { toQaRepairTelemetryRow } from '../src/server/pipelineTelemetry';
 import { applyQaRepairAssets, buildQaRepairFailureReport, canAttemptQaRepair, executeQaRepairOnce, QaRepairCancelledError, resolveUniqueQaRepairAssets, selectQaRepairCandidates, validatedPexelsRepairMetadata, type QaRepairReport, type QaRepairScene } from '../src/server/qaRepair';
 
 const article = { title: 'NBP pozostaje w centrum sporu o decyzję RPP', description: 'Narodowy Bank Polski i Rada Polityki Pieniężnej.' };
@@ -179,3 +180,125 @@ assert.throws(() => normalizeQaRepairAssetResult({
   ...commonPexelsResult,
   sourcePageUrl: 'https://evil.example/pexels.com/video'
 }), /niezaufany URL/, 'odrzuć host podszywający się pod Pexels');
+
+
+const telemetryRow = toQaRepairTelemetryRow({
+  repairId: '00000000-0000-4000-8000-000000000001',
+  jobId: 'job-repair-123',
+  attempt: 1,
+  eventType: 'asset_selected',
+  sceneIndex: 2,
+  provider: 'pixabay',
+  providerAssetId: 123,
+  canonicalAssetId: 'pixabay:123',
+  causeCode: 'visual_narration_mismatch',
+  reason: 'Obraz nie odpowiada tematowi sceny.',
+  action: 'replace_blocked_scene_asset',
+  outcome: 'selected',
+  qaBefore: {
+    status: 'blocked',
+    score: 55,
+    findings: [{ code: 'visual_narration_mismatch', severity: 'blocker', scene: 3 }]
+  },
+  qaAfter: { status: 'pass', score: 96, findings: [] },
+  details: {
+    candidateCount: 1,
+    originalQuery: 'bank office',
+    repairQuery: 'Polish central bank building',
+    width: 1080,
+    height: 1920,
+    durationSeconds: 4.5
+  }
+}, '2026-11-25T00:45:00.000Z');
+assert.equal(telemetryRow.job_id, 'job-repair-123');
+assert.equal(telemetryRow.event_type, 'asset_selected');
+assert.equal(telemetryRow.provider, 'pixabay');
+assert.equal(telemetryRow.provider_asset_id, '123');
+assert.equal(telemetryRow.canonical_asset_id, 'pixabay:123');
+assert.equal(telemetryRow.scene_index, 2);
+assert.deepEqual(telemetryRow.qa_before, {
+  status: 'blocked', score: 55,
+  findings: [{ code: 'visual_narration_mismatch', severity: 'blocker', scene: 3 }]
+});
+assert.deepEqual(telemetryRow.metadata, {
+  candidate_count: 1,
+  original_query: 'bank office',
+  repair_query: 'Polish central bank building',
+  width: 1080,
+  height: 1920,
+  duration_seconds: 4.5
+});
+assert.equal('videoUrl' in (telemetryRow.metadata as Record<string, unknown>), false, 'nie zapisuj signed media URLs');
+assert.equal('narration' in (telemetryRow.metadata as Record<string, unknown>), false, 'nie zapisuj tekstu lektora');
+assert.equal(telemetryRow.occurred_at, '2026-11-25T00:45:00.000Z');
+const boundedTelemetry = toQaRepairTelemetryRow({
+  repairId: '00000000-0000-4000-8000-000000000001',
+  jobId: 'job-repair-123',
+  attempt: 0,
+  eventType: 'repair_failed',
+  reason: 'x'.repeat(1200),
+  details: { originalQuery: 'q'.repeat(500) }
+});
+assert.equal(boundedTelemetry.attempt, 1);
+assert.equal(String(boundedTelemetry.reason).length, 1000);
+assert.equal(String((boundedTelemetry.metadata as Record<string, unknown>).original_query).length, 240);
+
+
+const redactedTelemetry = toQaRepairTelemetryRow({
+  repairId: '00000000-0000-4000-8000-000000000001',
+  jobId: 'job-repair-123',
+  attempt: 1,
+  eventType: 'repair_failed',
+  reason: 'Download failed https://cdn.example.test/private/file.mp4?signature=abc sb_secret_1234567890abcdef'
+});
+assert.equal(String(redactedTelemetry.reason).includes('https://'), false, 'signed URLs are redacted from failure reasons');
+assert.equal(String(redactedTelemetry.reason).includes('sb_secret_'), false, 'secret-like tokens are redacted from failure reasons');
+
+
+// Accepted replacements are persisted immediately, even if a later candidate fails.
+const acceptedTelemetry: number[] = [];
+await assert.rejects(
+  resolveUniqueQaRepairAssets(
+    [{ id: 1 }, { id: 2 }],
+    [],
+    async (candidate: { id: number }) => {
+      if (candidate.id === 2) throw new Error('second lookup failed');
+      return { pexelsId: 901 };
+    },
+    () => true,
+    (asset) => { acceptedTelemetry.push(asset.pexelsId!); }
+  ),
+  /second lookup failed/
+);
+assert.deepEqual(acceptedTelemetry, [901], 'pierwszy zaakceptowany asset jest emitowany przed błędem kolejnego lookupu');
+
+const duplicateAcceptedTelemetry: number[] = [];
+await assert.rejects(
+  resolveUniqueQaRepairAssets(
+    [{ id: 1 }, { id: 2 }],
+    [],
+    async () => ({ pexelsId: 902 }),
+    () => true,
+    (asset) => { duplicateAcceptedTelemetry.push(asset.pexelsId!); }
+  ),
+  /powielony identyfikator/
+);
+assert.deepEqual(duplicateAcceptedTelemetry, [902], 'duplikat nie uruchamia callbacka onAccepted');
+
+const querySecretsRow = toQaRepairTelemetryRow({
+  repairId: '00000000-0000-4000-8000-000000000001',
+  jobId: 'job-query-secrets',
+  attempt: 1,
+  eventType: 'repair_failed',
+  details: {
+    originalQuery: 'source https://private.example/path?sig=abc sb_secret_1234567890abcdef',
+    repairQuery: 'repair https://cdn.example/private sk-1234567890abcdefghijklmnop'
+  }
+});
+const querySecretsMetadata = querySecretsRow.metadata as Record<string, unknown>;
+assert.equal(String(querySecretsMetadata.original_query).includes('https://'), false, 'URL w original_query jest redagowany');
+assert.equal(String(querySecretsMetadata.original_query).includes('sb_secret_'), false, 'Supabase secret w original_query jest redagowany');
+assert.equal(String(querySecretsMetadata.repair_query).includes('https://'), false, 'URL w repair_query jest redagowany');
+assert.equal(String(querySecretsMetadata.repair_query).includes('sk-'), false, 'API key w repair_query jest redagowany');
+assert.equal(String(querySecretsMetadata.original_query).length <= 240, true, 'original_query ma limit długości');
+assert.equal(String(querySecretsMetadata.repair_query).length <= 240, true, 'repair_query ma limit długości');
