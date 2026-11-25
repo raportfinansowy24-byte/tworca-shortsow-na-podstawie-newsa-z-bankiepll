@@ -3600,6 +3600,11 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
             if (!isRepairJobActive()) throw new QaRepairCancelledError();
             clearTimeout(totalJobTimeout);
             await processCombineScenesJob(jobId, repairPayload, baseUrl);
+            const rerenderedJob = jobsStore.get(jobId);
+            if (!rerenderedJob || rerenderedJob.status !== 'completed') {
+              const rerenderFailure = rerenderedJob?.error || rerenderedJob?.step || 'Zadanie rerenderu nie osiągnęło statusu completed.';
+              throw new Error(`Rerender naprawczy nie został zakończony pomyślnie (status: ${rerenderedJob?.status || 'missing'}): ${rerenderFailure}`);
+            }
           }, isRepairJobActive);
           const repairQaAfter = (() => {
             const currentQa = jobsStore.get(jobId)?.shortMetadata?.editorQa as Record<string, any> | undefined;
