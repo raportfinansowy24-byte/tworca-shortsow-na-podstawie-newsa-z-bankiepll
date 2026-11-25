@@ -3564,7 +3564,6 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
                 photographerUrl: resolved.photographerUrl
               };
               return replacement;
-            }, isRepairJobActive);
             }, isRepairJobActive, async (replacement, candidate) => {
               emitQaRepairEvent({
                 eventType: 'asset_selected',
