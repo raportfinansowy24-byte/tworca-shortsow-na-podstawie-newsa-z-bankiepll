@@ -3535,7 +3535,7 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
           };
           const execution = await executeQaRepairOnce(payload.qaRepairAttempt || 0, repairCandidates, async (candidates): Promise<Replacement[]> => {
             const existingIds = scenes.map((scene: any) => Number(scene.pexelsId)).filter((id: number) => Number.isSafeInteger(id) && id > 0);
-            return resolveUniqueQaRepairAssets(candidates, existingIds, async (candidate, usedIds): Promise<Replacement> => {
+            const acceptedReplacements = await resolveUniqueQaRepairAssets(candidates, existingIds, async (candidate, usedIds): Promise<Replacement> => {
               const originalScene = scenes[candidate.sceneIndex] as any;
               const resolved = await resolveStockOrPexelsVideoDetailed(candidate.repairQuery, candidate.sceneIndex, usedIds, {
                 context: `${payload.qaRepairArticle.title}\n${payload.qaRepairArticle.description || payload.qaRepairArticle.summary || ''}\nNarracja sceny: ${candidate.narration}\nPoprzedni powód odrzucenia: ${candidate.reason}\nPierwotne zapytanie wizualne: ${candidate.originalQuery}`,
@@ -3563,6 +3563,11 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
                 photographer: resolved.photographer,
                 photographerUrl: resolved.photographerUrl
               };
+              return replacement;
+            }, isRepairJobActive);
+            for (const replacement of acceptedReplacements) {
+              const candidate = candidates.find((item) => item.sceneIndex === replacement.sceneIndex);
+              if (!candidate) throw new Error(`Brak kandydata dla zaakceptowanego zamiennika sceny ${replacement.sceneIndex + 1}.`);
               emitQaRepairEvent({
                 eventType: 'asset_selected',
                 sceneIndex: candidate.sceneIndex,
@@ -3580,9 +3585,9 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
                   height: replacement.height
                 }
               });
-              console.info(`[Shorts Editor QA repair] Replaced only blocked scene ${candidate.sceneIndex + 1}: "${candidate.originalQuery}" -> "${candidate.repairQuery}"; narration preserved.`);
-              return replacement;
-            }, isRepairJobActive);
+              console.info(`[Shorts Editor QA repair] Accepted unique replacement for scene ${candidate.sceneIndex + 1}: "${candidate.originalQuery}" -> "${candidate.repairQuery}"; narration preserved.`);
+            }
+            return acceptedReplacements;
           }, async (replacements) => {
             if (!isRepairJobActive()) throw new QaRepairCancelledError();
             const repairedScenes = applyQaRepairAssets(scenes as any, replacements);
