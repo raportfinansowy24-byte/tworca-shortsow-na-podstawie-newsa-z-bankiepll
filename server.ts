@@ -3901,7 +3901,7 @@ async function runSupervisorMonitorCheck(): Promise<void> {
       checkedAt?: string;
       nextActions?: string[];
       jobs?: { failed?: number; active?: number };
-      services?: { raportFinansowy24?: { reachable?: boolean; httpStatus?: number }; mediaPipeline?: { ffmpegReady?: boolean; fontReady?: boolean } };
+      services?: { raportFinansowy24?: { reachable?: boolean; httpStatus?: number }; mediaPipeline?: { ffmpegReady?: boolean; libassReady?: boolean; fontReady?: boolean } };
     };
     const failed = Number(report.jobs?.failed || 0);
     const issues = [
@@ -3963,7 +3963,8 @@ async function getMediaRuntimeDiagnostics() {
   return {
     ffmpegVersion,
     ffmpegReady: ffmpegVersion !== 'Not installed or error running ffmpeg',
-    fontReady: fs.existsSync(ANTON_FONT_PATH) && fs.statSync(ANTON_FONT_PATH).size > 10000
+    libassReady: await execPromise("ffmpeg -hide_banner -filters 2>&1 | grep -Eq '[[:space:]]ass[[:space:]]'").then(() => true).catch(() => false),
+    fontReady: fs.existsSync(MONTSERRAT_BLACK_FONT_PATH) && fs.statSync(MONTSERRAT_BLACK_FONT_PATH).size > 10000
   };
 }
 
@@ -3986,8 +3987,8 @@ async function getDetailedServicesHealth() {
   const activeJobs = Array.from(jobsStore.values()).filter(
     (j) => j.status === 'queued' || j.status === 'processing'
   ).length;
-  const fontReady = (fs.existsSync(TIKTOK_SANS_FONT_PATH) && fs.statSync(TIKTOK_SANS_FONT_PATH).size > 10000) ||
-                    (fs.existsSync(ANTON_FONT_PATH) && fs.statSync(ANTON_FONT_PATH).size > 10000);
+  const fontReady = fs.existsSync(MONTSERRAT_BLACK_FONT_PATH) && fs.statSync(MONTSERRAT_BLACK_FONT_PATH).size > 10000;
+  const libassReady = await execPromise("ffmpeg -hide_banner -filters 2>&1 | grep -Eq '[[:space:]]ass[[:space:]]'").then(() => true).catch(() => false);
 
   const ffmpegHealth = {
     status: (ffmpegReady ? 'online' : 'offline') as 'online' | 'offline',
@@ -3997,6 +3998,7 @@ async function getDetailedServicesHealth() {
       : 'FFmpeg nie jest dostępny w środowisku uruchomieniowym.',
     version: ffmpegVersion,
     fontReady,
+    libassReady,
     activeJobs,
     checkedAt
   };
@@ -4186,13 +4188,9 @@ router.get('/health', async (req, res) => {
     service: 'Make.com HTTP Video Scene Combiner Connector',
     ffmpeg: ffmpegVersion,
     fontStatus: {
-      name: (fs.existsSync(ANTON_FONT_PATH) && fs.statSync(ANTON_FONT_PATH).size > 10000)
-        ? 'Anton-Regular.ttf'
-        : (fs.existsSync(TIKTOK_SANS_FONT_PATH) ? 'TikTokSans-Bold.ttf' : 'Anton-Regular.ttf'),
+      name: 'Montserrat-Black.ttf',
       ready: fontReady,
-      path: (fs.existsSync(ANTON_FONT_PATH) && fs.statSync(ANTON_FONT_PATH).size > 10000)
-        ? ANTON_FONT_PATH
-        : TIKTOK_SANS_FONT_PATH
+      path: MONTSERRAT_BLACK_FONT_PATH
     },
     activeJobsCount,
     retainedJobsCount: jobsStore.size,
@@ -4246,7 +4244,7 @@ router.get('/supervisor/status', async (_req, res) => {
   res.json({
     agent: 'RaportFinansowy24 Central Supervisor',
     mode: 'read-only',
-    status: missingRequired.length === 0 && website.reachable && mediaRuntime.ffmpegReady && mediaRuntime.fontReady ? 'healthy' : 'needs_attention',
+    status: missingRequired.length === 0 && website.reachable && mediaRuntime.ffmpegReady && mediaRuntime.libassReady && mediaRuntime.fontReady ? 'healthy' : 'needs_attention',
     checkedAt: new Date().toISOString(),
     services: {
       shortsGenerator: 'online',
@@ -4254,6 +4252,7 @@ router.get('/supervisor/status', async (_req, res) => {
       mediaPipeline: {
         ffmpegReady: mediaRuntime.ffmpegReady,
         ffmpegVersion: mediaRuntime.ffmpegVersion,
+        libassReady: mediaRuntime.libassReady,
         fontReady: mediaRuntime.fontReady
       }
     },
@@ -4263,7 +4262,8 @@ router.get('/supervisor/status', async (_req, res) => {
     nextActions: [
       ...(!website.reachable ? ['Sprawdź domenę RaportFinansowy24: witryna nie zwróciła poprawnego HTTP 2xx.'] : []),
       ...(!mediaRuntime.ffmpegReady ? ['FFmpeg nie jest dostępny; sprawdź obraz wdrożeniowy i logi startowe Fly.io.'] : []),
-      ...(!mediaRuntime.fontReady ? ['Brakuje fontu TikTok Sans; sprawdź pobieranie fontu i ścieżkę zasobu.'] : []),
+      ...(!mediaRuntime.libassReady ? ['FFmpeg nie ma filtra libass (ass); sprawdź pakiet libass i obraz wdrożeniowy.'] : []),
+      ...(!mediaRuntime.fontReady ? ['Brakuje Montserrat-Black.ttf w ./fonts; sprawdź inicjalizację czcionki.'] : []),
       ...(!envReady.gemini ? ['Brak klucza Gemini: Gemini 4 Hydrogen nie może działać.'] : []),
       ...(failedJobs > 0 ? [`W historii pamięciowej jest ${failedJobs} zadań zakończonych błędem; sprawdź szczegóły zadań.`] : []),
       ...missingRequired.map((name) => 'Uzupełnij sekret w Fly.io: ' + name + '.'),
