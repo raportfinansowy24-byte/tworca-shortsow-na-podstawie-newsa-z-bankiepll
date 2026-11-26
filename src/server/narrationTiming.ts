@@ -318,6 +318,13 @@ export async function fitNarrationBeforeTts(input: {
   };
 
   let estimate = calculate();
+  // Fail closed before any editorial rewrite or TTS provider call. An over-limit
+  // original script is rejected as submitted; it is never silently shortened.
+  if (estimate.totalEstimatedDurationSeconds > maxTotalDurationSeconds + 0.001) {
+    throw new Error(
+      `Scenariusz przekracza limit: estymowany czas wynosi ${estimate.totalEstimatedDurationSeconds.toFixed(2)} s, maksimum to ${maxTotalDurationSeconds.toFixed(0)} s. TTS nie został uruchomiony; scenariusz odrzucono.`
+    );
+  }
   while ((estimate.minimumEstimatedDurationSeconds < targetDurationSeconds - 0.001 ||
           estimate.totalEstimatedDurationSeconds > maxTotalDurationSeconds + 0.001) &&
          revisionAttempts < maxRevisionAttempts && input.revise) {
