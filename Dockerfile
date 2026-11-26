@@ -31,12 +31,14 @@ RUN npm install --include=dev --no-audit --no-fund
 
 COPY . .
 
-# Use the pinned, OFL-licensed font from the repository; builds do not depend on raw.githubusercontent.com.
-RUN mkdir -p /app/fonts \
+# Install the pinned OFL-licensed font both at the renderer path and in Fontconfig's system font tree.
+RUN mkdir -p /app/fonts /usr/local/share/fonts/raportfinansowy24 \
     && install -m 0644 assets/fonts/Montserrat-Black.ttf /app/fonts/Montserrat-Black.ttf \
     && install -m 0644 assets/fonts/OFL-Montserrat.txt /app/fonts/OFL-Montserrat.txt \
-    && fc-cache -f /app/fonts \
-    && fc-match -f '%{family} %{style}\\n' 'Montserrat:style=Black' | grep -qi Montserrat \
+    && install -m 0644 assets/fonts/Montserrat-Black.ttf /usr/local/share/fonts/raportfinansowy24/Montserrat-Black.ttf \
+    && fc-cache -f \
+    && fc-scan --format '%{family} %{style}\\n' /usr/local/share/fonts/raportfinansowy24/Montserrat-Black.ttf | grep -qi Montserrat \
+    && fc-match -f '%{family}\\n' Montserrat | grep -qi Montserrat \
     && ffmpeg -hide_banner -filters 2>&1 | grep -Eq '[[:space:]]ass[[:space:]]'
 RUN npm run lint \
     && VITE_GOOGLE_CLIENT_ID="${VITE_GOOGLE_CLIENT_ID}" npm run build \
