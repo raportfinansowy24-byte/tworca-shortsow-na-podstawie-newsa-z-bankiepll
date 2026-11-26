@@ -37,6 +37,34 @@ export interface OfferCatalogFetchFailure extends OfferCatalogFetchBase {
 
 export type OfferCatalogFetchResult = OfferCatalogFetchSuccess | OfferCatalogFetchFailure;
 
+export interface OfferCatalogSourceResolution {
+  sourceBase: string;
+  fallbackUsed: boolean;
+}
+
+/** Normalize the configured source to its origin; recover from malformed overrides using the known default. */
+export function resolveOfferCatalogSourceBase(
+  configuredSource: string | undefined,
+  defaultSource = 'https://toomasz-money.oferty-kredytowe.pl'
+): OfferCatalogSourceResolution {
+  const configured = configuredSource?.trim();
+  const candidate = configured || defaultSource;
+
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.protocol !== 'https:' || parsed.username || parsed.password) {
+      throw new Error('Source URL must use HTTPS and must not contain credentials.');
+    }
+    return { sourceBase: parsed.origin, fallbackUsed: false };
+  } catch {
+    const fallback = new URL(defaultSource);
+    if (fallback.protocol !== 'https:' || fallback.username || fallback.password) {
+      throw new Error('Built-in offer catalogue source URL is invalid.');
+    }
+    return { sourceBase: fallback.origin, fallbackUsed: Boolean(configured) };
+  }
+}
+
 function safeErrorMessage(error: unknown): string {
   const value = error instanceof Error ? error.message : String(error);
   return value
