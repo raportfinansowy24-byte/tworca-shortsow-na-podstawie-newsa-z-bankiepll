@@ -22,6 +22,7 @@ interface OfferCatalogFetchBase {
 export interface OfferCatalogFetchSuccess extends OfferCatalogFetchBase {
   ok: true;
   httpStatus: number;
+  contentType: string;
   responseItems: number;
   offers: VisibleOfferCandidate[];
 }
@@ -39,9 +40,9 @@ export type OfferCatalogFetchResult = OfferCatalogFetchSuccess | OfferCatalogFet
 function safeErrorMessage(error: unknown): string {
   const value = error instanceof Error ? error.message : String(error);
   return value
-    .replace(/[\\r\\n\\t]+/g, ' ')
-    .replace(/https?:\\/\\/[^\\s"'\x60]+/gi, '[url]')
-    .replace(/((?:api[_-]?key|token|secret|authorization)\\s*[=:]\\s*)[^\\s,;]+/gi, '$1[REDACTED]')
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/https?:\/\/[^\s"'<>]+/gi, '[url]')
+    .replace(/((?:api[_-]?key|token|secret|authorization)\s*[=:]\s*)[^\s,;]+/gi, '$1[REDACTED]')
     .slice(0, 180) || 'Nieznany błąd żądania.';
 }
 
@@ -140,7 +141,7 @@ export async function fetchOfferCatalogCategory(
   }
 
   if (!Array.isArray(payload)) {
-    const payloadType = payload === null ? 'null' : Array.isArray(payload) ? 'array' : typeof payload;
+    const payloadType = payload === null ? 'null' : typeof payload;
     return {
       ...base,
       ok: false,
@@ -158,5 +159,5 @@ export async function fetchOfferCatalogCategory(
     contentType,
     responseItems: payload.length,
     offers: parseOfferCatalogPayload(payload)
-  } as OfferCatalogFetchSuccess;
+  };
 }
