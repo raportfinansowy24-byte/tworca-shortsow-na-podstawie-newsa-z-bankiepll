@@ -52,7 +52,7 @@ import {
 } from './src/server/telegramApproval';
 import { classifyTelegramChatMessage } from './src/server/telegramChatCommands';
 import { FINANCE_SHORT_SCENE_COUNT, getSceneCountError, hasCompleteFinanceSceneVisualAssets, isSafeFinanceDataVisualSvg, MAX_SHORT_DURATION_SECONDS, MIN_SHORT_DURATION_SECONDS, TARGET_SHORT_DURATION_SECONDS, sceneDurationsForCount, sceneDurationsWithNarration, sceneRequestMetadata } from './src/server/sceneContract';
-import { countNarrationSpeechUnits, emptyNarrationCalibrationStore, fitNarrationBeforeTts, getCalibratedSecondsPerSpeechUnit, getNarrationCalibrationProfileKey, NARRATION_ESTIMATE_SAFETY_FACTOR, parseNarrationCalibrationStore, recordNarrationCalibrationSamples, type NarrationCalibrationSample } from './src/server/narrationTiming';
+import { countNarrationSpeechUnits, emptyNarrationCalibrationStore, fitNarrationBeforeTts, getCalibratedSecondsPerSpeechUnit, getNarrationCalibrationProfileKey, getElevenLabsNarrationLimitError, NARRATION_ESTIMATE_SAFETY_FACTOR, parseNarrationCalibrationStore, recordNarrationCalibrationSamples, type NarrationCalibrationSample } from './src/server/narrationTiming';
 import { buildCtaPolicyPrompt, selectFinanceCta } from './src/server/financeCtaStrategy';
 import { nextTelegramRevisionNumber, normalizeTelegramFeedback } from './src/server/telegramRevision';
 import { publishApprovedShortToPostiz } from './src/server/postizPublisher';
@@ -71,7 +71,7 @@ import { buildShortsEditorQaRevisionInstruction, evaluateRenderedShort, evaluate
 import { buildVisualAnalysisUnavailableReport, buildVisualSemanticReport, parseCompleteVisualSemanticResponse, type VisualSemanticReport, type VisualSemanticSample } from './src/server/shortsVisualSemanticQa';
 import { applyQaRepairAssets, buildQaRepairFailureReport, executeQaRepairOnce, QaRepairCancelledError, resolveUniqueQaRepairAssets, selectQaRepairCandidates, validatedPexelsRepairMetadata } from './src/server/qaRepair';
 import { buildConcatArgs, FAST_H264_OPTIONS, isValidConcatenatedVideo } from './src/server/renderOptimizations';
-import { buildEmotionallyDirectedNarration } from './src/server/emotionalDirection';
+import { buildEmotionallyDirectedNarration, getEmotionallyDirectedNarrationLimitError } from './src/server/emotionalDirection';
 import { getDeploymentInfo } from './src/server/deploymentInfo';
 import { retryVisualQa, runVisualQaWithFallback } from './src/server/visualQaProviders';
 import { mapNarrationAlignmentToScenes } from './src/server/singleNarration';
@@ -2087,7 +2087,8 @@ async function generateElevenLabsAudio(
     : modelId === 'eleven_v3'
       ? { stability: 0.52 }
       : { stability: 0.58, similarity_boost: 0.8, style: 0, use_speaker_boost: true, speed: safeSpeed };
-  if (text.length > 4500) throw new Error('Łączny tekst narracji przekracza limit bezpiecznej pojedynczej syntezy ElevenLabs (4500 znaków).');
+  const ttsLimitError = getElevenLabsNarrationLimitError(text);
+  if (ttsLimitError) throw new Error(ttsLimitError);
   const cacheKey = createHash('sha256').update(JSON.stringify({
     version: 3,
     text,
@@ -2806,15 +2807,14 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
       );
     }
 
+    const requireFinalCta = ['scheduler', 'test-render'].includes(payload.source || '') || Boolean(payload.requireBrandedCta);
     const renderPreflightQa = evaluateShortStoryboard(scenes, {
       expectedSceneCount,
-      maxDurationSeconds: MAX_SHORT_DURATION_SECONDS,
-      requireCta: ['scheduler', 'test-render'].includes(payload.source || ''),
+      requireCta: requireFinalCta,
       requireCaptionAlignment: !payload.pipelinePlan,
       skipCaptionAlignment: Boolean(payload.pipelinePlan),
       skipNarrationLengthChecks: Boolean(payload.pipelinePlan),
-      maxNarrationWordsExcludingLast: payload.pipelinePlan ? undefined : 32,
-      maxWordsPerScene: payload.pipelinePlan ? undefined : (index: number) => index < 4 ? 5 : index < 7 ? 6 : 9,
+      skipNarrationDensityCheck: true,
       sourceText: payload.sourceArticleText,
       requireSourceEvidence: payload.requireSourceEvidence,
       requireBrandedCta: payload.requireBrandedCta
@@ -2847,6 +2847,11 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
         scenes.map((scene, index) => ({ ...scene, voiceover_text: sceneSpeechTexts[index] })),
         configuredTtsModel
       );
+      const ttsLimitError = getElevenLabsNarrationLimitError(ttsInputText);
+      if (ttsLimitError) {
+        throw new Error(`${ttsLimitError} Limit dotyczy jednego żądania dostawcy, nie długości filmu. Tekst nie został automatycznie skrócony ani podzielony; synteza TTS nie została uruchomiona.`);
+      }
+
       const localNarrationMetadataPath = path.join(jobTempDir, 'short_narration_full.json');
       const fullWordTimings: CaptionWordTiming[] = [];
       const allowAutopilotRetryCache = ['scheduler', 'test-render'].includes(String(payload.source || '')) || Boolean(payload.reuseNarrationCacheJobId || payload.retrySourcePayloadJobId);
@@ -3023,6 +3028,36 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
         'Nieprawidłowy rzeczywisty budżet czasu Shorta (' + totalPlannedDuration.toFixed(2) +
         ' s); wymagany zakres to ' + MIN_SHORT_DURATION_SECONDS + '–' + MAX_SHORT_DURATION_SECONDS + ' sekund.'
       );
+    }
+    if (ttsEnabled) {
+      // Density is measured against the actual word-aligned TTS timeline, never the 2.25s storyboard placeholder.
+      const speechAlignedQa = evaluateShortStoryboard(
+        scenes.map((scene, index) => ({ ...scene, duration: plannedSceneDurations[index] })),
+        { requireCta: requireFinalCta, requireBrandedCta: payload.requireBrandedCta, skipCaptionAlignment: true }
+      );
+      const narrationDensityFindings = speechAlignedQa.findings.filter((finding) => finding.code === 'narration_too_dense');
+      const existingDensityQa = job.shortMetadata?.editorQa && typeof job.shortMetadata.editorQa === 'object'
+        ? job.shortMetadata.editorQa as Record<string, unknown>
+        : {};
+      updateJobProgress(jobId, {
+        shortMetadata: {
+          ...job.shortMetadata,
+          editorQa: {
+            ...existingDensityQa,
+            speechAlignedNarration: {
+              status: narrationDensityFindings.length ? 'review' : 'pass',
+              findings: narrationDensityFindings,
+              checkedAt: new Date().toISOString()
+            }
+          }
+        }
+      }, '[Shorts Editor QA] Kontrola gęstości na rzeczywistym timeline TTS: ' + (narrationDensityFindings.length ? 'review' : 'pass') + '.');
+      if (narrationDensityFindings.length && payload.requireAllQaPass) {
+        throw new Error(
+          'Narracja jest zbyt gęsta względem rzeczywistych czasów scen po TTS: ' +
+          narrationDensityFindings.map((finding) => finding.message).join(' | ')
+        );
+      }
     }
     console.info(
       `[Narration budget] One TTS request; per-scene video durations: ${plannedSceneDurations.map((duration) => duration.toFixed(2)).join(', ')}s; total=${totalPlannedDuration.toFixed(2)}s; full narration=${wholeNarrationDuration.toFixed(2)}s.`
@@ -5496,7 +5531,22 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
         narrationWordRangeWithCta,
         ctaPlan.spokenText
       );
-      if (hasExpectedSceneCount && hasConciseSceneCopy) {
+      const generationTtsModelId = process.env.ELEVENLABS_MODEL_ID?.trim() || 'eleven_multilingual_v2';
+      const candidateNarrationScenes = hasExpectedSceneCount
+        ? parsed.scenes.map((scene, index) => ({
+            ...scene,
+            voiceover_text: index === count - 1
+              ? ctaPlan.spokenText
+              : String(scene.voiceover_text || scene.subtitles || '').trim()
+          }))
+        : [];
+      const narrationLimitError = hasExpectedSceneCount
+        ? getEmotionallyDirectedNarrationLimitError(candidateNarrationScenes, generationTtsModelId)
+        : null;
+      if (narrationLimitError) {
+        console.warn(`[Viral Script] Odrzucono scenariusz przed akceptacją: ${narrationLimitError} Gotowy tekst przekracza limit pojedynczego żądania ElevenLabs.`);
+      }
+      if (hasExpectedSceneCount && hasConciseSceneCopy && !narrationLimitError) {
         const usedPexelsIds: number[] = [];
         const scenesWithVideo = [];
 
@@ -5676,6 +5726,17 @@ Każda scena w tablicy "scenes" musi mieć pole duration zgodne z harmonogramem 
       subtitles: ctaPlan.spokenText,
       voiceover_text: ctaPlan.spokenText
     };
+  }
+  const fallbackTtsModelId = process.env.ELEVENLABS_MODEL_ID?.trim() || 'eleven_multilingual_v2';
+  const fallbackNarrationLimitError = getEmotionallyDirectedNarrationLimitError(
+    fallbackScript.scenes.map((scene) => ({
+      ...scene,
+      voiceover_text: String(scene.voiceover_text || scene.subtitles || '').trim()
+    })),
+    fallbackTtsModelId
+  );
+  if (fallbackNarrationLimitError) {
+    throw new Error(`Scenariusz AI przekroczył limit ElevenLabs, a scenariusz awaryjny również nie mieści się w jednym żądaniu: ${fallbackNarrationLimitError}`);
   }
   const aiDecisions = deriveAiViralDecisions(cleanTopic, bankierArticle?.description || articleContext, bankierArticle?.category || niche);
   const usedPexelsIds: number[] = [];

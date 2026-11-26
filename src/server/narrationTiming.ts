@@ -1,6 +1,13 @@
 export const DEFAULT_SECONDS_PER_SPEECH_UNIT = 0.4;
 export const NARRATION_ESTIMATE_SAFETY_FACTOR = 1.3;
 export const MAX_NARRATION_CALIBRATION_SAMPLES = 80;
+export const ELEVENLABS_MAX_SINGLE_REQUEST_CHARACTERS = 4500;
+
+export function getElevenLabsNarrationLimitError(text: string): string | null {
+  const normalizedText = String(text || '').replace(/[\r\n]+/g, ' ').trim();
+  if (normalizedText.length <= ELEVENLABS_MAX_SINGLE_REQUEST_CHARACTERS) return null;
+  return `Tekst narracji ma ${normalizedText.length} znaków; limit jednego żądania ElevenLabs to ${ELEVENLABS_MAX_SINGLE_REQUEST_CHARACTERS} znaków.`;
+}
 
 export type NarrationCalibrationStore = {
   version: 1;
