@@ -86,6 +86,7 @@ import { cleanStockSearchQuery, scoreStockCandidateSoftAvoidance } from './src/s
 import { buildSourceEvidenceVisual, resolveStockWithEvidenceFallback, resolveStockWithVerifiedEvidenceFallback } from './src/server/sourceEvidenceVisual';
 import { findLegacyFailedAutopilotArticleUrl, getNextPendingAutopilotRetry, MAX_STORYBOARD_QA_REPAIR_ATTEMPTS, recordAutopilotFailure, reactivateExhaustedAutopilotRetries, repairUntilPass, resolveAutopilotRetry, isCompatibleNarrationRetryCache, type AutopilotRetryEntry, type RetryableAutopilotArticle, type NarrationRetryCacheMetadata } from './src/server/autopilotRetry';
 import { GEMINI_PRIMARY_MODEL, getGeminiApiKeys, getGeminiFallbackModels, withGeminiModelFallback } from './src/server/modelRouting';
+import { fetchOfferCatalogCategory } from './src/server/offerCatalogFetch';
 import { GEMINI_NARRATION_REVISION_BUDGET_MS, GEMINI_REQUEST_BUDGET_MS, getGeminiHttpOptions, getGeminiRemainingBudgetMs } from './src/server/geminiRequestPolicy';
 
 const execPromise = promisify(exec);
@@ -271,51 +272,64 @@ async function refreshOfferCatalogSnapshot(): Promise<void> {
   if (offerCatalogRefreshPromise) return offerCatalogRefreshPromise;
 
   offerCatalogRefreshPromise = (async () => {
-    const sourceBase = (process.env.OFFER_CATALOG_SOURCE_URL || OFFER_CATALOG_SOURCE_URL).trim().replace(/\/+$/, '');
+    const sourceBase = (process.env.OFFER_CATALOG_SOURCE_URL || OFFER_CATALOG_SOURCE_URL).trim().replace(/\\/+$/, '');
     const attemptedAt = new Date().toISOString();
     const previous = offerCatalogSnapshot;
 
-    const results = await Promise.all(OFFER_CATEGORIES.map(async (definition) => {
-      try {
-        const endpoint = new URL(`/get-category-campaigns/${encodeURIComponent(definition.apiKey)}`, sourceBase);
-        const response = await fetch(endpoint, {
-          headers: { Accept: 'application/json', 'User-Agent': 'raport-finansowy24-offer-catalog/1.0' },
-          signal: AbortSignal.timeout(8000)
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const payload = await response.json();
-        if (!Array.isArray(payload)) throw new Error('Odpowiedź katalogu nie jest tablicą kart.');
-        return { definition, offers: parseOfferCatalogPayload(payload) };
-      } catch (error) {
-        return { definition, error: (error as Error).message || 'Błąd pobierania' };
-      }
-    }));
+    const results = await Promise.all(OFFER_CATEGORIES.map((definition) =>
+      fetchOfferCatalogCategory(definition, sourceBase)
+    ));
 
     const categories: OfferCatalogSnapshot['categories'] = {};
     let successCount = 0;
+    const failureCounts: Record<string, number> = {};
+
     for (const result of results) {
-      const oldCategory = previous.categories[result.definition.id];
-      if ('offers' in result) {
+      const oldCategory = previous.categories[result.category.id];
+      if (result.ok) {
         successCount += 1;
-        categories[result.definition.id] = {
-          categoryId: result.definition.id,
+        categories[result.category.id] = {
+          categoryId: result.category.id,
           offers: result.offers,
           status: 'fresh',
           fetchedAt: attemptedAt
         };
-      } else if (oldCategory) {
-        categories[result.definition.id] = {
-          ...oldCategory,
-          status: 'stale',
-          error: result.error
-        };
+        console.info(
+          '[Offer catalog] category=' + result.category.id +
+          ' outcome=success http=' + result.httpStatus +
+          ' responseItems=' + result.responseItems +
+          ' parsedOffers=' + result.offers.length +
+          ' endpoint=' + result.endpointHost + result.endpointPath +
+          ' elapsedMs=' + result.elapsedMs + '.'
+        );
       } else {
-        categories[result.definition.id] = {
-          categoryId: result.definition.id,
-          offers: [],
-          status: 'unavailable',
+        failureCounts[result.failureKind] = (failureCounts[result.failureKind] || 0) + 1;
+        const diagnostic = {
+          category: result.category.id,
+          outcome: 'failed',
+          reason: result.failureKind,
+          httpStatus: result.httpStatus ?? null,
+          contentType: result.contentType ?? null,
+          endpoint: result.endpointHost + result.endpointPath,
+          elapsedMs: result.elapsedMs,
           error: result.error
         };
+        console.warn('[Offer catalog] ' + JSON.stringify(diagnostic));
+
+        if (oldCategory) {
+          categories[result.category.id] = {
+            ...oldCategory,
+            status: 'stale',
+            error: result.error
+          };
+        } else {
+          categories[result.category.id] = {
+            categoryId: result.category.id,
+            offers: [],
+            status: 'unavailable',
+            error: result.error
+          };
+        }
       }
     }
 
@@ -330,7 +344,16 @@ async function refreshOfferCatalogSnapshot(): Promise<void> {
       lastSuccessAt: successCount > 0 ? attemptedAt : previous.lastSuccessAt,
       categories
     };
-    console.log(`[Offer catalog] Odświeżono ${successCount}/${OFFER_CATEGORIES.length} kategorii; status=${status}.`);
+
+    const failureBreakdown = Object.entries(failureCounts)
+      .map(([kind, count]) => kind + '=' + count)
+      .join(',');
+    const summary = '[Offer catalog] Odświeżono ' + successCount + '/' + OFFER_CATEGORIES.length +
+      ' kategorii; status=' + status +
+      '; failures=' + (results.length - successCount) +
+      (failureBreakdown ? '; failureKinds=' + failureBreakdown : '') + '.';
+    if (successCount === 0) console.warn(summary);
+    else console.info(summary);
   })().finally(() => {
     offerCatalogRefreshPromise = null;
   });
