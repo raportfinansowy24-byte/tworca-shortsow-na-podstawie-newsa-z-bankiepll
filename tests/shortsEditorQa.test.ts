@@ -416,5 +416,15 @@ const singleSceneReport = evaluateShortStoryboard(singleSceneWithoutCta, {
 });
 assert.equal(singleSceneReport.status, 'blocked', 'pojedyncza scena bez CTA musi mieć zweryfikowane fakty względem źródła');
 
+
+const densityScenes = [
+  { duration: 2, voiceover_text: 'To jest bardzo długa wypowiedź testowa dla kontroli gęstości.', subtitles: 'To jest bardzo długa wypowiedź testowa dla kontroli gęstości.', pexelsId: 801, searchKeyword: 'test narration' },
+  { duration: 16, voiceover_text: 'Sprawdź szczegóły.', subtitles: 'Sprawdź szczegóły.', pexelsId: 802, searchKeyword: 'test cta' }
+];
+const densityChecked = evaluateShortStoryboard(densityScenes, { requireCta: true });
+assert.ok(densityChecked.findings.some((finding) => finding.code === 'narration_too_dense'), 'normal QA checks narration density');
+const densityDeferred = evaluateShortStoryboard(densityScenes, { requireCta: true, skipNarrationDensityCheck: true });
+assert.ok(!densityDeferred.findings.some((finding) => finding.code === 'narration_too_dense'), 'pre-TTS QA defers density until measured speech alignment');
+
 console.log('Shorts Editor QA tests passed');
 
