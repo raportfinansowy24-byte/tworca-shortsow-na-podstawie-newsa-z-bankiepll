@@ -35,8 +35,10 @@ COPY . .
 RUN mkdir -p /app/fonts \
     && curl -fsSL https://raw.githubusercontent.com/JulietaUla/Montserrat/master/fonts/ttf/Montserrat-Black.ttf -o /app/fonts/Montserrat-Black.ttf \
     && test -s /app/fonts/Montserrat-Black.ttf \
-    && chmod 0644 /app/fonts/Montserrat-Black.ttf \
+    && curl -fsSL https://raw.githubusercontent.com/JulietaUla/Montserrat/master/OFL.txt -o /app/fonts/OFL-Montserrat.txt \
+    && chmod 0644 /app/fonts/Montserrat-Black.ttf /app/fonts/OFL-Montserrat.txt \
     && fc-cache -f /app/fonts \
+    && fc-match 'Montserrat Black' | grep -qi Montserrat \
     && ffmpeg -hide_banner -filters 2>&1 | grep -Eq '[[:space:]]ass[[:space:]]'
 RUN npm run lint \
     && VITE_GOOGLE_CLIENT_ID="${VITE_GOOGLE_CLIENT_ID}" npm run build \
