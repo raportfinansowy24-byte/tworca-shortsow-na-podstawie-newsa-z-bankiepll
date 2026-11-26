@@ -3,15 +3,16 @@ import {
   fetchOfferCatalogCategory,
   type OfferCatalogFetchResult
 } from '../src/server/offerCatalogFetch';
+import type { OfferCategoryDefinition } from '../src/utils/financeOfferMatching';
 
-const category = {
+const category: OfferCategoryDefinition = {
   id: 'kredyty-gotowkowe',
   name: 'Kredyty gotówkowe',
   pagePath: '/kredyty-gotowkowe',
   apiKey: 'kredyt-gotowkowy',
   group: 'kredyty',
   phrases: ['kredyt gotowkowy']
-} as const;
+};
 
 function ok(result: OfferCatalogFetchResult) {
   assert.equal(result.ok, true);
@@ -39,6 +40,7 @@ assert.equal(success.offers.length, 1);
 assert.equal(success.offers[0].displayName, 'Przykładowy kredyt');
 assert.equal(success.endpointHost, 'offers.example');
 assert.equal(success.endpointPath, '/get-category-campaigns/kredyt-gotowkowy');
+assert.equal(success.contentType, 'application/json');
 
 const forbidden = failed(await fetchOfferCatalogCategory(
   category,
