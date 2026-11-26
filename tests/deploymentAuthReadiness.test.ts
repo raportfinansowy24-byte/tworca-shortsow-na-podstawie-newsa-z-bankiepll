@@ -27,9 +27,9 @@ assert.deepEqual(
 
 const server = readFileSync(new URL('../server.ts', import.meta.url), 'utf8');
 const workflow = readFileSync(new URL('../.github/workflows/validate.yml', import.meta.url), 'utf8');
-assert.match(server, /appAuth:\\s*Boolean\\(getAppAuthConfiguration\\(\\)\\)/);
-assert.match(server, /getAppAuthConfiguration\\(\\)\\s*\\?\\s*200\\s*:\\s*503/);
-assert.doesNotMatch(workflow, /flyctl|FLY_API_TOKEN|fly\\.dev|BASE_URL\\/api\\/auth\\/status/i,
+assert.match(server, /appAuth:\s*Boolean\(getAppAuthConfiguration\(\)\)/);
+assert.match(server, /getAppAuthConfiguration\(\)\s*\?\s*200\s*:\s*503/);
+assert.doesNotMatch(workflow, /flyctl|FLY_API_TOKEN|fly\.dev|BASE_URL\/api\/auth\/status/i,
   'GitHub Actions must not deploy to or depend on Fly.io; production is managed by Railway');
 assert.match(workflow, /npm run test:deployment-auth-readiness/);
 
