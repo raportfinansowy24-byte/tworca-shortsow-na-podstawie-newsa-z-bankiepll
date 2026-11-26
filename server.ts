@@ -1206,6 +1206,8 @@ const EXPORTS_DIR = path.join(WORK_DIR, 'exports');
 const FONTS_DIR = path.join(WORK_DIR, 'fonts');
 const TIKTOK_SANS_FONT_PATH = path.join(FONTS_DIR, 'TikTokSans-Bold.ttf');
 const ANTON_FONT_PATH = path.join(FONTS_DIR, 'Anton-Regular.ttf');
+const MONTSERRAT_BLACK_FONT_PATH = path.join(FONTS_DIR, 'Montserrat-Black.ttf');
+const MONTSERRAT_BLACK_FONT_PATH = path.join(FONTS_DIR, 'Montserrat-Black.ttf');
 
 async function dispatchWebhook(value: string, body: string): Promise<void> {
   await postWebhook(value, body);
@@ -1816,6 +1818,23 @@ async function ensureAntonFont(): Promise<boolean> {
   return false;
 }
 
+// Montserrat Black is a required render dependency; fail closed instead of silently substituting fonts.
+async function ensureMontserratBlackFont(): Promise<boolean> {
+  if (fs.existsSync(MONTSERRAT_BLACK_FONT_PATH) && fs.statSync(MONTSERRAT_BLACK_FONT_PATH).size > 10000) return true;
+  await fs.promises.mkdir(FONTS_DIR, { recursive: true });
+  const fontUrl = 'https://raw.githubusercontent.com/JulietaUla/Montserrat/master/fonts/ttf/Montserrat-Black.ttf';
+  try {
+    await downloadFile(fontUrl, MONTSERRAT_BLACK_FONT_PATH);
+    if (fs.existsSync(MONTSERRAT_BLACK_FONT_PATH) && fs.statSync(MONTSERRAT_BLACK_FONT_PATH).size > 10000) {
+      console.info('[Captions] Montserrat Black ready:', MONTSERRAT_BLACK_FONT_PATH);
+      return true;
+    }
+  } catch (error) {
+    console.warn('[Captions] Montserrat Black download failed:', (error as Error).message);
+  }
+  throw new Error('Brak wymaganej czcionki ./fonts/Montserrat-Black.ttf; render napisów został zatrzymany.');
+}
+
 // Helper to generate a stylized vertical video background or audio when remote download fails
 function generateLocalFallbackVideo(destPath: string, duration = 6): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -2316,8 +2335,7 @@ function formatAssTime(seconds: number): string {
   return `${hrs}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(centis).padStart(2, '0')}`;
 }
 
-// Word-by-Word Animated Subtitle Generator (Advanced SubStation Alpha .ass format)
-// Produces signature Hormozi / MrBeast / TikTok viral karaoke captions
+// Word-by-word ASS captions with synchronized red glow and white/red foreground layers.
 function generateWordByWordAss(
   text: string,
   duration: number,
@@ -2334,29 +2352,32 @@ function generateWordByWordAss(
   if (words.length === 0) return '';
 
   const safeDuration = Math.max(Number.isFinite(duration) ? duration : 0, 0.05);
-  // Styl: single-word na sztywno czerwone (format ASS: &HAABBGGRR - nasycona czerwień)
-  const highlightColor = '&H002222FF&'; // Czysty, wyrazisty czerwony
-
-  // Wymuszenie wyświetlania na środku (center) z zachowaniem proporcji
   const position = options.position || 'center';
-  const alignment = position === 'bottom' ? 2 : position === 'top' ? 8 : 5; // 5 = centralnie w pionie i poziomie
+  const alignment = position === 'bottom' ? 2 : position === 'top' ? 8 : 5;
   const marginV = position === 'center' ? 0 : position === 'top' ? 160 : 220;
-  // Powiększenie z zachowaniem idealnych proporcji (bazowy rozmiar 70 zamiast 56, obrys 8 zamiast 6)
-  const baseSize = options.fontSize || 56;
-  const requestedFontSize = baseSize >= 64 ? baseSize : Math.round(baseSize * 1.25);
-  // Fit even long CTA/domain tokens (e.g. raport-finansowy24.pl) inside a 720px portrait frame.
-  // ASS renders one word at a time, so size to the widest token, not total sentence length.
+  const requestedFontSize = Math.max(30, Number(options.fontSize) || 56);
   const longestTokenLength = Math.max(...words.map((word) => [...word].length), 1);
-  const safeHorizontalWidth = 720 - 2 * 48; // 48px visual safe area on both sides
+  const safeHorizontalWidth = 720 - 2 * 48;
   const maxFittingFontSize = Math.floor(safeHorizontalWidth / (0.64 * longestTokenLength));
   const fontSize = Math.max(30, Math.min(requestedFontSize, maxFittingFontSize));
-  const outlineWidth = options.outlineWidth
-    ? Math.min(Math.round(options.outlineWidth * 1.25), Math.max(2, Math.round(fontSize * 0.08)))
-    : Math.max(2, Math.round(fontSize * 0.08));
 
   const normalizeWord = (word: string) => word.toLocaleLowerCase('pl-PL').replace(/[^\p{L}\p{N}]/gu, '');
+  const stopWords = new Set([
+    'a', 'aby', 'ale', 'bo', 'by', 'co', 'czy', 'do', 'dla', 'i', 'jak', 'jest',
+    'lub', 'na', 'nad', 'nie', 'o', 'od', 'oraz', 'po', 'pod', 'się', 'to',
+    'w', 'we', 'z', 'za', 'że', 'the', 'and', 'for', 'from', 'in', 'is', 'of',
+    'on', 'or', 'to', 'with'
+  ]);
+  const keywordIndex = words.reduce((bestIndex, word, index) => {
+    const normalized = normalizeWord(word);
+    if (normalized.length < 4 || stopWords.has(normalized)) return bestIndex;
+    if (bestIndex < 0 || normalized.length > normalizeWord(words[bestIndex]).length) return index;
+    return bestIndex;
+  }, -1);
+
   const hasMatchingTtsTimings = ttsWordTimings.length === words.length && ttsWordTimings.every((timing, index) =>
-    normalizeWord(timing.word) === normalizeWord(words[index]) && Number.isFinite(timing.start) && Number.isFinite(timing.end) && timing.end > timing.start
+    normalizeWord(timing.word) === normalizeWord(words[index]) &&
+    Number.isFinite(timing.start) && Number.isFinite(timing.end) && timing.end > timing.start
   );
 
   let wordTimings: CaptionWordTiming[] = [];
@@ -2370,40 +2391,35 @@ function generateWordByWordAss(
   }
 
   if (wordTimings.length === 0) {
-    let totalChars = 0;
-    words.forEach((word) => { totalChars += Math.max(word.length, 2); });
-
+    const totalChars = words.reduce((total, word) => total + Math.max(word.length, 2), 0);
     let currentTime = 0;
-    words.forEach((word, index) => {
-      const wordDur = (Math.max(word.length, 2) / totalChars) * safeDuration;
+    wordTimings = words.map((word, index) => {
+      const wordDuration = (Math.max(word.length, 2) / totalChars) * safeDuration;
       const start = currentTime;
-      const end = index === words.length - 1 ? safeDuration : currentTime + wordDur;
-      currentTime += wordDur;
-      wordTimings.push({ word, start, end });
+      const end = index === words.length - 1 ? safeDuration : currentTime + wordDuration;
+      currentTime = end;
+      return { word, start, end };
     });
   }
 
-  // Styl: single-word na środku z powiększeniem zachowującym proporcje 1:1 (\fscx130\fscy130)
   let dialogues = '';
-  wordTimings.forEach(({ word, start, end }) => {
-    const s = formatAssTime(start);
-    const e = formatAssTime(end);
-    dialogues += `Dialogue: 0,${s},${e},HormoziStyle,,0,0,0,,{\\c${highlightColor}\\fscx130\\fscy130\\b1}${word.toUpperCase()}\\N\n`;
+  wordTimings.forEach(({ word, start, end }, index) => {
+    const startTime = formatAssTime(start);
+    const endTime = formatAssTime(end);
+    const safeWord = word.replace(/[{}]/g, '');
+    const scale = options.animation === 'classic' ? '' : '\\fscx130\\fscy130';
+    dialogues += 'Dialogue: 0,' + startTime + ',' + endTime + ',Glow,,0,0,0,,{\\blur18' + scale + '}' + safeWord.toUpperCase() + '\n';
+    const keywordOverride = index === keywordIndex ? '{\\c&H000000FF&}' : '';
+    dialogues += 'Dialogue: 1,' + startTime + ',' + endTime + ',Main,,0,0,0,,' + keywordOverride + '{' + scale + '}' + safeWord.toUpperCase() + '\n';
   });
 
-  return `[Script Info]
-ScriptType: v4.00+
-PlayResX: 720
-PlayResY: 1280
-ScaledBorderAndShadow: yes
-
-[V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: HormoziStyle,TikTok Sans,${fontSize},&H002222FF,&H000000FF,&H00000000,&H90000000,-1,0,0,0,100,100,0,0,1,${outlineWidth},2,${alignment},24,24,${marginV},1
-
-[Events]
-Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-${dialogues}`;
+  return '[Script Info]\n' +
+    'ScriptType: v4.00+\nPlayResX: 720\nPlayResY: 1280\nScaledBorderAndShadow: yes\nWrapStyle: 2\n\n' +
+    '[V4+ Styles]\n' +
+    'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n' +
+    'Style: Glow,Montserrat Black,' + fontSize + ',&H000000FF,&H000000FF,&H000000FF,&H000000FF,-1,0,0,0,100,100,0,0,1,14,0,' + alignment + ',24,24,' + marginV + ',1\n' +
+    'Style: Main,Montserrat Black,' + fontSize + ',&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,5,0,' + alignment + ',24,24,' + marginV + ',1\n\n' +
+    '[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n' + dialogues;
 }
 
 // Escape string for FFmpeg drawtext filter
@@ -2560,7 +2576,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
     );
 
     await ensureTikTokSansFont();
-    await ensureAntonFont();
+    await ensureMontserratBlackFont();
 
     // Resolution setup (defaults to 720p vertical 720x1280 for fast processing)
     let rawRes = payload.outputResolution || (payload as any).resolution || '720x1280';
@@ -3179,35 +3195,19 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
       if (speechText.length > 0) {
         try {
           console.log(`[Subtitle sync] Scene ${sceneNum}: audio=${captionDuration.toFixed(2)}s, scene=${sceneDuration.toFixed(2)}s, TTS word boundaries=${sceneWordTimings.length}/${speechText.split(/\s+/).filter(Boolean).length}.`);
-          const boardOptions: HighlightBoardOptions = payload.highlightBoards || {
-            enabled: true,
-            position: 'center',
-            fontSize: 78,
-            fontColor: '#FFFFFF',
-            highlightColor: '#FF2020',
-            outlineColor: '#000000',
-            outlineWidth: 6,
-            shadow: 4,
-            maxLines: 2,
-            minWords: 3,
-            maxWords: 6
-          };
-          const assContent = boardOptions.enabled === false
-            ? generateWordByWordAss(speechText, captionDuration, {
-                animation: animMode,
-                highlightColor: highlightCol,
-                position,
-                fontSize,
-                outlineWidth
-              }, sceneWordTimings)
-            : generateHighlightBoardAss(speechText, captionDuration, sceneWordTimings, boardOptions);
+          const assContent = generateWordByWordAss(speechText, captionDuration, {
+            animation: animMode,
+            highlightColor: highlightCol,
+            position,
+            fontSize,
+            outlineWidth
+          }, sceneWordTimings);
           fs.writeFileSync(sceneAssPath, assContent, 'utf8');
           // Escape single quotes and backslashes for FFmpeg filter
           const cleanAssPath = sceneAssPath.replace(/\\/g, '/').replace(/'/g, "'\\\\''");
-          const cleanFontsDir = FONTS_DIR.replace(/\\/g, '/').replace(/'/g, "'\\\\''");
-          assSubtitleFilter = `,ass='${cleanAssPath}':fontsdir='${cleanFontsDir}'`;
+          assSubtitleFilter = `,ass='${cleanAssPath}':fontsdir='./fonts'`;
         } catch (assErr) {
-          console.warn(`⚠️ ASS subtitle error for scene ${sceneNum}:`, assErr);
+          throw new Error(`Nie udało się wygenerować wymaganych napisów ASS dla sceny ${sceneNum}: ${(assErr as Error).message}`);
         }
       }
 
@@ -3333,7 +3333,7 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
           ...trimOptsFallback,
           '-i', downloadedAssetPath,
           ...fallbackAudioInput,
-          '-filter_complex', `[0:v]${scaleFilter}[v];[1:a]${fallbackAudioVolume}aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[a]`,
+          '-filter_complex', `[0:v]${scaleFilter}${assSubtitleFilter}[v];[1:a]${fallbackAudioVolume}aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[a]`,
           '-map', '[v]',
           '-map', '[a]',
           '-t', sceneDuration.toString(),
@@ -9628,7 +9628,7 @@ async function startServer() {
     if (historyHydrationTimer) clearTimeout(historyHydrationTimer);
   }
   ensureTikTokSansFont().catch(console.error);
-  ensureAntonFont().catch(console.error);
+  ensureMontserratBlackFont().catch((error) => { console.error('[Captions] Required font initialization failed:', error); });
   void refreshOfferCatalogSnapshot();
   const offerCatalogRefreshTimer = setInterval(() => {
     void refreshOfferCatalogSnapshot();
