@@ -272,7 +272,7 @@ async function refreshOfferCatalogSnapshot(): Promise<void> {
   if (offerCatalogRefreshPromise) return offerCatalogRefreshPromise;
 
   offerCatalogRefreshPromise = (async () => {
-    const sourceBase = (process.env.OFFER_CATALOG_SOURCE_URL || OFFER_CATALOG_SOURCE_URL).trim().replace(/\\/+$/, '');
+    const sourceBase = (process.env.OFFER_CATALOG_SOURCE_URL || OFFER_CATALOG_SOURCE_URL).trim().replace(/\/+$/, '');
     const attemptedAt = new Date().toISOString();
     const previous = offerCatalogSnapshot;
 
