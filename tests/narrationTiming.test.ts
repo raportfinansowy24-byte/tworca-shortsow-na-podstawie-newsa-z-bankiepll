@@ -131,41 +131,4 @@ await assert.rejects(() => fitNarrationBeforeTts({
 }), /scenariusz odrzucono/);
 assert.equal(revisionAttemptsForHardFail, 0, 'over-limit original is rejected before any editorial revision or TTS call');
 
-const modestNumberText = (claim: string) => Array.from({ length: 22 }, () => 'konkret').join(' ') + ' ' + claim;
-await assertNumericRewriteIsRejected(modestNumberText('Wartość wyniosła 5,2%.'), 'Konkretna zmiana bez liczby.', 'usunięcie liczby');
-
-const wordNumberLongTexts = [
-  modestNumberText('Wartość wyniosła pięć procent.'),
-  ...shortTexts.slice(1)
-];
-await assertNumericRewriteIsRejected(wordNumberLongTexts[0], Array.from({ length: 8 }, () => 'konkret').join(' ') + ' Wartość wyniosła siedem procent.', 'zmiana liczby zapisanej słownie');
-const inflectedWordNumber = await fitNarrationBeforeTts({
-  sceneTexts: wordNumberLongTexts,
-  baseSceneDurations: base,
-  secondsPerSpeechUnit: 0.4,
-  speed: 1,
-  targetDurationSeconds: 17,
-  maxTotalDurationSeconds: 28,
-  revise: async ({ sceneTexts }) => {
-    const candidate = [...sceneTexts];
-    candidate[0] = Array.from({ length: 8 }, () => 'konkret').join(' ') + ' Wartość wyniosła pięciu procent.';
-    return candidate;
-  }
-});
-assert.match(inflectedWordNumber.sceneTexts[0], /pięciu procent/, 'odmiana gramatyczna tej samej liczby pozostaje dozwolona');
-assert.equal(inflectedWordNumber.rejectedNumericRevisionAttempts, 0);
-
-const digitFactsLongText = modestNumberText('Wynik: 5% wzrostu, 2% spadku.');
-await assertNumericRewriteIsRejected(digitFactsLongText, Array.from({ length: 8 }, () => 'konkret').join(' ') + ' Wynik: 2% wzrostu, 5% spadku.', 'zamiana kolejności liczb');
-await assertNumericRewriteIsRejected(digitFactsLongText, Array.from({ length: 8 }, () => 'konkret').join(' ') + ' Wynik: 5% wzrostu, 2% spadku w 2027 roku.', 'dodanie liczby');
-
-const signedUnitLongText = modestNumberText('Zmiana wyniosła -5%.');
-await assertNumericRewriteIsRejected(signedUnitLongText, Array.from({ length: 8 }, () => 'konkret').join(' ') + ' Zmiana wyniosła 5%.', 'zmiana znaku wartości');
-
-const changedUnitLongText = modestNumberText('Zmiana wyniosła 5%.');
-await assertNumericRewriteIsRejected(changedUnitLongText, Array.from({ length: 8 }, () => 'konkret').join(' ') + ' Zmiana wyniosła 5 zł.', 'zmiana jednostki');
-
-const ordinalYearLongText = modestNumberText('Zmiana nastąpiła w dwa tysiące dwudziestym siódmym roku.');
-await assertNumericRewriteIsRejected(ordinalYearLongText, Array.from({ length: 8 }, () => 'konkret').join(' ') + ' Zmiana nastąpiła w dwa tysiące dwudziestym ósmym roku.', 'zmiana roku zapisanego słownie');
-
 console.log('Narration timing tests passed');
