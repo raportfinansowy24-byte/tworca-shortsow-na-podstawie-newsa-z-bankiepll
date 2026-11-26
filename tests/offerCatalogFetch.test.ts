@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   fetchOfferCatalogCategory,
+  resolveOfferCatalogSourceBase,
   type OfferCatalogFetchResult
 } from '../src/server/offerCatalogFetch';
 import type { OfferCategoryDefinition } from '../src/utils/financeOfferMatching';
@@ -23,6 +24,26 @@ function failed(result: OfferCatalogFetchResult) {
   assert.equal(result.ok, false);
   return result as Extract<OfferCatalogFetchResult, { ok: false }>;
 }
+
+const defaultSource = resolveOfferCatalogSourceBase(undefined);
+assert.equal(defaultSource.sourceBase, 'https://toomasz-money.oferty-kredytowe.pl');
+assert.equal(defaultSource.fallbackUsed, false);
+
+const validOverride = resolveOfferCatalogSourceBase(' https://offers.example/catalog/ ');
+assert.equal(validOverride.sourceBase, 'https://offers.example');
+assert.equal(validOverride.fallbackUsed, false);
+
+const malformedOverride = resolveOfferCatalogSourceBase('toomasz-money.oferty-kredytowe.pl');
+assert.equal(malformedOverride.sourceBase, 'https://toomasz-money.oferty-kredytowe.pl');
+assert.equal(malformedOverride.fallbackUsed, true);
+
+const insecureOverride = resolveOfferCatalogSourceBase('http://offers.example');
+assert.equal(insecureOverride.sourceBase, 'https://toomasz-money.oferty-kredytowe.pl');
+assert.equal(insecureOverride.fallbackUsed, true);
+
+const credentialOverride = resolveOfferCatalogSourceBase('https://user:password@offers.example');
+assert.equal(credentialOverride.sourceBase, 'https://toomasz-money.oferty-kredytowe.pl');
+assert.equal(credentialOverride.fallbackUsed, true);
 
 const parsedCard = '<div><p class="product__name"><a>Przykładowy kredyt</a></p><ul><li>Oferta do weryfikacji</li></ul></div>';
 
