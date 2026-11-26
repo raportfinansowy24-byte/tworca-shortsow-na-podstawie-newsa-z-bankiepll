@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import type { AutopilotSchedulerState, Scene } from '../types';
+import type { AutopilotSchedulerState, JobStatusResponse, Scene } from '../types';
+import { openJobEventSource } from '../utils/jobEventSource';
 import { AutonomousShortsDashboard } from './AutonomousShortsDashboard';
 
 interface AiViralAutoPilotProps {
@@ -16,8 +17,10 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onJobStarted
   const [retryingArticleLink, setRetryingArticleLink] = useState<string | null>(null);
   const [removingArticleLink, setRemovingArticleLink] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [activeJob, setActiveJob] = useState<JobStatusResponse | null>(null);
   const lastNotifiedJobId = useRef<string | null>(null);
   const hasLoadedInitialState = useRef(false);
+  const missingJobIds = useRef(new Set<string>());
 
   const refreshSchedulerState = useCallback(async () => {
     try {
@@ -52,6 +55,55 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onJobStarted
       onJobStarted(jobId);
     }
   }, [schedulerState?.lastRunJobId, onJobStarted]);
+
+  // Show the real autopilot job state on this page. Polling remains active as a fallback to SSE.
+  useEffect(() => {
+    const jobId = schedulerState?.lastRunJobId;
+    if (!jobId || missingJobIds.current.has(jobId)) { setActiveJob(null); return; }
+    let cancelled = false;
+    let source: EventSource | null = null;
+    let poll: number | null = null;
+    const stopTrackingIfFinished = (job: JobStatusResponse) => {
+      if (job.status === 'queued' || job.status === 'processing') return;
+      if (poll !== null) window.clearInterval(poll);
+      source?.close();
+      source = null;
+    };
+    const refreshJob = async () => {
+      try {
+        const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`, { cache: 'no-store' });
+        if (response.status === 404) {
+          missingJobIds.current.add(jobId);
+          if (poll !== null) window.clearInterval(poll);
+          source?.close();
+          source = null;
+          if (!cancelled) setActiveJob(null);
+          return;
+        }
+        if (response.ok) {
+          const job = await response.json() as JobStatusResponse;
+          if (!cancelled) {
+            setActiveJob(job);
+            stopTrackingIfFinished(job);
+          }
+        }
+      } catch { /* Preserve the last known state during transient network failures. */ }
+    };
+    void refreshJob();
+    poll = window.setInterval(() => void refreshJob(), 2500);
+    void openJobEventSource(jobId).then((eventSource) => {
+      if (cancelled) { eventSource.close(); return; }
+      source = eventSource;
+      eventSource.onmessage = (event) => {
+        try {
+          const job = JSON.parse(event.data) as JobStatusResponse;
+          if (!cancelled) { setActiveJob(job); stopTrackingIfFinished(job); }
+        } catch { /* HTTP polling remains the fallback for malformed events. */ }
+      };
+      eventSource.onerror = () => { eventSource.close(); if (source === eventSource) source = null; };
+    }).catch(() => { /* HTTP polling remains active when SSE is unavailable. */ });
+    return () => { cancelled = true; if (poll !== null) window.clearInterval(poll); source?.close(); };
+  }, [schedulerState?.lastRunJobId]);
 
   const handleToggle = async () => {
     if (!schedulerState) return;
@@ -157,7 +209,12 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onJobStarted
     }
   };
 
+  const jobIsActive = activeJob?.status === 'queued' || activeJob?.status === 'processing';
+  const progress = typeof activeJob?.progress === 'number' && Number.isFinite(activeJob.progress)
+    ? Math.max(0, Math.min(100, activeJob.progress)) : null;
+
   return (
+    <div className="space-y-5">
     <AutonomousShortsDashboard
       state={schedulerState}
       loading={loading}
@@ -172,5 +229,21 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onJobStarted
       retryingArticleLink={retryingArticleLink}
       removingArticleLink={removingArticleLink}
     />
+    {activeJob && (
+      <section className="rounded-2xl border border-cyan-500/30 bg-slate-900 p-5 space-y-4" aria-live="polite">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div><h3 className="text-sm font-bold text-white">Postęp renderowania</h3><p className="mt-1 text-xs text-slate-400">Zadanie: <span className="font-mono">{activeJob.id}</span></p></div>
+          <span className={`rounded-full px-3 py-1 text-xs font-semibold ${jobIsActive ? 'bg-cyan-500/15 text-cyan-300' : activeJob.status === 'completed' ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300'}`}>
+            {activeJob.status === 'queued' ? 'W kolejce' : activeJob.status === 'processing' ? 'W trakcie' : activeJob.status === 'completed' ? 'Zakończono' : activeJob.status === 'cancelled' ? 'Anulowano' : 'Błąd'}
+          </span>
+        </div>
+        <p className="text-sm text-slate-200">{activeJob.step || 'Oczekiwanie na informację o etapie…'}</p>
+        {progress !== null ? <div className="space-y-1"><div className="flex justify-between text-xs text-slate-400"><span>Rzeczywisty postęp</span><span>{Math.round(progress)}%</span></div><div className="h-2 overflow-hidden rounded-full bg-slate-800"><div className="h-full rounded-full bg-cyan-400 transition-all" style={{ width: `${progress}%` }} /></div></div> : <p className="text-xs text-slate-500">Backend nie udostępnił wiarygodnej wartości procentowej.</p>}
+        {activeJob.error && <p className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-200">{activeJob.error}</p>}
+        {activeJob.logs && activeJob.logs.length > 0 && <div className="space-y-2"><h4 className="text-xs font-semibold uppercase tracking-wide text-slate-400">Ostatnie zdarzenia</h4><ol className="max-h-56 space-y-1 overflow-y-auto rounded-lg bg-slate-950 p-3 font-mono text-xs text-slate-300">{activeJob.logs.slice(-8).map((line, index) => <li key={`${activeJob.id}-${index}`} className="break-words">{line}</li>)}</ol></div>}
+        {activeJob.status === 'completed' && activeJob.outputUrl && <a href={activeJob.outputUrl} target="_blank" rel="noreferrer" className="inline-flex rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500">Otwórz gotowy MP4</a>}
+      </section>
+    )}
+    </div>
   );
 };
