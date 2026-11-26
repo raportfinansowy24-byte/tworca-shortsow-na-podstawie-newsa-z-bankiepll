@@ -78,6 +78,8 @@ jobs:
         run: npm run test:creative-director
       - name: Emotional TTS direction tests
         run: npm run test:emotional-direction
+      - name: Offer catalog fetch diagnostics tests
+        run: npm run test:offer-catalog-fetch
       - name: Gemini primary/fallback model routing tests
         run: npm run test:model-routing
       - name: Deployment auth readiness tests
