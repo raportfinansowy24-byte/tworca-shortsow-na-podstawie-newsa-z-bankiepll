@@ -31,14 +31,12 @@ RUN npm install --include=dev --no-audit --no-fund
 
 COPY . .
 
-# Ship the exact static Montserrat Black face used by the ASS renderer.
+# Use the pinned, OFL-licensed font from the repository; builds do not depend on raw.githubusercontent.com.
 RUN mkdir -p /app/fonts \
-    && curl -fsSL https://raw.githubusercontent.com/JulietaUla/Montserrat/master/fonts/ttf/Montserrat-Black.ttf -o /app/fonts/Montserrat-Black.ttf \
-    && test -s /app/fonts/Montserrat-Black.ttf \
-    && curl -fsSL https://raw.githubusercontent.com/JulietaUla/Montserrat/master/OFL.txt -o /app/fonts/OFL-Montserrat.txt \
-    && chmod 0644 /app/fonts/Montserrat-Black.ttf /app/fonts/OFL-Montserrat.txt \
+    && install -m 0644 assets/fonts/Montserrat-Black.ttf /app/fonts/Montserrat-Black.ttf \
+    && install -m 0644 assets/fonts/OFL-Montserrat.txt /app/fonts/OFL-Montserrat.txt \
     && fc-cache -f /app/fonts \
-    && fc-match 'Montserrat Black' | grep -qi Montserrat \
+    && fc-match -f '%{family} %{style}\\n' 'Montserrat:style=Black' | grep -qi Montserrat \
     && ffmpeg -hide_banner -filters 2>&1 | grep -Eq '[[:space:]]ass[[:space:]]'
 RUN npm run lint \
     && VITE_GOOGLE_CLIENT_ID="${VITE_GOOGLE_CLIENT_ID}" npm run build \
