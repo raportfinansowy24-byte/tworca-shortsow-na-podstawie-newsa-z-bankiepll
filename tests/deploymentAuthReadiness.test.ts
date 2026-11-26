@@ -25,18 +25,13 @@ assert.deepEqual(
   'readiness succeeds only when both authentication secrets are configured'
 );
 
-const deployScript = readFileSync(new URL('../scripts/deploy-production.sh', import.meta.url), 'utf8');
-const requiredSecrets = deployScript.match(/REQUIRED_SECRETS=\(([^)]*)\)/)?.[1] ?? '';
-assert.match(requiredSecrets, /(^|\s)APP_AUTH_SECRET(\s|$)/);
-assert.match(requiredSecrets, /(^|\s)APP_LOGIN_PASSWORD(\s|$)/);
-
 const server = readFileSync(new URL('../server.ts', import.meta.url), 'utf8');
 const workflow = readFileSync(new URL('../.github/workflows/validate.yml', import.meta.url), 'utf8');
-assert.match(server, /appAuth:\s*Boolean\(getAppAuthConfiguration\(\)\)/);
-assert.match(server, /getAppAuthConfiguration\(\)\s*\?\s*200\s*:\s*503/);
-assert.ok(deployScript.includes('/api/auth/status'));
-assert.match(deployScript, /AUTH_STATUS.*200/);
-assert.match(workflow, /BASE_URL\/api\/auth\/status/);
-assert.match(workflow, /authentication is not configured/);
+assert.match(server, /appAuth:\\s*Boolean\\(getAppAuthConfiguration\\(\\)\\)/);
+assert.match(server, /getAppAuthConfiguration\\(\\)\\s*\\?\\s*200\\s*:\\s*503/);
+assert.doesNotMatch(workflow, /flyctl|FLY_API_TOKEN|fly\\.dev|BASE_URL\\/api\\/auth\\/status/i,
+  'GitHub Actions must not deploy to or depend on Fly.io; production is managed by Railway');
+assert.match(workflow, /npm run test:deployment-auth-readiness/);
+
 
 console.log('deployment auth readiness tests passed');
