@@ -35,7 +35,6 @@ import {
   createEmptyOfferCatalogSnapshot,
   matchNewsToCurrentOffers,
   OFFER_CATEGORIES,
-  OFFER_CATALOG_SOURCE_URL,
   parseOfferCatalogPayload,
   type OfferCatalogSnapshot,
   type OfferMatchPreview
@@ -86,7 +85,7 @@ import { cleanStockSearchQuery, scoreStockCandidateSoftAvoidance } from './src/s
 import { buildSourceEvidenceVisual, resolveStockWithEvidenceFallback, resolveStockWithVerifiedEvidenceFallback } from './src/server/sourceEvidenceVisual';
 import { findLegacyFailedAutopilotArticleUrl, getNextPendingAutopilotRetry, MAX_STORYBOARD_QA_REPAIR_ATTEMPTS, recordAutopilotFailure, reactivateExhaustedAutopilotRetries, repairUntilPass, resolveAutopilotRetry, isCompatibleNarrationRetryCache, type AutopilotRetryEntry, type RetryableAutopilotArticle, type NarrationRetryCacheMetadata } from './src/server/autopilotRetry';
 import { GEMINI_PRIMARY_MODEL, getGeminiApiKeys, getGeminiFallbackModels, withGeminiModelFallback } from './src/server/modelRouting';
-import { fetchOfferCatalogCategory } from './src/server/offerCatalogFetch';
+import { fetchOfferCatalogCategory, resolveOfferCatalogSourceBase } from './src/server/offerCatalogFetch';
 import { GEMINI_NARRATION_REVISION_BUDGET_MS, GEMINI_REQUEST_BUDGET_MS, getGeminiHttpOptions, getGeminiRemainingBudgetMs } from './src/server/geminiRequestPolicy';
 
 const execPromise = promisify(exec);
@@ -272,7 +271,11 @@ async function refreshOfferCatalogSnapshot(): Promise<void> {
   if (offerCatalogRefreshPromise) return offerCatalogRefreshPromise;
 
   offerCatalogRefreshPromise = (async () => {
-    const sourceBase = (process.env.OFFER_CATALOG_SOURCE_URL || OFFER_CATALOG_SOURCE_URL).trim().replace(/\/+$/, '');
+    const sourceResolution = resolveOfferCatalogSourceBase(process.env.OFFER_CATALOG_SOURCE_URL);
+    const sourceBase = sourceResolution.sourceBase;
+    if (sourceResolution.fallbackUsed) {
+      console.warn('[Offer catalog] OFFER_CATALOG_SOURCE_URL is invalid; using built-in source host=' + new URL(sourceBase).host + '.');
+    }
     const attemptedAt = new Date().toISOString();
     const previous = offerCatalogSnapshot;
 
@@ -286,7 +289,7 @@ async function refreshOfferCatalogSnapshot(): Promise<void> {
 
     for (const result of results) {
       const oldCategory = previous.categories[result.category.id];
-      if (result.ok) {
+      if (result.ok === true) {
         successCount += 1;
         categories[result.category.id] = {
           categoryId: result.category.id,
