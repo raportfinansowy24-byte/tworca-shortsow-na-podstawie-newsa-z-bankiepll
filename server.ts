@@ -64,7 +64,7 @@ import { buildFinanceSceneDataVisual, buildFinanceShortPlan, selectHookVariantFr
 import { buildBrandedCtaSvg } from './src/server/brandEndCard';
 import { buildFinancialChartSvg } from './src/server/financeChartVisual';
 import { selectAdaptiveBackgroundMusic } from './src/server/adaptiveMusicStrategy';
-import { generateHighlightBoardAss, type HighlightBoardOptions } from './src/server/highlightBoards';
+import type { HighlightBoardOptions } from './src/server/highlightBoards';
 import { buildMotionFilter, generateSceneSoundEffect, motionSoundSpecForBeat } from './src/server/motionSoundRenderer';
 import { getLearningSignals, recordHookVariants, recordPipelineEvent, recordPipelineRun, recordAutopilotPipelineRun, recordRetentionMetric, recordQaRepairTelemetry, updatePipelineRunStatus } from './src/server/pipelineTelemetry';
 import { buildShortsEditorQaRevisionInstruction, evaluateRenderedShort, evaluateShortStoryboard, hasNarrationWithinWordRanges, shouldBlockQa } from './src/server/shortsEditorQa';
@@ -1204,8 +1204,6 @@ const WORK_DIR = process.cwd();
 const TEMP_DIR = path.join(WORK_DIR, 'temp');
 const EXPORTS_DIR = path.join(WORK_DIR, 'exports');
 const FONTS_DIR = path.join(WORK_DIR, 'fonts');
-const TIKTOK_SANS_FONT_PATH = path.join(FONTS_DIR, 'TikTokSans-Bold.ttf');
-const ANTON_FONT_PATH = path.join(FONTS_DIR, 'Anton-Regular.ttf');
 const MONTSERRAT_BLACK_FONT_PATH = path.join(FONTS_DIR, 'Montserrat-Black.ttf');
 
 async function dispatchWebhook(value: string, body: string): Promise<void> {
@@ -1756,65 +1754,6 @@ async function createTelegramRevisionJob(parentJobId: string, feedback: string):
     catch (error) { console.warn('[Telegram Revision] Nie udało się wysłać informacji o starcie poprawki:', (error as Error).message); }
   }
   return jobId;
-}
-
-// Ensure TikTok Sans Bold is available for mobile-first captions.
-async function ensureTikTokSansFont(): Promise<boolean> {
-  if (fs.existsSync(TIKTOK_SANS_FONT_PATH)) {
-    const stats = fs.statSync(TIKTOK_SANS_FONT_PATH);
-    if (stats.size > 10000) {
-      console.log('✓ TikTokSans-Bold.ttf font is ready at:', TIKTOK_SANS_FONT_PATH);
-      return true;
-    }
-  }
-
-  console.log('⏳ TikTokSans-Bold.ttf not found. Downloading font...');
-  const fontUrls = [
-    'https://cdn.jsdelivr.net/npm/@fontsource/tiktok-sans@5.3.0/files/tiktok-sans-latin-700-normal.woff',
-    'https://cdn.jsdelivr.net/fontsource/fonts/tiktok-sans@latest/latin-700-normal.woff'
-  ];
-
-  for (const fontUrl of fontUrls) {
-    try {
-      await downloadFile(fontUrl, TIKTOK_SANS_FONT_PATH);
-      const stats = fs.statSync(TIKTOK_SANS_FONT_PATH);
-      if (stats.size > 10000) {
-        console.log(`✓ TikTokSans-Bold.ttf successfully downloaded (${stats.size} bytes)`);
-        return true;
-      }
-    } catch (err) {
-      console.warn(`Failed downloading font from ${fontUrl}:`, (err as Error).message);
-    }
-  }
-
-  console.error('⚠️ Could not download TikTokSans-Bold.ttf. FFmpeg will fallback to default system fonts if needed.');
-  return false;
-}
-
-// Ensure the condensed Anton display face used by the reference Shorts captions is installed for FFmpeg/libass.
-async function ensureAntonFont(): Promise<boolean> {
-  if (fs.existsSync(ANTON_FONT_PATH) && fs.statSync(ANTON_FONT_PATH).size > 10000) {
-    console.log('✓ Anton-Regular.ttf font is ready at:', ANTON_FONT_PATH);
-    return true;
-  }
-
-  const fontUrls = [
-    'https://raw.githubusercontent.com/google/fonts/main/ofl/anton/Anton-Regular.ttf',
-    'https://cdn.jsdelivr.net/fontsource/fonts/anton@latest/latin-400-normal.ttf'
-  ];
-  for (const fontUrl of fontUrls) {
-    try {
-      await downloadFile(fontUrl, ANTON_FONT_PATH);
-      const stats = fs.statSync(ANTON_FONT_PATH);
-      if (stats.size > 10000) {
-        console.log(`✓ Anton caption font downloaded (${stats.size} bytes)`);
-        return true;
-      }
-    } catch (error) {
-      console.warn(`⚠️ Anton font download failed from ${fontUrl}:`, (error as Error).message);
-    }
-  }
-  return false;
 }
 
 // Montserrat Black is a required render dependency; fail closed instead of silently substituting fonts.
@@ -2574,7 +2513,6 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
       'Rozpoczęto zadanie renderowania scen wideo FFmpeg'
     );
 
-    await ensureTikTokSansFont();
     await ensureMontserratBlackFont();
 
     // Resolution setup (defaults to 720p vertical 720x1280 for fast processing)
@@ -9626,7 +9564,6 @@ async function startServer() {
   } finally {
     if (historyHydrationTimer) clearTimeout(historyHydrationTimer);
   }
-  ensureTikTokSansFont().catch(console.error);
   ensureMontserratBlackFont().catch((error) => { console.error('[Captions] Required font initialization failed:', error); });
   void refreshOfferCatalogSnapshot();
   const offerCatalogRefreshTimer = setInterval(() => {
