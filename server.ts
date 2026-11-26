@@ -1207,7 +1207,6 @@ const FONTS_DIR = path.join(WORK_DIR, 'fonts');
 const TIKTOK_SANS_FONT_PATH = path.join(FONTS_DIR, 'TikTokSans-Bold.ttf');
 const ANTON_FONT_PATH = path.join(FONTS_DIR, 'Anton-Regular.ttf');
 const MONTSERRAT_BLACK_FONT_PATH = path.join(FONTS_DIR, 'Montserrat-Black.ttf');
-const MONTSERRAT_BLACK_FONT_PATH = path.join(FONTS_DIR, 'Montserrat-Black.ttf');
 
 async function dispatchWebhook(value: string, body: string): Promise<void> {
   await postWebhook(value, body);
@@ -2410,7 +2409,7 @@ function generateWordByWordAss(
     const scale = options.animation === 'classic' ? '' : '\\fscx130\\fscy130';
     dialogues += 'Dialogue: 0,' + startTime + ',' + endTime + ',Glow,,0,0,0,,{\\blur18' + scale + '}' + safeWord.toUpperCase() + '\n';
     const keywordOverride = index === keywordIndex ? '{\\c&H000000FF&}' : '';
-    dialogues += 'Dialogue: 1,' + startTime + ',' + endTime + ',Main,,0,0,0,,' + keywordOverride + '{' + scale + '}' + safeWord.toUpperCase() + '\n';
+    dialogues += 'Dialogue: 1,' + startTime + ',' + endTime + ',Main,,0,0,0,,' + keywordOverride + (scale ? '{' + scale + '}' : '') + safeWord.toUpperCase() + '\n';
   });
 
   return '[Script Info]\n' +
