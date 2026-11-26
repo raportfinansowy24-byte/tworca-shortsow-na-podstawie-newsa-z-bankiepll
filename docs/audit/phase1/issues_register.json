@@ -1,0 +1,609 @@
+{
+  "audit_metadata": {
+    "project": "RaportFinansowy24 Shorts Generator",
+    "repository": "https://github.com/raportfinansowy24-byte/tworca-shortsow-na-podstawie-newsa-z-bankiepll",
+    "commit": "fe27d4da6e692e2f9b7d8aa732973b071ab16f8a",
+    "commit_subject": "Pass exact scene durations to stock visual QA (#83)",
+    "mode": "READ-ONLY",
+    "date": "2026-11-23"
+  },
+  "issues": [
+    {
+      "id": "RF24-P1-001",
+      "priority": "P1",
+      "category": "history-retention",
+      "status": "confirmed",
+      "claim": "DELETE job and clear-history remove local state/files but not Supabase rows, so records can return after hydration.",
+      "evidence": [
+        {
+          "path": "server.ts",
+          "detail": "delete routes omit Supabase delete",
+          "line_ranges": [
+            7334,
+            7395
+          ]
+        },
+        {
+          "path": "server.ts",
+          "detail": "startup/request hydration from Supabase",
+          "line_ranges": [
+            1506,
+            1529,
+            7053,
+            7071
+          ]
+        },
+        {
+          "path": "src/server/supabaseJobStore.ts",
+          "detail": "remote load",
+          "line_ranges": [
+            308,
+            322
+          ]
+        }
+      ],
+      "files": [
+        "server.ts",
+        "src/server/supabaseJobStore.ts"
+      ],
+      "line_ranges": [
+        "server.ts:7334-7395",
+        "server.ts:1506-1529",
+        "server.ts:7053-7071",
+        "supabaseJobStore.ts:308-322"
+      ],
+      "root_cause": "two stores have no shared deletion/tombstone contract",
+      "hypothesis": null,
+      "impact": "history reappears; retention/privacy semantics are false",
+      "verification_needed": "integration test delete then hydrate/restart; inspect Supabase row",
+      "repair_dependencies": [
+        "define retention authority",
+        "design tombstone/delete transaction"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "RF24-P1-002",
+      "priority": "P1",
+      "category": "durability",
+      "status": "confirmed",
+      "claim": "jobs_history.json is rewritten synchronously on progress without atomic temp-file rename/fsync.",
+      "evidence": [
+        {
+          "path": "server.ts",
+          "detail": "writeFileSync and update progress",
+          "line_ranges": [
+            1437,
+            1446,
+            1533,
+            1600
+          ]
+        },
+        {
+          "path": "server.ts",
+          "detail": "FFmpeg progress callback",
+          "line_ranges": [
+            2426,
+            2464
+          ]
+        }
+      ],
+      "files": [
+        "server.ts"
+      ],
+      "line_ranges": [
+        "server.ts:1437-1446",
+        "server.ts:1533-1600",
+        "server.ts:2426-2464"
+      ],
+      "root_cause": "local persistence is coupled directly to hot progress path",
+      "hypothesis": "process interruption could corrupt JSON",
+      "impact": "event-loop blocking and loss of local history",
+      "verification_needed": "SIGKILL/power-loss simulation and high-frequency update benchmark",
+      "repair_dependencies": [
+        "define persistence semantics",
+        "add recovery format/test"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "RF24-P1-003",
+      "priority": "P1",
+      "category": "repository-hygiene",
+      "status": "confirmed",
+      "claim": "Generated exports, history, temp audio/video and test media are tracked in Git.",
+      "evidence": [
+        {
+          "path": "evidence/artifacts_history.txt",
+          "detail": "git ls-files output"
+        }
+      ],
+      "files": [
+        "exports/jobs_history.json",
+        "exports/*.mp4",
+        "exports/autopilot_scheduler.json",
+        "temp/*",
+        ".gitignore"
+      ],
+      "line_ranges": [
+        ".gitignore:1-12"
+      ],
+      "root_cause": "generated artifact paths are not comprehensively ignored and historical files were committed",
+      "hypothesis": null,
+      "impact": "production data/media and narrative fragments remain in source control",
+      "verification_needed": "secret/content scan and policy decision for history rewrite",
+      "repair_dependencies": [
+        "retention policy",
+        "repository cleanup approval"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "RF24-P1-004",
+      "priority": "P1",
+      "category": "retry-control",
+      "status": "confirmed",
+      "claim": "Storyboard QA repair limit is Infinity, allowing an unbounded production repair loop.",
+      "evidence": [
+        {
+          "path": "src/server/autopilotRetry.ts",
+          "detail": "constant and repair loop",
+          "line_ranges": [
+            1,
+            166,
+            220
+          ]
+        }
+      ],
+      "files": [
+        "src/server/autopilotRetry.ts"
+      ],
+      "line_ranges": [
+        "autopilotRetry.ts:1",
+        "autopilotRetry.ts:166-220"
+      ],
+      "root_cause": "unbounded constant used as production control",
+      "hypothesis": null,
+      "impact": "unbounded provider/compute cost and stuck autopilot",
+      "verification_needed": "bounded failure-budget integration test and production config review",
+      "repair_dependencies": [
+        "define retry budget",
+        "telemetry/alerting"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "RF24-P1-005",
+      "priority": "P1",
+      "category": "pipeline-contract",
+      "status": "confirmed",
+      "claim": "/combine-scenes overwrites caller scene durations with fixed count schedule and forces lockSceneDurations.",
+      "evidence": [
+        {
+          "path": "server.ts",
+          "detail": "normalization and forced schedule",
+          "line_ranges": [
+            6523,
+            6526
+          ]
+        }
+      ],
+      "files": [
+        "server.ts"
+      ],
+      "line_ranges": [
+        "server.ts:6502-6545",
+        "server.ts:6523-6526"
+      ],
+      "root_cause": "source of truth for duration is undefined",
+      "hypothesis": null,
+      "impact": "possible TTS/caption/QA/render schedule divergence for API callers",
+      "verification_needed": "contract test with custom durations through full render adapter",
+      "repair_dependencies": [
+        "choose canonical duration contract",
+        "then align TTS and sampling"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "RF24-P1-006",
+      "priority": "P1",
+      "category": "provider-model",
+      "status": "confirmed",
+      "claim": "QA repair errors and identifiers remain Pexels-named when Pixabay assets are used.",
+      "evidence": [
+        {
+          "path": "src/server/pixabayVideoProvider.ts",
+          "detail": "namespaced pexelsId",
+          "line_ranges": [
+            40,
+            45,
+            138,
+            155
+          ]
+        },
+        {
+          "path": "server.ts",
+          "detail": "Pexels-specific repair messages",
+          "line_ranges": [
+            3471,
+            3472,
+            3515,
+            3519
+          ]
+        }
+      ],
+      "files": [
+        "src/server/pixabayVideoProvider.ts",
+        "server.ts"
+      ],
+      "line_ranges": [
+        "pixabayVideoProvider.ts:40-45",
+        "pixabayVideoProvider.ts:138-155",
+        "server.ts:3471-3472",
+        "server.ts:3515-3519"
+      ],
+      "root_cause": "provider-neutral asset identity was not completed",
+      "hypothesis": null,
+      "impact": "misleading diagnostics and possible wrong repair operations",
+      "verification_needed": "provider matrix test for repair and telemetry",
+      "repair_dependencies": [
+        "canonical provider/id model"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "RF24-P2-001",
+      "priority": "P2",
+      "category": "streaming",
+      "status": "confirmed",
+      "claim": "SSE one-use tickets have no reconnect path; frontend closes EventSource on error.",
+      "evidence": [
+        {
+          "path": "src/utils/jobEventSource.ts",
+          "detail": "single ticket/EventSource",
+          "line_ranges": [
+            2,
+            12
+          ]
+        },
+        {
+          "path": "src/server/streamTickets.ts",
+          "detail": "consume deletes ticket",
+          "line_ranges": [
+            57,
+            63
+          ]
+        },
+        {
+          "path": "src/components/RenderingQueue.tsx",
+          "detail": "error closes stream and polling",
+          "line_ranges": [
+            62,
+            102
+          ]
+        }
+      ],
+      "files": [
+        "src/utils/jobEventSource.ts",
+        "src/server/streamTickets.ts",
+        "src/components/RenderingQueue.tsx"
+      ],
+      "line_ranges": [
+        "jobEventSource.ts:2-12",
+        "streamTickets.ts:57-63",
+        "RenderingQueue.tsx:62-102"
+      ],
+      "root_cause": "ticket lifetime models handshake, but client reconnect behavior is absent",
+      "hypothesis": null,
+      "impact": "live updates stop after transient disconnect; polling masks but does not restore SSE",
+      "verification_needed": "proxy/TCP disconnect integration test",
+      "repair_dependencies": [
+        "reconnect protocol and ticket issuance"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "RF24-P2-002",
+      "priority": "P2",
+      "category": "access-control",
+      "status": "confirmed_business_dependent",
+      "claim": "/exports is statically public with wildcard CORS while job output URLs point directly to it.",
+      "evidence": [
+        {
+          "path": "server.ts",
+          "detail": "static exports/CORS",
+          "line_ranges": [
+            1229,
+            1255
+          ]
+        },
+        {
+          "path": "server.ts",
+          "detail": "auth middleware applies API routes later",
+          "line_ranges": [
+            9360,
+            9368
+          ]
+        },
+        {
+          "path": "server.ts",
+          "detail": "outputUrl exposure",
+          "line_ranges": [
+            7093,
+            7101
+          ]
+        }
+      ],
+      "files": [
+        "server.ts"
+      ],
+      "line_ranges": [
+        "server.ts:1229-1255",
+        "server.ts:7093-7101",
+        "server.ts:9360-9368"
+      ],
+      "root_cause": "publication/preview serving is coupled to private job UI assets",
+      "hypothesis": "may be intentional for published shorts",
+      "impact": "anyone with filename can fetch media; privacy depends on filename secrecy",
+      "verification_needed": "confirm product privacy/publication requirements and test unauthenticated access",
+      "repair_dependencies": [
+        "access model decision"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "RF24-P2-003",
+      "priority": "P2",
+      "category": "operational-limits",
+      "status": "confirmed_cost_risk_hypothesis",
+      "claim": "Stock search accepts unbounded query arrays and health endpoints perform costly checks without evident rate limiting.",
+      "evidence": [
+        {
+          "path": "server.ts",
+          "detail": "stock queries loop",
+          "line_ranges": [
+            7215,
+            7277
+          ]
+        },
+        {
+          "path": "server.ts",
+          "detail": "health external diagnostics",
+          "line_ranges": [
+            3967,
+            4074
+          ]
+        },
+        {
+          "path": "server.ts",
+          "detail": "public health allowlist",
+          "line_ranges": [
+            9360,
+            9364
+          ]
+        }
+      ],
+      "files": [
+        "server.ts"
+      ],
+      "line_ranges": [
+        "server.ts:3967-4074",
+        "server.ts:7175-7277",
+        "server.ts:9360-9364"
+      ],
+      "root_cause": "costly diagnostic/provider calls lack explicit request budgets at route boundary",
+      "hypothesis": "could enable DoS/cost amplification depending on exposure",
+      "impact": "provider spend/latency/resource exhaustion",
+      "verification_needed": "large-query and concurrent-health load test in isolated environment",
+      "repair_dependencies": [
+        "define budgets",
+        "rate-limit policy"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "id": "RF24-P2-004",
+      "priority": "P2",
+      "category": "contract-consistency",
+      "status": "confirmed",
+      "claim": "Creative Director accepts 4-8 scenes but auto-pilot storyboard path requires exactly 8; expectedSceneCount is weakly validated.",
+      "evidence": [
+        {
+          "path": "server.ts",
+          "detail": "creative-director range",
+          "line_ranges": [
+            5886,
+            5891
+          ]
+        },
+        {
+          "path": "server.ts",
+          "detail": "auto-pilot exact count",
+          "line_ranges": [
+            6061,
+            6062,
+            6279,
+            6281
+          ]
+        },
+        {
+          "path": "server.ts",
+          "detail": "combine expectedSceneCount use",
+          "line_ranges": [
+            6502,
+            6545
+          ]
+        }
+      ],
+      "files": [
+        "server.ts",
+        "src/server/sceneContract.ts"
+      ],
+      "line_ranges": [
+        "server.ts:5886-5891",
+        "server.ts:6061-6062",
+        "server.ts:6279-6281",
+        "server.ts:6502-6545"
+      ],
+      "root_cause": "multiple endpoint contracts use different scene-count authorities",
+      "hypothesis": "missing expectedSceneCount may cause unclear downstream behavior",
+      "impact": "valid upstream plan can be rejected or mishandled",
+      "verification_needed": "endpoint contract tests for 4-8 scene inputs and missing field",
+      "repair_dependencies": [
+        "choose scene-count contract"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "RF24-P3-001",
+      "priority": "P3",
+      "category": "status-model",
+      "status": "confirmed",
+      "claim": "Manual cancel and timeout are stored as failed although cancelled is allowed by the contract.",
+      "evidence": [
+        {
+          "path": "server.ts",
+          "detail": "cancelAndTerminateJob maps to failed",
+          "line_ranges": [
+            1382,
+            1434
+          ]
+        },
+        {
+          "path": "src/server/supabaseJobStore.ts",
+          "detail": "cancelled status type",
+          "line_ranges": [
+            4
+          ]
+        },
+        {
+          "path": "server.ts",
+          "detail": "cancel/delete UI lifecycle",
+          "line_ranges": [
+            7279,
+            7395
+          ]
+        }
+      ],
+      "files": [
+        "server.ts",
+        "src/server/supabaseJobStore.ts",
+        "supabase/migrations/20261018070800_create_short_history.sql"
+      ],
+      "line_ranges": [
+        "server.ts:1382-1434",
+        "supabaseJobStore.ts:4",
+        "20261018070800_create_short_history.sql:7"
+      ],
+      "root_cause": "terminal state model collapses user cancellation and failure",
+      "hypothesis": null,
+      "impact": "misleading UI and retry/incident metrics",
+      "verification_needed": "lifecycle test for cancel, timeout and SIGINT",
+      "repair_dependencies": [
+        "define terminal status taxonomy"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "RF24-P3-002",
+      "priority": "P3",
+      "category": "observability",
+      "status": "confirmed",
+      "claim": "Supabase persistence failures are best-effort and rendering continues without a durable degraded-state signal.",
+      "evidence": [
+        {
+          "path": "src/server/supabaseJobStore.ts",
+          "detail": "log/fallback persistence",
+          "line_ranges": [
+            247,
+            255,
+            308,
+            335
+          ]
+        },
+        {
+          "path": "server.ts",
+          "detail": "history failure does not stop flow",
+          "line_ranges": [
+            1527,
+            1529,
+            4194,
+            4197
+          ]
+        }
+      ],
+      "files": [
+        "src/server/supabaseJobStore.ts",
+        "server.ts"
+      ],
+      "line_ranges": [
+        "supabaseJobStore.ts:247-255",
+        "supabaseJobStore.ts:308-335",
+        "server.ts:1527-1529",
+        "server.ts:4194-4197"
+      ],
+      "root_cause": "availability-first error handling lacks explicit persistence health state",
+      "hypothesis": null,
+      "impact": "operator may see incomplete history without clear warning",
+      "verification_needed": "disable Supabase in integration and inspect UI/telemetry",
+      "repair_dependencies": [
+        "outbox/retry or explicit degraded status"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "RF24-P2-005",
+      "priority": "P2",
+      "category": "fallback-contract",
+      "status": "confirmed_contract_ambiguity",
+      "claim": "requirePexels naming permits evidence/data_visual fallback in some news paths.",
+      "evidence": [
+        {
+          "path": "server.ts",
+          "detail": "verified evidence fallback and data_visual",
+          "line_ranges": [
+            6117,
+            6144
+          ]
+        },
+        {
+          "path": "server.ts",
+          "detail": "finance visual gate",
+          "line_ranges": [
+            6170,
+            6171
+          ]
+        }
+      ],
+      "files": [
+        "server.ts",
+        "src/server/sourceEvidenceVisual.ts"
+      ],
+      "line_ranges": [
+        "server.ts:6117-6144",
+        "server.ts:6170-6171"
+      ],
+      "root_cause": "fallback policy and flag name express different semantics",
+      "hypothesis": "may be intentional resilience policy",
+      "impact": "operator expectations and telemetry are misleading",
+      "verification_needed": "define desired policy and test per-scene outcome",
+      "repair_dependencies": [
+        "contract naming/policy"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "priority_summary": {
+    "P0": 0,
+    "P1": 6,
+    "P2": 5,
+    "P3": 2
+  },
+  "classification_legend": {
+    "confirmed": "directly evidenced by code/static artifacts",
+    "hypothesis": "requires runtime or integration reproduction",
+    "confirmed_business_dependent": "code fact confirmed, business severity unresolved",
+    "confirmed_cost_risk_hypothesis": "mechanism confirmed, exploitability unverified"
+  }
+}
