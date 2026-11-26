@@ -267,8 +267,8 @@ await assert.rejects(() => fitNarrationBeforeTts({
     revisionAttemptsForHardFail++;
     return longTexts;
   }
-}), /TTS nie został uruchomiony/);
-assert.ok(revisionAttemptsForHardFail <= 4);
+}), /scenariusz odrzucono/);
+assert.equal(revisionAttemptsForHardFail, 0, 'over-limit original is rejected before any editorial revision or TTS call');
 
 await assert.rejects(() => fitNarrationBeforeTts({
   sceneTexts: longTexts,
