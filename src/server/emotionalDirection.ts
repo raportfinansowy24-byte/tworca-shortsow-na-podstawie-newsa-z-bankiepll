@@ -1,3 +1,5 @@
+import { getElevenLabsNarrationLimitError } from './narrationTiming';
+
 export type EmotionalDirectionScene = {
   voiceover_text?: unknown;
   beat?: unknown;
@@ -41,4 +43,15 @@ export function buildEmotionallyDirectedNarration(
     })
     .filter(Boolean);
   return segments.join(' ').replace(/\s+/gu, ' ').trim();
+}
+
+/**
+ * Validate the exact single-request text produced for ElevenLabs.
+ * This includes model-specific audio tags and whitespace normalization.
+ */
+export function getEmotionallyDirectedNarrationLimitError(
+  scenes: EmotionalDirectionScene[],
+  modelId: string
+): string | null {
+  return getElevenLabsNarrationLimitError(buildEmotionallyDirectedNarration(scenes, modelId));
 }
