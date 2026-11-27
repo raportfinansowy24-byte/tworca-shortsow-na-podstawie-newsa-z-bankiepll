@@ -166,6 +166,28 @@ assert.deepEqual(fallbackEvents, [{
   key: 'GEMINI_API_KEY_2'
 }]);
 
+const boundedRouteCalls: string[] = [];
+const boundedRemainingAttempts: number[] = [];
+await assert.rejects(() => withGeminiModelFallback({
+  keys: sevenKeysOnly,
+  primaryModel: GEMINI_PRIMARY_MODEL,
+  fallbackModels: [GEMINI_DEFAULT_FALLBACK_MODEL],
+  maxKeysPerModel: 2,
+  maxTotalAttempts: 4,
+  operation: async (modelName, _apiKey, keyName, attemptsRemaining) => {
+    boundedRouteCalls.push(modelName + ':' + keyName);
+    boundedRemainingAttempts.push(attemptsRemaining);
+    throw new Error('HTTP 503 UNAVAILABLE');
+  }
+}), /Nie udało się uruchomić żadnego skonfigurowanego modelu Gemini/);
+assert.deepEqual(boundedRouteCalls, [
+  GEMINI_PRIMARY_MODEL + ':GEMINI_API_KEY_1',
+  GEMINI_PRIMARY_MODEL + ':GEMINI_API_KEY_2',
+  GEMINI_DEFAULT_FALLBACK_MODEL + ':GEMINI_API_KEY_1',
+  GEMINI_DEFAULT_FALLBACK_MODEL + ':GEMINI_API_KEY_2'
+], 'primary key probes must be bounded so fallback receives attempts');
+assert.deepEqual(boundedRemainingAttempts, [4, 3, 2, 1], 'each attempt receives the remaining route budget count');
+
 const validationCalls: string[] = [];
 await assert.rejects(() => withGeminiModelFallback({
   keys: fallbackKeys,
@@ -199,6 +221,9 @@ assert.equal(GEMINI_HTTP_TIMEOUT_MS, 20_000);
 assert.equal(GEMINI_REQUEST_BUDGET_MS, 45_000);
 assert.equal(GEMINI_NARRATION_REVISION_BUDGET_MS, 45_000);
 assert.deepEqual(getGeminiHttpOptions(45_000), { timeout: 20_000, retryOptions: { attempts: 1 } });
+assert.deepEqual(getGeminiHttpOptions(45_000, 4), { timeout: 11_250, retryOptions: { attempts: 1 } }, 'share the deadline across all reserved failover attempts');
+assert.deepEqual(getGeminiHttpOptions(45_000, 3), { timeout: 15_000, retryOptions: { attempts: 1 } });
+assert.equal(getGeminiHttpOptions(45_000, 5), null, 'do not start a route that cannot reserve Gemini minimum time for every remaining attempt');
 assert.equal(getGeminiHttpOptions(9_999), null, 'Gemini rejects request deadlines below 10 seconds');
 assert.deepEqual(getGeminiHttpOptions(10_000), { timeout: 10_000, retryOptions: { attempts: 1 } });
 assert.deepEqual(getGeminiHttpOptions(15_000), { timeout: 15_000, retryOptions: { attempts: 1 } });
