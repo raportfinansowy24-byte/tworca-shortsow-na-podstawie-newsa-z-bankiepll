@@ -266,6 +266,14 @@ async function analyzeRenderedVisualFit(
 const PORT = Number.parseInt(process.env.PORT || '3000', 10);
 const app = express();
 
+const mp4ValidationRateLimit = rateLimit({
+  windowMs: 60_000,
+  limit: 30,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Zbyt wiele żądań walidacji MP4. Spróbuj ponownie za chwilę.' }
+});
+
 const OFFER_CATALOG_REFRESH_INTERVAL_MS = Math.max(
   60_000,
   Number(process.env.OFFER_CATALOG_REFRESH_INTERVAL_MS) || 6 * 60 * 60 * 1000
@@ -1265,13 +1273,15 @@ function getPublicBaseUrl(req?: express.Request): string {
 }
 
 // Serve exported videos statically with CORS & range support
-app.use('/exports', async (req, res, next) => {
+app.use('/exports', (req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', '*');
   if (req.method === 'OPTIONS') return res.sendStatus(200);
+  next();
+}, mp4ValidationRateLimit, async (req, res, next) => {
   let requestedFilename: string;
-  try { requestedFilename = decodeURIComponent(req.path).replace(/^\/+/, ''); } catch { return res.sendStatus(404); }
+  try { requestedFilename = decodeURIComponent(req.path).replace(/^\\/+/, ''); } catch { return res.sendStatus(404); }
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/u.test(requestedFilename)) return res.sendStatus(404);
   let safeFilePath: string;
   try {
@@ -1308,7 +1318,7 @@ app.use('/exports', async (req, res, next) => {
 });
 
 // Dedicated Video Streaming Endpoint with HTTP 206 Partial Content support
-app.get('/api/exports/:filename', async (req, res) => {
+app.get('/api/exports/:filename', mp4ValidationRateLimit, async (req, res) => {
   const requestedFilename = req.params.filename;
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/u.test(requestedFilename)) return res.sendStatus(404);
   if (path.extname(requestedFilename).toLowerCase() !== '.mp4') return res.sendStatus(404);
@@ -6962,7 +6972,7 @@ router.post('/combine-scenes', async (req, res) => {
 });
 
 // Explicit Download Endpoint for generated MP4 files
-router.get('/jobs/:jobId/download', async (req, res) => {
+router.get('/jobs/:jobId/download', mp4ValidationRateLimit, async (req, res) => {
   const { jobId } = req.params;
   const job = jobsStore.get(jobId);
 
@@ -6985,7 +6995,7 @@ router.get('/jobs/:jobId/download', async (req, res) => {
   res.download(filePath, job.outputFilename);
 });
 
-router.get('/exports/:filename/download', async (req, res) => {
+router.get('/exports/:filename/download', mp4ValidationRateLimit, async (req, res) => {
   const { filename } = req.params;
   if (!isPublicExportFilename(filename) || path.extname(filename).toLowerCase() !== '.mp4') return res.sendStatus(404);
   const filePath = path.join(EXPORTS_DIR, filename);
@@ -7373,7 +7383,7 @@ function formatBytesHelper(bytes: number | string | undefined): string {
 
 // Endpoint: Get Last 5 Successful (Completed) Rendering Jobs with Download Link (/api/jobs/recent-completed)
 // Supabase is the durable source of truth; jobsStore is only the fast in-process cache.
-router.get('/jobs/recent-completed', async (req, res) => {
+router.get('/jobs/recent-completed', mp4ValidationRateLimit, async (req, res) => {
   const baseUrl = getPublicBaseUrl(req);
   const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 5, 1), 20);
 
