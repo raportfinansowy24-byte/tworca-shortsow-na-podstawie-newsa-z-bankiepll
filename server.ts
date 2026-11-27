@@ -1271,7 +1271,7 @@ app.use('/exports', async (req, res, next) => {
   res.setHeader('Access-Control-Allow-Headers', '*');
   if (req.method === 'OPTIONS') return res.sendStatus(200);
   let requestedFilename: string;
-  try { requestedFilename = decodeURIComponent(req.path).replace(/^\\/+/, ''); } catch { return res.sendStatus(404); }
+  try { requestedFilename = decodeURIComponent(req.path).replace(/^\/+/, ''); } catch { return res.sendStatus(404); }
   if (!isPublicExportFilename(requestedFilename)) return res.sendStatus(404);
   const requestedPath = path.join(EXPORTS_DIR, requestedFilename);
   if (!isSafeExportPath(EXPORTS_DIR, requestedPath)) return res.sendStatus(404);
@@ -1283,7 +1283,7 @@ app.use('/exports', async (req, res, next) => {
     }
   }
   next();
-} express.static(EXPORTS_DIR, {
+}, express.static(EXPORTS_DIR, {
   acceptRanges: true,
   setHeaders: (res, filePath) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
