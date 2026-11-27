@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   buildSourceEvidenceVisual,
+  fillMissingSourceEvidence,
   resolveStockWithEvidenceFallback,
   resolveStockWithVerifiedEvidenceFallback,
   selectSourceEvidenceForVisual
@@ -31,6 +32,20 @@ async function run() {
     'Ceny żywności'
   );
   assert.equal(selectedEvidence, sourceEvidence, 'the selector should choose the exact source sentence that overlaps scene wording');
+
+  const enrichedScenes = fillMissingSourceEvidence([
+    { voiceover_text: 'Ceny żywności wzrosły o 4,3 proc.', searchKeyword: 'grocery price labels' },
+    { voiceover_text: 'Firma A&B zapowiedziała dalszą analizę kosztów.' },
+    { voiceover_text: 'Sprawdź pełny kontekst.' }
+  ], sourceText);
+  assert.equal(enrichedScenes[0].sourceEvidence, sourceEvidence, 'missing scene evidence is selected from the exact matching source sentence');
+  assert.equal(enrichedScenes[1].sourceEvidence, 'Firma A&B zapowiedziała dalszą analizę kosztów.', 'each factual scene receives its own matching source excerpt');
+  assert.equal(enrichedScenes[2].sourceEvidence, undefined, 'the final CTA scene is excluded from factual evidence');
+  const invalidEvidenceScenes = fillMissingSourceEvidence([
+    { voiceover_text: 'Ceny żywności wzrosły o 4,3 proc.', sourceEvidence: 'Ceny żywności wzrosły o 9,9 proc.' },
+    { voiceover_text: 'Sprawdź pełny kontekst.' }
+  ], sourceText);
+  assert.equal(invalidEvidenceScenes[0].sourceEvidence, sourceEvidence, 'invalid model evidence is replaced with a real source excerpt');
 
   const mixedScenes = [
     ...Array.from({ length: 7 }, (_, index) => ({ source: 'pexels', pexelsId: index + 1 })),
