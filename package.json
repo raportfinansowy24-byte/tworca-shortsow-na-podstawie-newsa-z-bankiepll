@@ -66,7 +66,8 @@
     "test:mp4-validation": "tsx tests/mp4Validation.test.ts",
     "test:mp4-validation:integration": "tsx tests/mp4Validation.integration.test.ts",
     "test:offer-catalog-fetch": "tsx tests/offerCatalogFetch.test.ts",
-    "test:karaoke-captions": "tsx tests/karaokeCaptions.test.ts"
+    "test:karaoke-captions": "tsx tests/karaokeCaptions.test.ts",
+    "test:proxy-trust": "tsx tests/expressProxyTrust.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.32.0",
