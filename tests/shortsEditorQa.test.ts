@@ -6,7 +6,7 @@ import { selectFinanceCta } from '../src/server/financeCtaStrategy';
 
 assert.equal(shouldBlockQa('blocked'), true);
 assert.equal(shouldBlockQa('review', true), true, 'status review nie może przepuścić automatycznego renderu newsa');
-assert.equal(shouldBlockQa('review', false), false);
+assert.equal(shouldBlockQa('review', false), true, 'status review blokuje również w trybie non-strict');
 assert.equal(shouldBlockQa('pass', true), false);
 
 const scenes = Array.from({ length: 8 }, (_, index) => {
@@ -338,6 +338,8 @@ assert.equal(unavailableSemanticReport.status, 'review');
 assert.equal(unavailableSemanticReport.analyzedScenes, 0);
 assert.equal(unavailableSemanticReport.model, 'unavailable');
 assert.ok(unavailableSemanticReport.findings.some((finding) => finding.code === 'visual_analysis_unavailable'));
+assert.equal(shouldBlockQa(incompleteSemanticReport.status, false), true, 'brak oceny choć jednej sceny nie może przejść do publikacji');
+assert.equal(shouldBlockQa(unavailableSemanticReport.status, false), true, 'niedostępny provider QA nie może przejść do publikacji');
 
 // Regression tests for strict QA gates and source evidence
 const sourceArticle = 'Zysk spółki Orlen wzrósł o 15% w pierwszym kwartale.';
