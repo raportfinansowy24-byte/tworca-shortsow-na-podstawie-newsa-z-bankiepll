@@ -10,7 +10,7 @@ Aktualizacje postępu są best-effort i mogą być coalescowane. Operacje, któr
 
 Lokalne usunięcie wpisu z `jobsStore` i `jobs_history.json` samo w sobie nie usuwało rekordu z autorytatywnej historii Supabase. Powodowało to ponowne pojawianie się zadań podczas synchronizacji.
 
-Migracja `20261127193000_persistent_short_job_deletions.sql` dodaje trwały rejestr tombstone w prywatnym schemacie oraz transakcyjne RPC:
+Migracja `20261127191508_persistent_short_job_deletions.sql` dodaje trwały rejestr tombstone w prywatnym schemacie oraz transakcyjne RPC:
 - `delete_short_jobs` zapisuje tombstone, usuwa metadane eksportów z `short_job_exports` i rekordy z `short_jobs`;
 - trigger blokuje późniejsze INSERT/UPDATE dla oznaczonego identyfikatora;
 - `get_deleted_short_job_ids` pozwala odfiltrować stare wpisy z lokalnego cache oraz MP4 odkryte podczas odzyskiwania plików po restarcie.
