@@ -130,6 +130,27 @@ export function selectSourceEvidenceForVisual(
   return null;
 }
 
+/**
+ * Fill missing/invalid scene evidence from exact sentences in the supplied source.
+ * The final CTA scene is intentionally excluded from factual evidence checks.
+ */
+export function fillMissingSourceEvidence<T extends Record<string, unknown>>(
+  scenes: T[],
+  sourceText: string
+): Array<T & { sourceEvidence?: string }> {
+  return scenes.map((scene, index) => {
+    if (index === scenes.length - 1) return scene;
+    const currentEvidence = String(scene.sourceEvidence || '').trim();
+    if (currentEvidence && buildSourceEvidenceVisual(sourceText, currentEvidence)) return scene;
+    const narration = String(
+      scene.voiceover_text || scene.voiceoverText || scene.voiceover || scene.narration || scene.subtitles || scene.caption || ''
+    ).trim();
+    const visualHint = String(scene.searchKeyword || scene.visualQuery || scene.visual_query || '').trim();
+    const selectedEvidence = selectSourceEvidenceForVisual(sourceText, [narration, visualHint]);
+    return selectedEvidence ? { ...scene, sourceEvidence: selectedEvidence } : scene;
+  });
+}
+
 /** Use a verified source quote only after stock resolution fails; otherwise preserve stock-first behavior. */
 export async function resolveStockWithEvidenceFallback<TStock>(
   resolveStock: () => Promise<TStock>,

@@ -37,14 +37,16 @@ const repairedWithDefaultLimit = await repairUntilPass<string, QaReport>({
   initialReport,
   revise: async (_report, attempt) => {
     defaultRepairCalls += 1;
-    return 'still-invalid-' + attempt;
+    return attempt < 3 ? 'still-invalid-' + attempt : 'eventually-valid';
   },
-  evaluate: () => initialReport,
+  evaluate: (value) => value === 'eventually-valid'
+    ? { status: 'pass', message: 'PASS po kolejnej poprawce.' }
+    : initialReport,
   sleep: async () => {}
 });
-assert.equal(repairedWithDefaultLimit.passed, false, 'domyślna pętla QA kończy się po osiągnięciu limitu');
-assert.equal(repairedWithDefaultLimit.attempts, 2, 'domyślny limit wynosi dwie poprawki na render');
-assert.equal(defaultRepairCalls, 2, 'dostawca AI jest wywoływany maksymalnie dwa razy w jednym renderze');
+assert.equal(repairedWithDefaultLimit.passed, true, 'domyślna pętla QA kontynuuje poprawki aż do PASS');
+assert.equal(repairedWithDefaultLimit.attempts, 3, 'domyślna pętla nie kończy się po dwóch poprawkach');
+assert.equal(defaultRepairCalls, 3, 'model jest ponownie wywoływany aż do uzyskania PASS');
 
 let previousErrorObserved = false;
 const repairedAfterTransientError = await repairUntilPass<string, QaReport>({

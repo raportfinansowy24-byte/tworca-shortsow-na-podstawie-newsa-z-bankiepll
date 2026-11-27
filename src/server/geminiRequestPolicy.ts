@@ -9,15 +9,17 @@ export function getGeminiRemainingBudgetMs(deadlineAt: number, now = Date.now())
   return Math.max(0, Math.floor(deadlineAt - now));
 }
 
-export function getGeminiHttpOptions(remainingBudgetMs: number): {
+export function getGeminiHttpOptions(remainingBudgetMs: number, attemptsRemaining = 1): {
   timeout: number;
   retryOptions: { attempts: 1 };
 } | null {
   // Do not send a request that the Gemini API will reject for being below its
   // 10-second minimum deadline. This is a local budget exhaustion, not an API error.
-  if (!Number.isFinite(remainingBudgetMs) || remainingBudgetMs < GEMINI_MIN_HTTP_TIMEOUT_MS) return null;
+  if (!Number.isFinite(remainingBudgetMs) || !Number.isFinite(attemptsRemaining) || attemptsRemaining < 1) return null;
+  const fairShareTimeout = Math.floor(remainingBudgetMs / Math.floor(attemptsRemaining));
+  if (fairShareTimeout < GEMINI_MIN_HTTP_TIMEOUT_MS) return null;
   return {
-    timeout: Math.min(GEMINI_HTTP_TIMEOUT_MS, Math.floor(remainingBudgetMs)),
+    timeout: Math.min(GEMINI_HTTP_TIMEOUT_MS, fairShareTimeout),
     retryOptions: { attempts: 1 }
   };
 }

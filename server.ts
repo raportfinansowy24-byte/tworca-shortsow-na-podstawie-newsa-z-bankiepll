@@ -83,7 +83,7 @@ import { buildStockSceneSearchQueries, selectDiverseStockCandidates, selectStock
 import { selectRelevantArticleVisualEntities, toRequiredVisualEntityChecks } from './src/server/articleVisualEntities';
 import { buildStockClipSamplingFilter, isTrustedStockVideoDownloadUrl, stockClipSamplingFrameCountIsSufficient } from './src/server/stockClipSampling';
 import { cleanStockSearchQuery, scoreStockCandidateSoftAvoidance } from './src/server/stockCandidatePolicy';
-import { buildSourceEvidenceVisual, resolveStockWithEvidenceFallback, resolveStockWithVerifiedEvidenceFallback } from './src/server/sourceEvidenceVisual';
+import { buildSourceEvidenceVisual, fillMissingSourceEvidence, resolveStockWithEvidenceFallback, resolveStockWithVerifiedEvidenceFallback } from './src/server/sourceEvidenceVisual';
 import { findLegacyFailedAutopilotArticleUrl, getNextPendingAutopilotRetry, MAX_STORYBOARD_QA_REPAIR_ATTEMPTS, recordAutopilotFailure, reactivateExhaustedAutopilotRetries, repairUntilPass, resolveAutopilotRetry, isCompatibleNarrationRetryCache, type AutopilotRetryEntry, type RetryableAutopilotArticle, type NarrationRetryCacheMetadata } from './src/server/autopilotRetry';
 import { GEMINI_PRIMARY_MODEL, getGeminiApiKeys, getRotatedGeminiApiKeys, getGeminiFallbackModels, withGeminiModelFallback } from './src/server/modelRouting';
 import { fetchOfferCatalogCategory, resolveOfferCatalogSourceBase } from './src/server/offerCatalogFetch';
@@ -98,15 +98,19 @@ async function generateGeminiContentWithFallback(params: { contents: any; config
   const deadlineAt = params.deadlineAt ?? (startedAt + GEMINI_REQUEST_BUDGET_MS);
   const keys = getRotatedGeminiApiKeys(getGeminiApiKeys());
   const fallbackModels = getGeminiFallbackModels();
-  console.info('[Gemini HTTP] request_started budgetMs=' + getGeminiRemainingBudgetMs(deadlineAt, startedAt) + ' keys=' + keys.length + ' models=' + (1 + fallbackModels.length) + '.');
+  const maxKeysPerModel = 2;
+  const maxTotalAttempts = Math.min(4, (1 + fallbackModels.length) * Math.min(maxKeysPerModel, keys.length));
+  console.info('[Gemini HTTP] request_started budgetMs=' + getGeminiRemainingBudgetMs(deadlineAt, startedAt) + ' keys=' + keys.length + ' keysPerModel=' + maxKeysPerModel + ' maxAttempts=' + maxTotalAttempts + ' models=' + (1 + fallbackModels.length) + '.');
   try {
     const { result, modelName, keyName } = await withGeminiModelFallback({
       keys,
       primaryModel: GEMINI_PRIMARY_MODEL,
       fallbackModels,
-      operation: (model, apiKey, attemptKeyName) => {
+      maxKeysPerModel,
+      maxTotalAttempts,
+      operation: (model, apiKey, attemptKeyName, attemptsRemaining) => {
         const remainingBudgetMs = getGeminiRemainingBudgetMs(deadlineAt);
-        const httpOptions = getGeminiHttpOptions(remainingBudgetMs);
+        const httpOptions = getGeminiHttpOptions(remainingBudgetMs, attemptsRemaining);
         if (!httpOptions) {
           throw new Error('Gemini request budget exhausted before the next provider attempt.');
         }
@@ -8791,6 +8795,12 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
       sourceText: [candidate.title, candidate.description, candidate.summary].filter(Boolean).join('\n'),
       maxNarrationWordsExcludingLast: 32,
       maxWordsPerScene: (index: number) => index < 4 ? 5 : index < 7 ? 6 : 9
+    };
+    // Fill absent or invalid model evidence from exact source sentences before QA.
+    // Source-fact QA still blocks invented quotes, unsupported numbers and directional claims.
+    scriptData = {
+      ...scriptData,
+      scenes: fillMissingSourceEvidence(scriptData.scenes, qaOptions.sourceText)
     };
     const initialEditorQa = evaluateShortStoryboard(scriptData.scenes, qaOptions);
     const qaRepairResult = await repairUntilPass({

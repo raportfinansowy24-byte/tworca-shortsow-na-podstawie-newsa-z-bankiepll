@@ -78,7 +78,7 @@ export function shouldRotateGeminiKey(error: unknown): boolean {
 
 export async function withGeminiKeyRotation<T>(params: {
   keys: GeminiApiKey[];
-  operation: (apiKey: string, keyName: GeminiApiKey['name']) => Promise<T>;
+  operation: (apiKey: string, keyName: GeminiApiKey['name'], remainingKeys: number) => Promise<T>;
   onKeyFailure?: (keyName: GeminiApiKey['name'], error: Error) => void;
 }): Promise<{ result: T; keyName: GeminiApiKey['name'] }> {
   if (params.keys.length === 0) {
@@ -87,9 +87,10 @@ export async function withGeminiKeyRotation<T>(params: {
 
   const failures: string[] = [];
   let lastError: Error | null = null;
-  for (const key of params.keys) {
+  for (let index = 0; index < params.keys.length; index++) {
+    const key = params.keys[index];
     try {
-      const result = await params.operation(key.apiKey, key.name);
+      const result = await params.operation(key.apiKey, key.name, params.keys.length - index);
       return { result, keyName: key.name };
     } catch (cause) {
       lastError = cause instanceof Error ? cause : new Error(String(cause));
@@ -120,7 +121,11 @@ export async function withGeminiModelFallback<T>(params: {
   keys: GeminiApiKey[];
   primaryModel?: string;
   fallbackModels?: string[];
-  operation: (modelName: string, apiKey: string, keyName: GeminiApiKey['name']) => Promise<T>;
+  operation: (modelName: string, apiKey: string, keyName: GeminiApiKey['name'], attemptsRemaining: number) => Promise<T>;
+  /** Limit key probes per model so fallback models receive time within the same request deadline. */
+  maxKeysPerModel?: number;
+  /** Hard cap across primary and fallback models for predictable request budgets. */
+  maxTotalAttempts?: number;
   onKeyFailure?: (modelName: string, keyName: GeminiApiKey['name'], error: Error) => void;
   onModelFallback?: (primaryModel: string, fallbackModel: string, keyName: GeminiApiKey['name']) => void;
 }): Promise<GeminiRoutedResult<T>> {
@@ -133,12 +138,23 @@ export async function withGeminiModelFallback<T>(params: {
 
   const failures: string[] = [];
   let lastError: Error | null = null;
-  for (let index = 0; index < models.length; index++) {
+  const maxKeysPerModel = Math.min(params.keys.length, Math.max(1, Math.floor(params.maxKeysPerModel ?? params.keys.length)));
+  const maxTotalAttempts = Number.isFinite(params.maxTotalAttempts)
+    ? Math.max(1, Math.floor(params.maxTotalAttempts!))
+    : models.length * maxKeysPerModel;
+  let attemptsUsed = 0;
+  for (let index = 0; index < models.length && attemptsUsed < maxTotalAttempts; index++) {
     const modelName = models[index];
+    const modelKeys = params.keys.slice(0, Math.min(maxKeysPerModel, maxTotalAttempts - attemptsUsed));
+    const futureAttempts = Math.min((models.length - index - 1) * maxKeysPerModel, maxTotalAttempts - attemptsUsed - modelKeys.length);
+    let attemptsInModel = 0;
     try {
       const routed = await withGeminiKeyRotation({
-        keys: params.keys,
-        operation: (apiKey, keyName) => params.operation(modelName, apiKey, keyName),
+        keys: modelKeys,
+        operation: (apiKey, keyName, remainingKeys) => {
+          attemptsInModel += 1;
+          return params.operation(modelName, apiKey, keyName, futureAttempts + remainingKeys);
+        },
         onKeyFailure: (keyName, error) => params.onKeyFailure?.(modelName, keyName, error)
       });
       if (modelName !== primaryModel) params.onModelFallback?.(primaryModel, modelName, routed.keyName);
@@ -146,7 +162,8 @@ export async function withGeminiModelFallback<T>(params: {
     } catch (cause) {
       lastError = cause instanceof Error ? cause : new Error(String(cause));
       failures.push(modelName + ': ' + lastError.message.slice(0, 500));
-      if (index === models.length - 1 || !shouldRotateGeminiKey(lastError)) break;
+      attemptsUsed += attemptsInModel;
+      if (index === models.length - 1 || attemptsUsed >= maxTotalAttempts || !shouldRotateGeminiKey(lastError)) break;
     }
   }
 
