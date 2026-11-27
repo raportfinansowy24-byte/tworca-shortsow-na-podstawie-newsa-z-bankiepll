@@ -8,14 +8,13 @@ Aktualizacje postępu są best-effort i mogą być coalescowane. Operacje, któr
 
 ## Jawna granica usuwania
 
-Lokalne usunięcie wpisu z `jobsStore` i `jobs_history.json` **nie jest globalnym, bezpowrotnym usunięciem historii**. Supabase pozostaje autorytatywnym źródłem historii zadań. Bez tombstone lub równoważnego mechanizmu synchronizacji późniejsza hydracja może ponownie odtworzyć rekord usunięty wyłącznie lokalnie.
+Lokalne usunięcie wpisu z `jobsStore` i `jobs_history.json` samo w sobie nie usuwało rekordu z autorytatywnej historii Supabase. Powodowało to ponowne pojawianie się zadań podczas synchronizacji.
 
-PR #86 nie implementuje tombstone, outboxa usunięć ani globalnego purge'u plików eksportowych. Te elementy należą do osobnego etapu `RF24-P1-001`, który musi rozdzielić:
+Migracja `20261127193000_persistent_short_job_deletions.sql` dodaje trwały rejestr tombstone w prywatnym schemacie oraz transakcyjne RPC:
+- `delete_short_jobs` zapisuje tombstone, usuwa metadane eksportów z `short_job_exports` i rekordy z `short_jobs`;
+- trigger blokuje późniejsze INSERT/UPDATE dla oznaczonego identyfikatora;
+- `get_deleted_short_job_ids` pozwala odfiltrować stare wpisy z lokalnego cache podczas startowej synchronizacji.
 
-- usunięcie wpisu historii;
-- synchronizację usunięcia z Supabase;
-- purge plików należących do joba;
-- ochronę eksportów opublikowanych lub współdzielonych;
-- ownership check i jawny zakres usuwania.
+Endpoint pojedynczego usuwania i przycisk czyszczenia historii najpierw wykonują trwałe usunięcie w Supabase. Dopiero po jego potwierdzeniu modyfikują `jobsStore` oraz `jobs_history.json`. Gdy zapis w bazie zawiedzie, API zwraca błąd i pozostawia lokalną listę bez zmian.
 
-Nie należy opisywać lokalnego endpointu delete jako globalnego lub bezpowrotnego usunięcia dopóki etap `RF24-P1-001` nie zostanie ukończony i zweryfikowany.
+Usunięcie z historii usuwa rekordy metadanych eksportów, ale **nie kasuje plików przechowywanych w Google Drive**. Pojedyncze usunięcie nadal usuwa lokalny MP4, miniaturę i katalog tymczasowy przypisany do joba. Operacja czyszczenia historii nie usuwa lokalnych plików MP4.
