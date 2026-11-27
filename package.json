@@ -20,6 +20,7 @@
     "test:deployment-info": "tsx tests/deploymentInfo.test.ts",
     "test:visual-qa-providers": "tsx tests/visualQaProviders.test.ts",
     "test:supabase-history": "tsx tests/supabaseJobStore.test.ts",
+    "test:supabase-job-deletion": "tsx tests/supabaseJobDeletion.test.ts",
     "test:atomic-json": "tsx tests/atomicJsonFile.test.ts",
     "test:best-effort-flush": "tsx tests/bestEffortFlush.test.ts",
     "test:supabase-url": "tsx tests/supabaseUrl.test.ts",
