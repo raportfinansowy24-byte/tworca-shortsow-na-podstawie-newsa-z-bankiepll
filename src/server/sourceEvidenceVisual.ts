@@ -1,3 +1,4 @@
+import { evaluateSourceEvidence } from './sourceFactQa';
 import { normalizeFinanceText } from '../utils/financeSceneMatching';
 import { isSafeFinanceDataVisualSvg } from './sceneContract';
 
@@ -147,7 +148,14 @@ export function fillMissingSourceEvidence<T extends Record<string, unknown>>(
     ).trim();
     const visualHint = String(scene.searchKeyword || scene.visualQuery || scene.visual_query || '').trim();
     const selectedEvidence = selectSourceEvidenceForVisual(sourceText, [narration, visualHint]);
-    return selectedEvidence ? { ...scene, sourceEvidence: selectedEvidence } : scene;
+    if (!selectedEvidence) return scene;
+    const supportReport = evaluateSourceEvidence(
+      [{ ...scene, sourceEvidence: selectedEvidence }],
+      { sourceText, ctaSceneIndex: -1, requireEvidence: true }
+    );
+    return supportReport.status === 'pass'
+      ? { ...scene, sourceEvidence: selectedEvidence }
+      : scene;
   });
 }
 

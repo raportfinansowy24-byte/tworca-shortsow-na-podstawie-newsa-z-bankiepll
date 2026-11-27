@@ -105,6 +105,126 @@ const commissionScenes = [
 const commissionResult = evaluateSourceEvidence(commissionScenes, { sourceText: commissionSource });
 assert.equal(commissionResult.status, 'pass', 'Czy Komisja must not be parsed as a two-word proper name');
 
+// Regression: a shared company name does not make an unrelated source sentence evidence.
+const orlenReportedResults = 'Orlen opublikował wyniki finansowe za pierwszy kwartał.';
+const unsupportedAcquisitionClaim = [{
+  voiceover_text: 'Orlen przejął bank i rozszerza działalność finansową.',
+  subtitles: 'Orlen przejął bank i rozszerza działalność finansową.',
+  sourceEvidence: orlenReportedResults
+}];
+const unsupportedActionReport = evaluateSourceEvidence(unsupportedAcquisitionClaim, { sourceText: orlenReportedResults });
+assert.equal(unsupportedActionReport.status, 'blocked');
+assert.ok(unsupportedActionReport.findings.some((finding) => finding.code === 'unsupported_claim_action'));
+
+const supportedAcquisitionSource = 'Orlen przejął udziały w banku i sfinalizował transakcję.';
+const supportedAcquisition = [{
+  voiceover_text: 'Orlen przejął udziały w banku.',
+  subtitles: 'Orlen przejął udziały w banku.',
+  sourceEvidence: supportedAcquisitionSource
+}];
+assert.equal(evaluateSourceEvidence(supportedAcquisition, { sourceText: supportedAcquisitionSource }).status, 'pass');
+
+// An acquisition plan is not evidence of a completed acquisition.
+const acquisitionIntent = 'Orlen rozważa przejęcie banku.';
+const completedAcquisitionClaim = [{
+  voiceover_text: 'Orlen przejął bank.',
+  subtitles: 'Orlen przejął bank.',
+  sourceEvidence: acquisitionIntent
+}];
+const intentCannotProveCompletion = evaluateSourceEvidence(completedAcquisitionClaim, { sourceText: acquisitionIntent });
+assert.equal(intentCannotProveCompletion.status, 'blocked');
+assert.ok(intentCannotProveCompletion.findings.some((finding) => finding.code === 'unsupported_claim_action'));
+
+const completedAcquisitionEvidence = 'Orlen przejął bank.';
+const intentClaim = [{
+  voiceover_text: 'Orlen rozważa przejęcie banku.',
+  subtitles: 'Orlen rozważa przejęcie banku.',
+  sourceEvidence: completedAcquisitionEvidence
+}];
+const completionCannotProveIntent = evaluateSourceEvidence(intentClaim, { sourceText: completedAcquisitionEvidence });
+assert.equal(completionCannotProveIntent.status, 'blocked');
+
+// Uppercase Polish Ł and lowercase ł must normalize identically.
+const uppercaseLSource = 'Łódź opublikowała raport finansowy.';
+const lowercaseLEvidence = [{
+  voiceover_text: 'Łódź opublikowała raport finansowy.',
+  subtitles: 'Łódź opublikowała raport finansowy.',
+  sourceEvidence: 'łódź opublikowała raport finansowy.'
+}];
+assert.equal(evaluateSourceEvidence(lowercaseLEvidence, { sourceText: uppercaseLSource }).status, 'pass');
+
+// Unknown factual predicates attached to a known company fail closed.
+const unknownActionSource = 'Orlen opublikował wyniki finansowe.';
+const unknownActionClaim = [{
+  voiceover_text: 'Orlen wycofał inwestycję.',
+  subtitles: 'Orlen wycofał inwestycję.',
+  sourceEvidence: unknownActionSource
+}];
+const unknownActionReport = evaluateSourceEvidence(unknownActionClaim, { sourceText: unknownActionSource });
+assert.equal(unknownActionReport.status, 'blocked');
+assert.ok(unknownActionReport.findings.some((finding) => finding.code === 'unsupported_claim_action'));
+
+
+// Different verbs in one broad business category must not be treated as equivalent.
+const rejectedEvidence = 'Orlen odrzucił wniosek o finansowanie.';
+const approvedClaim = [{
+  voiceover_text: 'Orlen zatwierdził wniosek o finansowanie.',
+  subtitles: 'Orlen zatwierdził wniosek o finansowanie.',
+  sourceEvidence: rejectedEvidence
+}];
+const approvalMismatch = evaluateSourceEvidence(approvedClaim, { sourceText: rejectedEvidence });
+assert.equal(approvalMismatch.status, 'blocked');
+assert.ok(approvalMismatch.findings.some((finding) => finding.code === 'unsupported_claim_action'));
+
+const hiredEvidence = 'Dino zatrudniło 100 nowych pracowników.';
+const firedClaim = [{
+  voiceover_text: 'Dino zwolniło 100 nowych pracowników.',
+  subtitles: 'Dino zwolniło 100 nowych pracowników.',
+  sourceEvidence: hiredEvidence
+}];
+const employmentMismatch = evaluateSourceEvidence(firedClaim, { sourceText: hiredEvidence });
+assert.equal(employmentMismatch.status, 'blocked');
+assert.ok(employmentMismatch.findings.some((finding) => finding.code === 'unsupported_claim_action'));
+
+// An intention to buy is not evidence that a purchase was completed.
+const plannedPurchase = 'Orlen rozważa zakup banku.';
+const completedPurchaseClaim = [{
+  voiceover_text: 'Orlen kupił bank.',
+  subtitles: 'Orlen kupił bank.',
+  sourceEvidence: plannedPurchase
+}];
+const plannedPurchaseCannotProveCompletion = evaluateSourceEvidence(completedPurchaseClaim, { sourceText: plannedPurchase });
+assert.equal(plannedPurchaseCannotProveCompletion.status, 'blocked');
+assert.ok(plannedPurchaseCannotProveCompletion.findings.some((finding) => finding.code === 'unsupported_claim_action'));
+
+// An unknown present-tense predicate after a known company must also fail closed.
+const unknownPresentTenseClaim = [{
+  voiceover_text: 'Orlen planuje wycofać inwestycję.',
+  subtitles: 'Orlen planuje wycofać inwestycję.',
+  sourceEvidence: unknownActionSource
+}];
+const unknownPresentTenseReport = evaluateSourceEvidence(unknownPresentTenseClaim, { sourceText: unknownActionSource });
+assert.equal(unknownPresentTenseReport.status, 'blocked');
+assert.ok(unknownPresentTenseReport.findings.some((finding) => finding.code === 'unsupported_claim_action'));
+
+const unsupportedIntentClaim = [{
+  voiceover_text: 'Orlen rozważa sprzedaż aktywów.',
+  subtitles: 'Orlen rozważa sprzedaż aktywów.',
+  sourceEvidence: unknownActionSource
+}];
+const unsupportedIntentReport = evaluateSourceEvidence(unsupportedIntentClaim, { sourceText: unknownActionSource });
+assert.equal(unsupportedIntentReport.status, 'blocked');
+assert.ok(unsupportedIntentReport.findings.some((finding) => finding.code === 'unsupported_claim_action'));
+
+const unsupportedPossessionClaim = [{
+  voiceover_text: 'Orlen ma nowy produkt finansowy.',
+  subtitles: 'Orlen ma nowy produkt finansowy.',
+  sourceEvidence: unknownActionSource
+}];
+const unsupportedPossessionReport = evaluateSourceEvidence(unsupportedPossessionClaim, { sourceText: unknownActionSource });
+assert.equal(unsupportedPossessionReport.status, 'blocked');
+assert.ok(unsupportedPossessionReport.findings.some((finding) => finding.code === 'unsupported_claim_action'));
+
 console.log('Source fact QA tests passed');
 
 

@@ -1,4 +1,5 @@
-export const MAX_STORYBOARD_QA_REPAIR_ATTEMPTS = Number.POSITIVE_INFINITY;
+export const MAX_STORYBOARD_QA_REPAIR_ATTEMPTS = 3;
+export const MAX_AUTOPILOT_ARTICLE_FAILURES = 3;
 export const MAX_AUTOPILOT_RETRY_QUEUE_SIZE = 50;
 
 export interface RetryableAutopilotArticle {
@@ -40,7 +41,7 @@ export function recordAutopilotFailure(
   const next: AutopilotRetryEntry = {
     article: { ...article },
     failedAttempts,
-    status: 'pending',
+    status: failedAttempts >= MAX_AUTOPILOT_ARTICLE_FAILURES ? 'exhausted' : 'pending',
     lastError: String(error || 'Nieznany błąd').slice(0, 3000),
     firstFailedAt: previous?.firstFailedAt || now,
     lastFailedAt: now,
@@ -87,9 +88,8 @@ export function findLegacyFailedAutopilotArticleUrl(
 export function reactivateExhaustedAutopilotRetries(
   entries: AutopilotRetryEntry[]
 ): AutopilotRetryEntry[] {
-  return entries.map((entry) => entry.status === 'exhausted'
-    ? { ...entry, status: 'pending' as const }
-    : entry);
+  // Exhausted articles stay terminal across process restarts.
+  return entries;
 }
 
 export function getNextPendingAutopilotRetry(
@@ -159,9 +159,9 @@ export interface QaRepairLoopResult<T, R extends { status: string }> {
 }
 
 /**
- * Keep repairing the same storyboard until deterministic QA passes.
- * Provider failures preserve the current candidate and use capped exponential backoff;
- * they do not consume a finite repair allowance.
+ * Bound expensive storyboard revisions within one render job.
+ * Failed articles remain retryable in the persistent autopilot queue across separate runs;
+ * provider failures preserve the current candidate and use capped exponential backoff.
  */
 export async function repairUntilPass<T, R extends { status: string }>(options: {
   initialValue: T;

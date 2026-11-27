@@ -36,6 +36,7 @@ function normalizeEvidence(value: string): string {
   return value
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[Łł]/g, 'l')
     .toLocaleLowerCase('pl-PL')
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim()
@@ -104,6 +105,100 @@ function numericTokens(value: string): string[] {
     }
   }
   return [...tokens];
+}
+
+const SOURCE_ACTION_FAMILIES: Record<string, string[]> = {
+  reported_results: ['odnotow', 'raportow', 'poinformow', 'opublikow', 'przedstawil', 'podal', 'wykazal', 'zaraportow', 'reported', 'announced', 'published'],
+  acquisition_completed: ['przejal', 'przejela', 'przejeli', 'kupil', 'kupila', 'kupili', 'nabyl', 'nabyla', 'nabyli', 'sfinalizowal', 'sfinalizowala', 'sfinalizowali', 'acquired', 'bought', 'purchased'],
+  financing_debt_issued: ['wyemit', 'emisj', 'issued', 'issuance'],
+  financing_debt_borrowed: ['zaciagn', 'borrowed', 'borrow'],
+  financing_capital_raised: ['pozyskal', 'pozysk', 'raised', 'raise'],
+  financing_credit_granted: ['udzielil', 'udziel', 'granted', 'grant'],
+  financing_funded: ['sfinans', 'finansow', 'funded', 'fund'],
+  approval_granted: ['zatwierdz', 'zaakceptow', 'approved', 'approve'],
+  approval_rejected: ['odrzuc', 'rejected', 'reject'],
+  decision_adopted: ['zdecydow', 'uchwal', 'decided', 'adopted'],
+  launch_started: ['uruchom', 'wdroz', 'wprowadz', 'launch', 'introduced'],
+  launch_changed: ['zmien', 'changed'],
+  launch_discontinued: ['zlikwid', 'discontinued'],
+  employment_hired: ['zatrudn', 'hired', 'hire'],
+  employment_fired: ['zwoln', 'fired', 'dismissed', 'laid']
+};
+
+function actionFamilies(value: string): Set<string> {
+  const normalized = normalizeEvidence(value);
+  const words = normalized.split(/\s+/u);
+  const families = new Set<string>();
+
+  for (const [family, stems] of Object.entries(SOURCE_ACTION_FAMILIES)) {
+    if (words.some((word) => stems.some((stem) => word.startsWith(stem)))) {
+      families.add(family);
+    }
+  }
+
+  // Keep acquisition intent, ongoing activity and completed transactions distinct.
+  const acquisitionTopic = words.some((word) =>
+    ['przejec', 'przejm', 'przeja', 'kupn', 'kupow', 'kupuj', 'kupic', 'zakup', 'nabyc', 'acquir', 'purchase'].some((stem) => word.startsWith(stem))
+  );
+  if (acquisitionTopic) {
+    const completed = families.has('acquisition_completed');
+    const intent = words.some((word) =>
+      ['rozwaz', 'planuj', 'zamierz', 'chc', 'negocjuj', 'moz', 'rozmaw'].some((stem) => word.startsWith(stem))
+    );
+    const inProgress = words.some((word) => word.startsWith('przejm') || word.startsWith('kupuj'));
+    families.add(completed ? 'acquisition_completed' : intent ? 'acquisition_intent' : inProgress ? 'acquisition_in_progress' : 'acquisition_unspecified');
+  }
+
+  return families;
+}
+
+
+const NON_FACTUAL_ENTITY_PREDICATES = new Set([
+  'jest', 'sa', 'byl', 'byla', 'bylo', 'byli', 'oraz', 'takze',
+  'powinien', 'powinna', 'powinno'
+]);
+const UNCLASSIFIED_ACTION_STEMS = [
+  'rozwaz', 'planuj', 'zamierz', 'chc', 'negocjuj', 'moz', 'przewiduj',
+  'oczekuj', 'zapowi', 'proponuj', 'rekomenduj', 'deklaruj', 'wycof',
+  'sprzedaj', 'zrezygnow', 'wstrzym', 'zawiesz', 'ogranicz', 'rozszerz',
+  'otworz', 'zamkn', 'przenos', 'przenies', 'restrukturyz', 'zainwest',
+  'inwestuj', 'oszczedz', 'opozni', 'przyspiesz', 'doplac', 'plac',
+  'zarab', 'trac', 'ma', 'mial', 'posiad', 'dysponuj'
+];
+const DIRECTION_PREDICATES = new Set([
+  'wzrosl', 'wzrosla', 'wzroslo', 'wzrosly', 'rosnie', 'rosna',
+  'spadl', 'spadla', 'spadlo', 'spadly', 'spada', 'spadaja',
+  'zwiekszyl', 'zwiekszyla', 'zmniejszyl', 'zmniejszyla'
+]);
+
+/**
+ * Fail closed when a named entity is followed by a factual predicate that is
+ * not covered by the curated action taxonomy. Unknown predicates must occur
+ * verbatim in the exact source excerpt attached to the scene.
+ */
+function unsupportedUnclassifiedEntityPredicate(claim: string, evidence: string): string | undefined {
+  const normalizedClaim = normalizeEvidence(claim);
+  const normalizedEvidenceWords = new Set(normalizeEvidence(evidence).split(/\s+/u));
+  const words = normalizedClaim.split(/\s+/u);
+  const entities = namedEntities(claim).map(normalizeEvidence);
+  const verbLike = /(?:al|ala|alo|ali|aly|il|ila|ilo|ili|yl|yla|ylo|yli|nal|nela|neli|owal|owala|owali|uje|uja|aja|aje|ia|ie|isz|ysz|amy|emy|acie|nie|ci|owac|ac|ic|yc)$/u;
+  const knownActionStems = Object.values(SOURCE_ACTION_FAMILIES).flat();
+
+  for (const entity of entities) {
+    const entityWords = entity.split(/\s+/u);
+    const start = words.findIndex((_, index) => entityWords.every((part, offset) => words[index + offset] === part));
+    if (start < 0) continue;
+
+    const following = words.slice(start + entityWords.length, start + entityWords.length + 6);
+    for (const word of following) {
+      const knownPredicateStem = UNCLASSIFIED_ACTION_STEMS.some((stem) => word.startsWith(stem));
+      if ((!knownPredicateStem && (word.length < 4 || !verbLike.test(word))) ||
+          NON_FACTUAL_ENTITY_PREDICATES.has(word) || DIRECTION_PREDICATES.has(word)) continue;
+      if (knownActionStems.some((stem) => word.startsWith(stem))) continue;
+      if (!normalizedEvidenceWords.has(word)) return word;
+    }
+  }
+  return undefined;
 }
 
 function direction(value: string): 'up' | 'down' | 'mixed' | 'none' {
@@ -239,6 +334,29 @@ export function evaluateSourceEvidence(rawScenes: unknown, options: SourceFactQa
         code: 'unsupported_entity_claim',
         severity: 'blocker',
         message: `Podmiot „${unsupportedEntity}” w scenie ${sceneNumber} nie występuje w przypisanym fragmencie źródła.`,
+        scene: sceneNumber
+      });
+      return;
+    }
+
+    const claimActions = actionFamilies(`${narration} ${caption}`);
+    const evidenceActions = actionFamilies(evidence);
+    const unsupportedAction = [...claimActions].find((family) => !evidenceActions.has(family));
+    const unsupportedUnknownAction = unsupportedUnclassifiedEntityPredicate(`${narration} ${caption}`, evidence);
+    if (unsupportedAction) {
+      findings.push({
+        code: 'unsupported_claim_action',
+        severity: 'blocker',
+        message: `Czynność opisana w scenie ${sceneNumber} nie jest potwierdzona przypisanym fragmentem źródła.`,
+        scene: sceneNumber
+      });
+      return;
+    }
+    if (unsupportedUnknownAction) {
+      findings.push({
+        code: 'unsupported_claim_action',
+        severity: 'blocker',
+        message: `Nieznana czynność „${unsupportedUnknownAction}” przypisana podmiotowi w scenie ${sceneNumber} nie występuje w dowodzie źródłowym.`,
         scene: sceneNumber
       });
       return;

@@ -84,7 +84,7 @@ import { selectRelevantArticleVisualEntities, toRequiredVisualEntityChecks } fro
 import { buildStockClipSamplingFilter, isTrustedStockVideoDownloadUrl, stockClipSamplingFrameCountIsSufficient } from './src/server/stockClipSampling';
 import { cleanStockSearchQuery, scoreStockCandidateSoftAvoidance } from './src/server/stockCandidatePolicy';
 import { buildSourceEvidenceVisual, fillMissingSourceEvidence, resolveStockWithEvidenceFallback, resolveStockWithVerifiedEvidenceFallback } from './src/server/sourceEvidenceVisual';
-import { findLegacyFailedAutopilotArticleUrl, getNextPendingAutopilotRetry, MAX_STORYBOARD_QA_REPAIR_ATTEMPTS, recordAutopilotFailure, reactivateExhaustedAutopilotRetries, repairUntilPass, resolveAutopilotRetry, isCompatibleNarrationRetryCache, type AutopilotRetryEntry, type RetryableAutopilotArticle, type NarrationRetryCacheMetadata } from './src/server/autopilotRetry';
+import { findLegacyFailedAutopilotArticleUrl, getNextPendingAutopilotRetry, MAX_AUTOPILOT_ARTICLE_FAILURES, MAX_STORYBOARD_QA_REPAIR_ATTEMPTS, recordAutopilotFailure, reactivateExhaustedAutopilotRetries, repairUntilPass, resolveAutopilotRetry, isCompatibleNarrationRetryCache, type AutopilotRetryEntry, type RetryableAutopilotArticle, type NarrationRetryCacheMetadata } from './src/server/autopilotRetry';
 import { GEMINI_PRIMARY_MODEL, getGeminiApiKeys, getRotatedGeminiApiKeys, getGeminiFallbackModels, withGeminiModelFallback } from './src/server/modelRouting';
 import { fetchOfferCatalogCategory, resolveOfferCatalogSourceBase } from './src/server/offerCatalogFetch';
 import { GEMINI_NARRATION_REVISION_BUDGET_MS, GEMINI_REQUEST_BUDGET_MS, getGeminiHttpOptions, getGeminiRemainingBudgetMs } from './src/server/geminiRequestPolicy';
@@ -8561,8 +8561,7 @@ function queueFailedAutopilotArticle(
     category: retryArticle.category
   };
   schedulerState.lastRunStatus = 'failed';
-  console.warn('[Autopilot Retry] Zachowano nieudany artykuł do ponowienia bez limitu prób: ' +
-    retryArticle.title + '; dotychczasowe nieudane przebiegi: ' + (entry?.failedAttempts || 1) + '.');
+  console.warn('[Autopilot Retry] Zapisano nieudany artykuł: ' + retryArticle.title + '; nieudane przebiegi: ' + (entry?.failedAttempts || 1) + '/' + MAX_AUTOPILOT_ARTICLE_FAILURES + '; status: ' + (entry?.status || 'exhausted') + '.');
   saveSchedulerStateToDisk();
 }
 
@@ -8693,7 +8692,7 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
       candidate = selectedRetryEntry.article;
       viralityScore = calculateViralityScore(candidate.title, candidate.description || candidate.summary || '', candidate.category || 'Wiadomości');
       selectionSource = 'retry_queue';
-      console.info('[Autopilot Retry] Wznawiam artykuł: ' + candidate.title + ' (bez limitu; dotychczasowe nieudane przebiegi: ' + selectedRetryEntry.failedAttempts + ').');
+      console.info('[Autopilot Retry] Wznawiam artykuł: ' + candidate.title + ' (przebieg ' + (selectedRetryEntry.failedAttempts + 1) + '/' + MAX_AUTOPILOT_ARTICLE_FAILURES + ').');
     } else {
       const articles = await fetchBankierArticlesInternal(schedulerState.category || 'wiadomosci', true);
       if (!articles || articles.length === 0) {
@@ -8808,7 +8807,7 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
       initialReport: initialEditorQa,
       maxAttempts: MAX_STORYBOARD_QA_REPAIR_ATTEMPTS,
       revise: async (currentReport, attempt, previousError) => {
-        console.warn('[Shorts Editor QA] Poprawka storyboardu nr ' + attempt + ' (bez limitu prób). Problemy: ' + currentReport.findings.map((finding) => finding.message).join(' | '));
+        console.warn('[Shorts Editor QA] Poprawka storyboardu nr ' + attempt + '/' + MAX_STORYBOARD_QA_REPAIR_ATTEMPTS + '. Problemy: ' + currentReport.findings.map((finding) => finding.message).join(' | '));
         return generateSmartOrGeminiViralScript({
           ...scriptRequest,
           revisionInstruction: buildShortsEditorQaRevisionInstruction(
@@ -8822,7 +8821,7 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
       evaluate: (revisedScript) => evaluateShortStoryboard(revisedScript.scenes, qaOptions),
       onAttempt: (attempt, currentReport, previousError) => {
         if (previousError) {
-          console.warn('[Shorts Editor QA] Poprzednia poprawka nie powiodła się; kontynuuję próbę nr ' + attempt + ' (bez limitu): ' + previousError);
+          console.warn('[Shorts Editor QA] Poprzednia poprawka nie powiodła się; kontynuuję próbę nr ' + attempt + '/' + MAX_STORYBOARD_QA_REPAIR_ATTEMPTS + ': ' + previousError);
         }
       }
     });
@@ -8836,7 +8835,7 @@ async function executeAutonomousRun(slotTrigger = 'manual', explicitBaseUrl?: st
         : '';
       throw new Error(
         'Shorts Editor QA nie uzyskało statusu pass po ' +
-        qaRepairResult.attempts + ' poprawkach (tryb bez limitu): ' + issues.join(' | ') + repairErrors
+        qaRepairResult.attempts + ' poprawkach (limit ' + MAX_STORYBOARD_QA_REPAIR_ATTEMPTS + '): ' + issues.join(' | ') + repairErrors
       );
     }
 
@@ -9194,8 +9193,8 @@ router.post('/autopilot/scheduler/retry-failed', async (req, res) => {
   return res.json({
     ...result,
     retryArticle: pendingRetry.article,
-    retriesRemaining: null,
-    retryLimit: 'unlimited'
+    retriesRemaining: Math.max(0, MAX_AUTOPILOT_ARTICLE_FAILURES - pendingRetry.failedAttempts),
+    retryLimit: MAX_AUTOPILOT_ARTICLE_FAILURES
   });
 });
 

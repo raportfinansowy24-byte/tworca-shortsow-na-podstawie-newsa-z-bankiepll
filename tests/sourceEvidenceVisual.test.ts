@@ -33,6 +33,12 @@ async function run() {
   );
   assert.equal(selectedEvidence, sourceEvidence, 'the selector should choose the exact source sentence that overlaps scene wording');
 
+  const unsupportedClaimScenes = fillMissingSourceEvidence([
+    { voiceover_text: 'Orlen przejął bank.', searchKeyword: 'bank acquisition' },
+    { voiceover_text: 'Sprawdź szczegóły.' }
+  ], 'Orlen opublikował wyniki finansowe za pierwszy kwartał.');
+  assert.equal(unsupportedClaimScenes[0].sourceEvidence, undefined, 'auto-fill must not attach a quote that does not support the narrated action');
+
   const enrichedScenes = fillMissingSourceEvidence([
     { voiceover_text: 'Ceny żywności wzrosły o 4,3 proc.', searchKeyword: 'grocery price labels' },
     { voiceover_text: 'Firma A&B zapowiedziała dalszą analizę kosztów.' },
