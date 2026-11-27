@@ -137,7 +137,7 @@ export function selectSourceEvidenceForVisual(
 export function fillMissingSourceEvidence<T extends Record<string, unknown>>(
   scenes: T[],
   sourceText: string
-): T[] {
+): Array<T & { sourceEvidence?: string }> {
   return scenes.map((scene, index) => {
     if (index === scenes.length - 1) return scene;
     const currentEvidence = String(scene.sourceEvidence || '').trim();
