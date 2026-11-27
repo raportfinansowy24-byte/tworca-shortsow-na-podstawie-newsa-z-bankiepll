@@ -139,6 +139,43 @@ function actionFamilies(value: string): Set<string> {
   return families;
 }
 
+
+const NON_FACTUAL_ENTITY_PREDICATES = new Set([
+  'jest', 'sa', 'byl', 'byla', 'bylo', 'byli', 'ma', 'maja', 'mial', 'miala',
+  'mieli', 'moze', 'moga', 'powinien', 'powinna', 'powinno', 'oraz', 'takze'
+]);
+const DIRECTION_PREDICATES = new Set([
+  'wzrosl', 'wzrosla', 'wzroslo', 'wzrosly', 'rosnie', 'rosna',
+  'spadl', 'spadla', 'spadlo', 'spadly', 'spada', 'spadaja',
+  'zwiekszyl', 'zwiekszyla', 'zmniejszyl', 'zmniejszyla'
+]);
+
+/**
+ * Catch factual predicates attached to a named company even when they are not
+ * yet represented in the curated action taxonomy. Unknown predicates must be
+ * present in the evidence verbatim; otherwise QA fails closed.
+ */
+function unsupportedUnclassifiedEntityPredicate(claim: string, evidence: string): string | undefined {
+  const normalizedClaim = normalizeEvidence(claim);
+  const normalizedEvidence = normalizeEvidence(evidence);
+  const words = normalizedClaim.split(/\\s+/u);
+  const entities = namedEntities(claim).map(normalizeEvidence);
+  const verbLike = /(?:al|ala|alo|ali|aly|il|ila|ilo|ili|yl|yla|ylo|yli|nal|nela|neli|owal|owala|owali|uje|uja|uja|aja|aja|nie|nieja)$/u;
+
+  for (const entity of entities) {
+    const entityWords = entity.split(/\\s+/u);
+    const start = words.findIndex((_, index) => entityWords.every((part, offset) => words[index + offset] === part));
+    if (start < 0) continue;
+    const following = words.slice(start + entityWords.length, start + entityWords.length + 5);
+    for (const word of following) {
+      if (!verbLike.test(word) || NON_FACTUAL_ENTITY_PREDICATES.has(word) || DIRECTION_PREDICATES.has(word)) continue;
+      if (Object.values(SOURCE_ACTION_FAMILIES).some((stems) => stems.some((stem) => word.startsWith(stem)))) continue;
+      if (!normalizedEvidence.split(/\\s+/u).includes(word)) return word;
+    }
+  }
+  return undefined;
+}
+
 function direction(value: string): 'up' | 'down' | 'mixed' | 'none' {
   const normalized = normalizeEvidence(value);
   // Detect negated words (e.g. "nie spada", "nie obniz", "zamiast spadku")
@@ -280,11 +317,21 @@ export function evaluateSourceEvidence(rawScenes: unknown, options: SourceFactQa
     const claimActions = actionFamilies(`${narration} ${caption}`);
     const evidenceActions = actionFamilies(evidence);
     const unsupportedAction = [...claimActions].find((family) => !evidenceActions.has(family));
+    const unsupportedUnknownAction = unsupportedUnclassifiedEntityPredicate(`${narration} ${caption}`, evidence);
     if (unsupportedAction) {
       findings.push({
         code: 'unsupported_claim_action',
         severity: 'blocker',
         message: `Czynność opisana w scenie ${sceneNumber} nie jest potwierdzona przypisanym fragmentem źródła.`,
+        scene: sceneNumber
+      });
+      return;
+    }
+    if (unsupportedUnknownAction) {
+      findings.push({
+        code: 'unsupported_claim_action',
+        severity: 'blocker',
+        message: `Nieznana czynność „${unsupportedUnknownAction}” przypisana podmiotowi w scenie ${sceneNumber} nie występuje w dowodzie źródłowym.`,
         scene: sceneNumber
       });
       return;
