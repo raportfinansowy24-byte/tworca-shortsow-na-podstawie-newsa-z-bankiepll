@@ -1644,7 +1644,7 @@ async function recoverAndValidateExportedMp4Files(): Promise<void> {
     const mp4Files = files.filter((filename) => path.extname(filename).toLowerCase() === '.mp4');
     const recoveredJobIdByFilename = new Map<string, string>();
     for (const filename of mp4Files) {
-      const match = filename.match(/combined_video_(job_[^\\.]+)\\.mp4/);
+      const match = filename.match(/^combined_video_(job_[^.]+)\.mp4$/);
       recoveredJobIdByFilename.set(filename, match ? match[1] : 'job_disk_' + path.parse(filename).name);
     }
 
