@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { selectValidCompletedMp4Jobs, validateMp4File, validateMp4ProbeOutput } from '../src/server/mp4Validation';
+import { resolvePublicExportFile, selectValidCompletedMp4Jobs, validateMp4File, validateMp4ProbeOutput } from '../src/server/mp4Validation';
 
 const validProbe = JSON.stringify({
   streams: [
@@ -35,6 +35,12 @@ assert.equal(validateMp4ProbeOutput(JSON.stringify({
 const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'r24-mp4-path-'));
 try {
   writeFileSync(path.join(tempRoot, 'not-video.mp4'), 'not a real video');
+  symlinkSync('/etc/passwd', path.join(tempRoot, 'linked.mp4'));
+  const resolved = await resolvePublicExportFile(tempRoot, 'not-video.mp4');
+  assert.equal(resolved?.filename, 'not-video.mp4');
+  assert.equal(resolved?.filePath, path.join(tempRoot, 'not-video.mp4'));
+  assert.equal(await resolvePublicExportFile(tempRoot, '../outside.mp4'), null);
+  assert.equal(await resolvePublicExportFile(tempRoot, 'linked.mp4'), null);
   assert.equal((await validateMp4File(tempRoot, '../outside.mp4')).valid, false);
   assert.equal((await validateMp4File(tempRoot, 'not-video.mp4')).valid, false);
 } finally {
