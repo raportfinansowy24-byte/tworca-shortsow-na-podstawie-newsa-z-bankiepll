@@ -68,7 +68,8 @@
     "test:offer-catalog-fetch": "tsx tests/offerCatalogFetch.test.ts",
     "test:karaoke-captions": "tsx tests/karaokeCaptions.test.ts",
     "test:proxy-trust": "tsx tests/expressProxyTrust.test.ts",
-    "test:jobs-no-store": "tsx tests/jobsNoStore.test.ts"
+    "test:jobs-no-store": "tsx tests/jobsNoStore.test.ts",
+    "test:storyboard-preview": "tsx tests/storyboardPreview.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.32.0",

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { AutopilotSchedulerState, JobStatusResponse, Scene } from '../types';
 import { openJobEventSource } from '../utils/jobEventSource';
 import { AutonomousShortsDashboard } from './AutonomousShortsDashboard';
+import { normalizeStoryboardScenes } from '../utils/storyboardPreview';
 
 interface AiViralAutoPilotProps {
   onLoadScriptToEditor: (scenes: Scene[], musicUrl?: string) => void;
@@ -9,7 +10,7 @@ interface AiViralAutoPilotProps {
   onToast?: (type: 'success' | 'error' | 'info' | 'warning', title: string, message: string) => void;
 }
 
-export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onJobStarted, onToast }) => {
+export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onLoadScriptToEditor, onJobStarted, onToast }) => {
   const [schedulerState, setSchedulerState] = useState<AutopilotSchedulerState | null>(null);
   const [loading, setLoading] = useState(false);
   const [runOnceLoading, setRunOnceLoading] = useState(false);
@@ -21,6 +22,7 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onJobStarted
   const lastNotifiedJobId = useRef<string | null>(null);
   const hasLoadedInitialState = useRef(false);
   const missingJobIds = useRef(new Set<string>());
+  const lastLoadedStoryboardJobId = useRef<string | null>(null);
 
   const refreshSchedulerState = useCallback(async () => {
     try {
@@ -104,6 +106,26 @@ export const AiViralAutoPilot: React.FC<AiViralAutoPilotProps> = ({ onJobStarted
     }).catch(() => { /* HTTP polling remains active when SSE is unavailable. */ });
     return () => { cancelled = true; if (poll !== null) window.clearInterval(poll); source?.close(); };
   }, [schedulerState?.lastRunJobId]);
+
+  // Load the actual scene assets saved with the latest Auto-Pilot job into the shared preview/editor.
+  useEffect(() => {
+    if (!activeJob || lastLoadedStoryboardJobId.current === activeJob.id) return;
+    const rawScenes = Array.isArray(activeJob.scenes) ? activeJob.scenes : [];
+    if (!rawScenes.length) return;
+    const previewScenes = normalizeStoryboardScenes(rawScenes, activeJob.id);
+    const hasVisualAssets = previewScenes.some((scene) =>
+      Boolean(scene.videoUrl || scene.imageUrl || scene.thumbnailUrl || scene.visualSvg)
+    );
+    if (!previewScenes.length || !hasVisualAssets) return;
+
+    lastLoadedStoryboardJobId.current = activeJob.id;
+    const metadata = activeJob.shortMetadata || {};
+    const musicUrl = typeof metadata.backgroundMusicUrl === 'string'
+      ? metadata.backgroundMusicUrl
+      : undefined;
+    onLoadScriptToEditor(previewScenes, musicUrl);
+    onToast?.('success', 'Scenorys gotowy do podglądu', `Załadowano ${previewScenes.length} scen z zadania ${activeJob.id.slice(0, 12)}.`);
+  }, [activeJob, onLoadScriptToEditor, onToast]);
 
   const handleToggle = async () => {
     if (!schedulerState) return;

@@ -158,85 +158,8 @@ export const MakeHttpConnector: React.FC = () => {
   const [preferredMode, setPreferredMode] = useState<'sse' | 'polling'>('sse');
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'sse' | 'polling'>('idle');
 
-  // Scenes State (Zablokowany standard: 4 sceny po 4.5s = 18.0s)
-  const [scenes, setScenes] = useState<Scene[]>([
-    {
-      id: 'scene-1',
-      videoUrl: SAMPLE_CLIPS[0].url,
-      subtitles: 'KONEKTOR MAKE.COM - WIDEO Z NAPISAMI',
-      voiceover_text: 'Oto profesjonalny konektor Make.com tworzący filmy z napisami i lektorem.',
-      trimStart: 0,
-      trimEnd: 4.5,
-      duration: 4.5,
-      captionStyle: {
-        fontSize: 68,
-        fontColor: 'white',
-        outlineColor: 'black',
-        outlineWidth: 8,
-        boxColor: 'black@0.6',
-        position: 'center',
-        animation: 'single-word',
-        highlightColor: 'red'
-      }
-    },
-    {
-      id: 'scene-2',
-      videoUrl: SAMPLE_CLIPS[1].url,
-      subtitles: 'CZCIONKA TIKTOKSANS-BOLD.WOFF',
-      voiceover_text: 'Wszystkie napisy generowane są z referencyjną czcionką Anton.',
-      trimStart: 0,
-      trimEnd: 4.5,
-      duration: 4.5,
-      captionStyle: {
-        fontSize: 48,
-        fontColor: 'white',
-        outlineColor: 'black',
-        outlineWidth: 5,
-        boxColor: 'black@0.6',
-        position: 'center',
-        animation: 'word-by-word',
-        highlightColor: 'lime'
-      }
-    },
-    {
-      id: 'scene-3',
-      videoUrl: SAMPLE_CLIPS[2].url,
-      subtitles: 'DOKŁADNIE 4 SCENY PO 4.5S',
-      voiceover_text: 'Precyzyjny podział na cztery sceny gwarantuje stały czas osiemnastu sekund.',
-      trimStart: 0,
-      trimEnd: 4.5,
-      duration: 4.5,
-      captionStyle: {
-        fontSize: 48,
-        fontColor: 'white',
-        outlineColor: 'black',
-        outlineWidth: 5,
-        boxColor: 'black@0.6',
-        position: 'center',
-        animation: 'word-by-word',
-        highlightColor: 'yellow'
-      }
-    },
-    {
-      id: 'scene-4',
-      videoUrl: SAMPLE_CLIPS[3].url,
-      subtitles: 'SPRAWDŹ RAPORT-FINANSOWY24.PL',
-      voiceover_text: 'Sprawdź pełne analizy rynkowe na raport myślnik finansowy dwadzieścia cztery kropka pl.',
-      trimStart: 0,
-      trimEnd: 4.5,
-      duration: 4.5,
-      captionStyle: {
-        fontSize: 48,
-        fontColor: 'white',
-        outlineColor: 'black',
-        outlineWidth: 5,
-        boxColor: 'black@0.6',
-        position: 'center',
-        animation: 'single-word',
-        highlightColor: 'red'
-      }
-    }
-  ]);
+  // Draft starts empty; production scenes are loaded from the latest Auto-Pilot job or added manually.
+  const [scenes, setScenes] = useState<Scene[]>([]);
 
   // Global Settings
   const [outputResolution, setOutputResolution] = useState<string>('720x1280');
