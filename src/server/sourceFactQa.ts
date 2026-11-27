@@ -138,7 +138,7 @@ function actionFamilies(value: string): Set<string> {
 
   // Keep acquisition intent, ongoing activity and completed transactions distinct.
   const acquisitionTopic = words.some((word) =>
-    ['przejec', 'przejm', 'przeja', 'kupn', 'kupow', 'kupuj', 'nabyc', 'acquir', 'purchase'].some((stem) => word.startsWith(stem))
+    ['przejec', 'przejm', 'przeja', 'kupn', 'kupow', 'kupuj', 'kupic', 'zakup', 'nabyc', 'acquir', 'purchase'].some((stem) => word.startsWith(stem))
   );
   if (acquisitionTopic) {
     const completed = families.has('acquisition_completed');
