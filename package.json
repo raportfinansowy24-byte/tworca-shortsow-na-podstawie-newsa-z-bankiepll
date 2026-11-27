@@ -62,6 +62,8 @@
     "test:google-auth-migration": "tsx tests/googleAuthMigration.test.ts",
     "test:stock-clip-sampling": "tsx tests/stockClipSampling.test.ts",
     "test:stock-qa-duration-propagation": "tsx tests/stockQaDurationPropagation.test.ts",
+    "test:mp4-validation": "tsx tests/mp4Validation.test.ts",
+    "test:mp4-validation:integration": "tsx tests/mp4Validation.integration.test.ts",
     "test:offer-catalog-fetch": "tsx tests/offerCatalogFetch.test.ts",
     "test:karaoke-captions": "tsx tests/karaokeCaptions.test.ts"
   },
