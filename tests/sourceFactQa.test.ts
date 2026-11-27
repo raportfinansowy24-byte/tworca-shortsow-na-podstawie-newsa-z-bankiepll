@@ -207,6 +207,24 @@ const unknownPresentTenseReport = evaluateSourceEvidence(unknownPresentTenseClai
 assert.equal(unknownPresentTenseReport.status, 'blocked');
 assert.ok(unknownPresentTenseReport.findings.some((finding) => finding.code === 'unsupported_claim_action'));
 
+const unsupportedIntentClaim = [{
+  voiceover_text: 'Orlen rozważa sprzedaż aktywów.',
+  subtitles: 'Orlen rozważa sprzedaż aktywów.',
+  sourceEvidence: unknownActionSource
+}];
+const unsupportedIntentReport = evaluateSourceEvidence(unsupportedIntentClaim, { sourceText: unknownActionSource });
+assert.equal(unsupportedIntentReport.status, 'blocked');
+assert.ok(unsupportedIntentReport.findings.some((finding) => finding.code === 'unsupported_claim_action'));
+
+const unsupportedPossessionClaim = [{
+  voiceover_text: 'Orlen ma nowy produkt finansowy.',
+  subtitles: 'Orlen ma nowy produkt finansowy.',
+  sourceEvidence: unknownActionSource
+}];
+const unsupportedPossessionReport = evaluateSourceEvidence(unsupportedPossessionClaim, { sourceText: unknownActionSource });
+assert.equal(unsupportedPossessionReport.status, 'blocked');
+assert.ok(unsupportedPossessionReport.findings.some((finding) => finding.code === 'unsupported_claim_action'));
+
 console.log('Source fact QA tests passed');
 
 
