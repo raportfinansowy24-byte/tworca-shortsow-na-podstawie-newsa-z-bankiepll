@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   getNextPendingAutopilotRetry,
+  MAX_AUTOPILOT_ARTICLE_FAILURES,
   reactivateExhaustedAutopilotRetries,
   findLegacyFailedAutopilotArticleUrl,
   isCompatibleNarrationRetryCache,
@@ -163,7 +164,7 @@ assert.equal(queue[0].failedAttempts, 1);
 assert.equal(queue[0].status, 'pending');
 assert.equal(getNextPendingAutopilotRetry(queue)?.article.link, article.link);
 
-for (let attempt = 2; attempt <= 12; attempt += 1) {
+for (let attempt = 2; attempt <= MAX_AUTOPILOT_ARTICLE_FAILURES; attempt += 1) {
   queue = recordAutopilotFailure(
     queue,
     article,
@@ -172,15 +173,15 @@ for (let attempt = 2; attempt <= 12; attempt += 1) {
     '2026-11-14T00:' + String(attempt).padStart(2, '0') + ':00.000Z'
   );
 }
-assert.equal(queue[0].failedAttempts, 12);
-assert.equal(queue[0].status, 'pending', 'kolejne nieudane przebiegi pozostają możliwe bez limitu');
-assert.equal(getNextPendingAutopilotRetry(queue)?.article.link, article.link);
+assert.equal(queue[0].failedAttempts, MAX_AUTOPILOT_ARTICLE_FAILURES);
+assert.equal(queue[0].status, 'exhausted', 'artykuł zostaje trwale wyłączony po trzech nieudanych przebiegach');
+assert.equal(getNextPendingAutopilotRetry(queue), null, 'wyczerpany artykuł nie wraca do kolejki automatycznych ponowień');
 
 const legacyExhaustedEntry = { ...queue[0], status: 'exhausted' as const, failedAttempts: 27 };
 const migratedLegacyQueue = reactivateExhaustedAutopilotRetries([legacyExhaustedEntry]);
-assert.equal(migratedLegacyQueue[0].status, 'pending', 'historyczny wpis exhausted jest reaktywowany w migracji');
+assert.equal(migratedLegacyQueue[0].status, 'exhausted', 'wyczerpany wpis pozostaje wyłączony również po restarcie');
 assert.equal(migratedLegacyQueue[0].failedAttempts, 27, 'migracja zachowuje licznik prób');
-assert.equal(getNextPendingAutopilotRetry(migratedLegacyQueue)?.article.link, article.link);
+assert.equal(getNextPendingAutopilotRetry(migratedLegacyQueue), null, 'restart nie reaktywuje wyczerpanego artykułu');
 
 queue = resolveAutopilotRetry(queue, article.link);
 assert.equal(queue.length, 0, 'udany render usuwa artykuł z kolejki ponowień');
