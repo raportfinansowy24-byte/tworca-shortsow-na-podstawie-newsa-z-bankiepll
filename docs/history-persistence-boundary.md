@@ -13,7 +13,8 @@ Lokalne usunięcie wpisu z `jobsStore` i `jobs_history.json` samo w sobie nie us
 Migracja `20261127193000_persistent_short_job_deletions.sql` dodaje trwały rejestr tombstone w prywatnym schemacie oraz transakcyjne RPC:
 - `delete_short_jobs` zapisuje tombstone, usuwa metadane eksportów z `short_job_exports` i rekordy z `short_jobs`;
 - trigger blokuje późniejsze INSERT/UPDATE dla oznaczonego identyfikatora;
-- `get_deleted_short_job_ids` pozwala odfiltrować stare wpisy z lokalnego cache podczas startowej synchronizacji.
+- `get_deleted_short_job_ids` pozwala odfiltrować stare wpisy z lokalnego cache oraz MP4 odkryte podczas odzyskiwania plików po restarcie.
+- Odtwarzanie MP4 działa fail-closed: przy błędzie odczytu tombstone odzyskiwanie zostaje przerwane, zamiast odtwarzać potencjalnie usunięte joby.
 
 Endpoint pojedynczego usuwania i przycisk czyszczenia historii najpierw wykonują trwałe usunięcie w Supabase. Dopiero po jego potwierdzeniu modyfikują `jobsStore` oraz `jobs_history.json`. Gdy zapis w bazie zawiedzie, API zwraca błąd i pozostawia lokalną listę bez zmian.
 
