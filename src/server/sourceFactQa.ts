@@ -36,6 +36,7 @@ function normalizeEvidence(value: string): string {
   return value
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
+    .replace(/ł/g, 'l')
     .toLocaleLowerCase('pl-PL')
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim()
