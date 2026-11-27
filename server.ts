@@ -74,6 +74,7 @@ import { applyQaRepairAssets, buildQaRepairFailureReport, executeQaRepairOnce, Q
 import { buildConcatArgs, FAST_H264_OPTIONS, isValidConcatenatedVideo } from './src/server/renderOptimizations';
 import { buildEmotionallyDirectedNarration, getEmotionallyDirectedNarrationLimitError } from './src/server/emotionalDirection';
 import { getDeploymentInfo } from './src/server/deploymentInfo';
+import { configureExpressProxyTrust } from './src/server/expressProxyTrust';
 import { retryVisualQa, runVisualQaWithFallback } from './src/server/visualQaProviders';
 import { mapNarrationAlignmentToScenes } from './src/server/singleNarration';
 import { buildContinuousNarrationMuxArgs } from './src/server/finalNarrationMix';
@@ -265,6 +266,9 @@ async function analyzeRenderedVisualFit(
 
 const PORT = Number.parseInt(process.env.PORT || '3000', 10);
 const app = express();
+
+// Railway adds one ingress proxy hop; use a bounded hop count, never trust all forwarded headers.
+configureExpressProxyTrust(app);
 
 const mp4ValidationRateLimit = rateLimit({
   windowMs: 60_000,

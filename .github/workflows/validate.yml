@@ -56,6 +56,8 @@ jobs:
         run: npm run test:telegram-review
       - name: Telegram chat command tests
         run: npm run test:telegram-chat
+      - name: Express trusted proxy and per-client rate-limit tests
+        run: npm run test:proxy-trust
       - name: API auth tests
         run: npm run test:auth
       - name: Google OAuth session state tests
