@@ -364,25 +364,34 @@ export async function deleteShortJobsFromSupabase(
 /** Returns persisted deletion tombstones for local-cache reconciliation at startup. */
 export async function getDeletedShortJobIds(jobIds: string[]): Promise<Set<string>> {
   const supabase = getSupabaseClient();
-  const uniqueIds = Array.from(new Set(jobIds.filter((id) => typeof id === 'string' && id.length > 0)));
+  const uniqueIds = Array.from(new Set(
+    jobIds.filter((id) => typeof id === 'string' && id.length > 0 && id.length <= 300)
+  ));
   if (!supabase || uniqueIds.length === 0) return new Set<string>();
 
-  const { data, error } = await supabase.rpc('get_deleted_short_job_ids', {
-    p_job_ids: uniqueIds
-  });
-  if (error) {
-    warnOnce(
-      `job-delete-read:${error.code || error.message}`,
-      `[Supabase] Nie udało się sprawdzić rejestru usunięć zadań (${error.code || 'błąd API'}).`
-    );
-    return new Set<string>();
+  const deleted = new Set<string>();
+  // Keep RPC payloads bounded when a machine has accumulated many local exports.
+  for (let offset = 0; offset < uniqueIds.length; offset += 200) {
+    const { data, error } = await supabase.rpc('get_deleted_short_job_ids', {
+      p_job_ids: uniqueIds.slice(offset, offset + 200)
+    });
+    if (error) {
+      warnOnce(
+        `job-delete-read:${error.code || error.message}`,
+        `[Supabase] Nie udało się sprawdzić rejestru usunięć zadań (${error.code || 'błąd API'}).`
+      );
+      // Fail closed: history hydration/recovery must not recreate jobs if tombstones
+      // could not be checked.
+      throw new Error(`Nie udało się sprawdzić trwałych usunięć w Supabase: ${error.message}`);
+    }
+
+    if (Array.isArray(data)) {
+      for (const id of data) {
+        if (typeof id === 'string') deleted.add(id);
+      }
+    }
   }
 
-  const deleted = new Set<string>(
-    Array.isArray(data)
-      ? data.filter((id): id is string => typeof id === 'string')
-      : []
-  );
   for (const jobId of deleted) deletedJobIds.add(jobId);
   return deleted;
 }
