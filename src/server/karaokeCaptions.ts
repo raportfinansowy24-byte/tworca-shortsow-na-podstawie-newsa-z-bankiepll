@@ -6,14 +6,11 @@ export interface KaraokeCaptionOptions {
   activeColor?: string;
   inactiveColor?: string;
   outlineWidth?: number;
+  glowOutlineWidth?: number;
   shadow?: number;
   marginV?: number;
 }
 
-/** Build centered, word-synchronous ASS captions matching the reference: Anton,
- * uppercase white text, one active red word, black contour/shadow and red glow.
- * Requires exact TTS word alignment; invalid or incomplete timing is rejected.
- */
 export function generateKaraokeCaptionAss(
   text: string,
   duration: number,
@@ -35,12 +32,14 @@ export function generateKaraokeCaptionAss(
     const minutes = Math.floor((value % 3600) / 60);
     const wholeSeconds = Math.floor(value % 60);
     const centiseconds = Math.floor((value * 100) % 100);
-    return `${hours}:${String(minutes).padStart(2, '0')}:${String(wholeSeconds).padStart(2, '0')}.${String(centiseconds).padStart(2, '0')}`;
+    return hours + ':' + String(minutes).padStart(2, '0') + ':' + String(wholeSeconds).padStart(2, '0') + '.' + String(centiseconds).padStart(2, '0');
   };
-  const safe = (word: string) => word.replace(/[{}\\\\]/g, '').toLocaleUpperCase('pl-PL');
-  const font = (options.fontName || 'Anton').replace(/[,\r\n]/g, '');
+
+  const safe = (word: string) => word.replace(/[{}\\]/g, '').toLocaleUpperCase('pl-PL');
+  const font = (options.fontName || 'Montserrat Black').replace(/[,\r\n]/g, '');
   const size = Math.max(28, Math.min(110, Math.round(options.fontSize ?? 86)));
-  const outline = Math.max(1, Math.min(24, Math.round(options.outlineWidth ?? 8)));
+  const outline = Math.max(1, Math.min(24, Math.round(options.outlineWidth ?? 5)));
+  const glowOutline = Math.max(1, Math.min(30, Math.round(options.glowOutlineWidth ?? 14)));
   const shadow = Math.max(0, Math.min(12, Math.round(options.shadow ?? 5)));
   const marginV = Math.max(0, Math.min(600, Math.round(options.marginV ?? 250)));
   const active = options.activeColor || '&H000000FF&';
@@ -52,29 +51,20 @@ export function generateKaraokeCaptionAss(
     const start = Math.max(0, timing.start);
     const end = Math.min(duration, timing.end);
     if (end <= start) return;
-    const caption = line.map((word, wordIndex) =>
-      wordIndex === index ? `{\\\\c${active}}${word}{\\\\c${inactive}}` : word
-    ).join(' ');
     const glow = line.map((word, wordIndex) => wordIndex === index
-      ? `{\\\\c${active}\\\\3c${active}\\\\blur18\\\\bord14}${word}{\\\\blur0\\\\bord0}`
-      : `{\\\\alpha&HFF&}${word}{\\\\alpha&H00&}`
+      ? '{\\c' + active + '\\3c' + active + '\\blur18\\bord' + glowOutline + '}' + word
+      : '{\\alpha&HFF&}' + word + '{\\alpha&H00&}'
     ).join(' ');
-    events.push(`Dialogue: 0,${assTime(start)},${assTime(end)},Karaoke,,0,0,0,,${glow}`);
-    events.push(`Dialogue: 1,${assTime(start)},${assTime(end)},Karaoke,,0,0,0,,${caption}`);
+    const caption = line.map((word, wordIndex) =>
+      wordIndex === index ? '{\\c' + active + '}' + word + '{\\c' + inactive + '}' : word
+    ).join(' ');
+    events.push('Dialogue: 0,' + assTime(start) + ',' + assTime(end) + ',Glow,,0,0,0,,' + glow);
+    events.push('Dialogue: 1,' + assTime(start) + ',' + assTime(end) + ',Caption,,0,0,0,,' + caption);
   });
 
-  return `[Script Info]
-ScriptType: v4.00+
-PlayResX: 720
-PlayResY: 1280
-ScaledBorderAndShadow: yes
-
-[V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Karaoke,${font},${size},${inactive},${active},&H00000000&,&H80000000&,-1,0,0,0,100,100,0,0,1,${outline},${shadow},5,36,36,${marginV},1
-
-[Events]
-Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-${events.join('\n')}
-`;
+  return '[Script Info]\nScriptType: v4.00+\nPlayResX: 720\nPlayResY: 1280\nScaledBorderAndShadow: yes\n\n' +
+    '[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n' +
+    'Style: Glow,' + font + ',' + size + ',' + active + ',' + active + ',&H00000000&,&H80000000&,-1,0,0,0,100,100,0,0,1,' + glowOutline + ',0,5,36,36,' + marginV + ',1\n' +
+    'Style: Caption,' + font + ',' + size + ',' + inactive + ',' + active + ',&H00000000&,&H80000000&,-1,0,0,0,100,100,0,0,1,' + outline + ',' + shadow + ',5,36,36,' + marginV + ',1\n\n' +
+    '[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n' + events.join('\n') + '\n';
 }
