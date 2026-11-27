@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   GEMINI_PRIMARY_MODEL,
   getGeminiApiKeys,
+  getRotatedGeminiApiKeys,
   shouldRotateGeminiKey,
   withGeminiKeyRotation
 } from '../src/server/modelRouting';
@@ -31,6 +32,25 @@ assert.deepEqual(keys.map((key) => key.apiKey), [
 assert.equal(getGeminiApiKeys({ GEMINI_API_KEY_1: 'same', GEMINI_API_KEY_2: 'same' }).length, 1);
 assert.equal(getGeminiApiKeys({ GEMINI_API_KEY: 'legacy-only' })[0]?.name, 'GEMINI_API_KEY');
 assert.equal(getGeminiApiKeys({}).length, 0);
+
+const sevenKeysOnly = getGeminiApiKeys(sevenKeyEnvironment);
+const rotatedOrders = [
+  getRotatedGeminiApiKeys(sevenKeysOnly).map((key) => key.name),
+  getRotatedGeminiApiKeys(sevenKeysOnly).map((key) => key.name),
+  getRotatedGeminiApiKeys(sevenKeysOnly).map((key) => key.name)
+];
+assert.deepEqual(rotatedOrders[0], [
+  'GEMINI_API_KEY_1', 'GEMINI_API_KEY_2', 'GEMINI_API_KEY_3', 'GEMINI_API_KEY_4',
+  'GEMINI_API_KEY_5', 'GEMINI_API_KEY_6', 'GEMINI_API_KEY_7'
+]);
+assert.deepEqual(rotatedOrders[1], [
+  'GEMINI_API_KEY_2', 'GEMINI_API_KEY_3', 'GEMINI_API_KEY_4', 'GEMINI_API_KEY_5',
+  'GEMINI_API_KEY_6', 'GEMINI_API_KEY_7', 'GEMINI_API_KEY_1'
+]);
+assert.deepEqual(rotatedOrders[2], [
+  'GEMINI_API_KEY_3', 'GEMINI_API_KEY_4', 'GEMINI_API_KEY_5', 'GEMINI_API_KEY_6',
+  'GEMINI_API_KEY_7', 'GEMINI_API_KEY_1', 'GEMINI_API_KEY_2'
+]);
 
 assert.equal(shouldRotateGeminiKey(new Error('HTTP 429 RESOURCE_EXHAUSTED')), true);
 assert.equal(shouldRotateGeminiKey(new Error('HTTP 503 UNAVAILABLE')), true);
@@ -179,7 +199,10 @@ assert.equal(GEMINI_HTTP_TIMEOUT_MS, 20_000);
 assert.equal(GEMINI_REQUEST_BUDGET_MS, 45_000);
 assert.equal(GEMINI_NARRATION_REVISION_BUDGET_MS, 45_000);
 assert.deepEqual(getGeminiHttpOptions(45_000), { timeout: 20_000, retryOptions: { attempts: 1 } });
-assert.deepEqual(getGeminiHttpOptions(3_500), { timeout: 3_500, retryOptions: { attempts: 1 } });
+assert.equal(getGeminiHttpOptions(9_999), null, 'Gemini rejects request deadlines below 10 seconds');
+assert.deepEqual(getGeminiHttpOptions(10_000), { timeout: 10_000, retryOptions: { attempts: 1 } });
+assert.deepEqual(getGeminiHttpOptions(15_000), { timeout: 15_000, retryOptions: { attempts: 1 } });
+assert.equal(getGeminiHttpOptions(3_500), null, 'do not send a request that Gemini will reject for a short deadline');
 assert.equal(getGeminiHttpOptions(0), null, 'expired request budget prevents another provider attempt');
 assert.equal(getGeminiHttpOptions(-1), null, 'negative request budget prevents another provider attempt');
 assert.equal(getGeminiRemainingBudgetMs(10_000, 2_500), 7_500);
