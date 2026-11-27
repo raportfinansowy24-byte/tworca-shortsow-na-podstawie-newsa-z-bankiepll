@@ -45,6 +45,18 @@ export function getGeminiApiKeys(env: GeminiEnvironment = process.env): GeminiAp
   });
 }
 
+// Rotate the first key on every Gemini request. The production request budget is
+// shorter than the worst-case time needed to probe all seven keys sequentially,
+// so a fixed key order would repeatedly favour GEMINI_API_KEY_1 and starve later keys.
+let geminiApiKeyRotationCursor = 0;
+
+export function getRotatedGeminiApiKeys(keys: GeminiApiKey[]): GeminiApiKey[] {
+  if (keys.length <= 1) return [...keys];
+  const start = geminiApiKeyRotationCursor % keys.length;
+  geminiApiKeyRotationCursor = (start + 1) % keys.length;
+  return [...keys.slice(start), ...keys.slice(0, start)];
+}
+
 export function shouldRotateGeminiKey(error: unknown): boolean {
   const value = error && typeof error === 'object' ? error as {
     status?: unknown;
