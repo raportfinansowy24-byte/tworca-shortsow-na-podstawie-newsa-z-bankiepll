@@ -164,6 +164,49 @@ const unknownActionReport = evaluateSourceEvidence(unknownActionClaim, { sourceT
 assert.equal(unknownActionReport.status, 'blocked');
 assert.ok(unknownActionReport.findings.some((finding) => finding.code === 'unsupported_claim_action'));
 
+
+// Different verbs in one broad business category must not be treated as equivalent.
+const rejectedEvidence = 'Orlen odrzucił wniosek o finansowanie.';
+const approvedClaim = [{
+  voiceover_text: 'Orlen zatwierdził wniosek o finansowanie.',
+  subtitles: 'Orlen zatwierdził wniosek o finansowanie.',
+  sourceEvidence: rejectedEvidence
+}];
+const approvalMismatch = evaluateSourceEvidence(approvedClaim, { sourceText: rejectedEvidence });
+assert.equal(approvalMismatch.status, 'blocked');
+assert.ok(approvalMismatch.findings.some((finding) => finding.code === 'unsupported_claim_action'));
+
+const hiredEvidence = 'Dino zatrudniło 100 nowych pracowników.';
+const firedClaim = [{
+  voiceover_text: 'Dino zwolniło 100 nowych pracowników.',
+  subtitles: 'Dino zwolniło 100 nowych pracowników.',
+  sourceEvidence: hiredEvidence
+}];
+const employmentMismatch = evaluateSourceEvidence(firedClaim, { sourceText: hiredEvidence });
+assert.equal(employmentMismatch.status, 'blocked');
+assert.ok(employmentMismatch.findings.some((finding) => finding.code === 'unsupported_claim_action'));
+
+// An intention to buy is not evidence that a purchase was completed.
+const plannedPurchase = 'Orlen rozważa zakup banku.';
+const completedPurchaseClaim = [{
+  voiceover_text: 'Orlen kupił bank.',
+  subtitles: 'Orlen kupił bank.',
+  sourceEvidence: plannedPurchase
+}];
+const plannedPurchaseCannotProveCompletion = evaluateSourceEvidence(completedPurchaseClaim, { sourceText: plannedPurchase });
+assert.equal(plannedPurchaseCannotProveCompletion.status, 'blocked');
+assert.ok(plannedPurchaseCannotProveCompletion.findings.some((finding) => finding.code === 'unsupported_claim_action'));
+
+// An unknown present-tense predicate after a known company must also fail closed.
+const unknownPresentTenseClaim = [{
+  voiceover_text: 'Orlen planuje wycofać inwestycję.',
+  subtitles: 'Orlen planuje wycofać inwestycję.',
+  sourceEvidence: unknownActionSource
+}];
+const unknownPresentTenseReport = evaluateSourceEvidence(unknownPresentTenseClaim, { sourceText: unknownActionSource });
+assert.equal(unknownPresentTenseReport.status, 'blocked');
+assert.ok(unknownPresentTenseReport.findings.some((finding) => finding.code === 'unsupported_claim_action'));
+
 console.log('Source fact QA tests passed');
 
 
