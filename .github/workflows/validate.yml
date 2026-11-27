@@ -110,6 +110,8 @@ jobs:
         run: npm run test:pixabay-video-provider
       - name: Supabase job history tests
         run: npm run test:supabase-history
+      - name: Persistent Supabase job deletion tests
+        run: npm run test:supabase-job-deletion
       - name: Atomic local history tests
         run: npm run test:atomic-json
       - name: Best-effort history flush tests
