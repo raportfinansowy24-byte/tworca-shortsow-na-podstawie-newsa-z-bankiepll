@@ -251,8 +251,11 @@ export const RenderingQueue: React.FC<RenderingQueueProps> = ({
     try {
       const res = await fetch('/api/jobs', { method: 'DELETE' });
       if (res.ok) {
-        if (onToast) onToast('success', 'Wyczyszczono historię', 'Ukończona historia renderowania została wyczyszczona.');
+        if (onToast) onToast('success', 'Wyczyszczono historię', 'Ukończona historia renderowania została trwale wyczyszczona.');
         onRefresh();
+      } else {
+        const error = await res.json().catch(() => ({}));
+        if (onToast) onToast('error', 'Nie wyczyszczono historii', error.error || `Serwer zwrócił HTTP ${res.status}.`);
       }
     } catch (err) {
       if (onToast) onToast('error', 'Błąd połączenia', (err as Error).message);
