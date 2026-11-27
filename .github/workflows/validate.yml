@@ -114,6 +114,16 @@ jobs:
         run: npm run test:atomic-json
       - name: Best-effort history flush tests
         run: npm run test:best-effort-flush
+      - name: Install FFmpeg and prepare Montserrat font
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          mkdir -p fonts
+          cp assets/fonts/Montserrat-Black.ttf fonts/Montserrat-Black.ttf
+      - name: Karaoke ASS generation tests
+        run: npm run test:karaoke-captions
+      - name: Real FFmpeg karaoke render smoke test
+        run: npx tsx tests/karaokeFfmpegSmoke.test.ts
 
 
 # Production deployment is managed exclusively by Railway.
