@@ -34,13 +34,13 @@ function textValue(scene: Record<string, unknown>, keys: string[]): string {
 
 function normalizeEvidence(value: string): string {
   return value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/ł/g, 'l')
     .toLocaleLowerCase('pl-PL')
-    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .normalize('NFD')
+    .replace(/[\\u0300-\\u036f]/g, '')
+    .replace(/ł/g, 'l')
+    .replace(/[^\\p{L}\\p{N}]+/gu, ' ')
     .trim()
-    .replace(/\s+/g, ' ');
+    .replace(/\\s+/g, ' ');
 }
 
 const KNOWN_FINANCIAL_ENTITIES = [
@@ -118,10 +118,23 @@ const SOURCE_ACTION_FAMILIES: Record<string, string[]> = {
 
 function actionFamilies(value: string): Set<string> {
   const normalized = normalizeEvidence(value);
-  const words = normalized.split(/\s+/u);
+  const words = normalized.split(/\\s+/u);
   const families = new Set<string>();
   for (const [family, stems] of Object.entries(SOURCE_ACTION_FAMILIES)) {
-    if (words.some((word) => stems.some((stem) => word.startsWith(stem)))) families.add(family);
+    if (!words.some((word) => stems.some((stem) => word.startsWith(stem)))) continue;
+
+    // An acquisition plan is not evidence that the transaction was completed.
+    if (family === 'acquisition') {
+      const intent = /\\b(rozwa\\w*|planuj\\w*|zamierz\\w*|chc\\w*|negocjuj\\w*|moz\\w*)\\b/u.test(normalized) ||
+        /\\b(rozmow\\w*|plan\\w*)\\b.{0,45}\\b(przejec\\w*|kupn\\w*|nabyc\\w*)/u.test(normalized);
+      const completed = /\\b(przejal|przejela|przejeli|kupil|kupila|kupili|nabyl|nabyla|nabyli|sfinalizowal|sfinalizowala|sfinalizowali)\\b/u.test(normalized) ||
+        /\\b(zostal|zostala|zostalo|zostali)\\b.{0,30}\\b(przejety|przejeta|przejete|kupiony|kupiona|nabyty|nabyta)\\b/u.test(normalized);
+      if (intent && !completed) families.add('acquisition_intent');
+      else if (completed) families.add('acquisition_completed');
+      else families.add('acquisition_unspecified');
+      continue;
+    }
+    families.add(family);
   }
   return families;
 }
