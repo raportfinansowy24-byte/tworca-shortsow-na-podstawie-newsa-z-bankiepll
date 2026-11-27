@@ -154,9 +154,17 @@ function actionFamilies(value: string): Set<string> {
 
 
 const NON_FACTUAL_ENTITY_PREDICATES = new Set([
-  'jest', 'sa', 'byl', 'byla', 'bylo', 'byli', 'ma', 'maja', 'mial', 'miala',
-  'mieli', 'moze', 'moga', 'powinien', 'powinna', 'powinno', 'oraz', 'takze'
+  'jest', 'sa', 'byl', 'byla', 'bylo', 'byli', 'oraz', 'takze',
+  'powinien', 'powinna', 'powinno'
 ]);
+const UNCLASSIFIED_ACTION_STEMS = [
+  'rozwaz', 'planuj', 'zamierz', 'chc', 'negocjuj', 'moz', 'przewiduj',
+  'oczekuj', 'zapowi', 'proponuj', 'rekomenduj', 'deklaruj', 'wycof',
+  'sprzedaj', 'zrezygnow', 'wstrzym', 'zawiesz', 'ogranicz', 'rozszerz',
+  'otworz', 'zamkn', 'przenos', 'przenies', 'restrukturyz', 'zainwest',
+  'inwestuj', 'oszczedz', 'opozni', 'przyspiesz', 'doplac', 'plac',
+  'zarab', 'trac', 'ma', 'mial', 'posiad', 'dysponuj'
+];
 const DIRECTION_PREDICATES = new Set([
   'wzrosl', 'wzrosla', 'wzroslo', 'wzrosly', 'rosnie', 'rosna',
   'spadl', 'spadla', 'spadlo', 'spadly', 'spada', 'spadaja',
@@ -183,8 +191,9 @@ function unsupportedUnclassifiedEntityPredicate(claim: string, evidence: string)
 
     const following = words.slice(start + entityWords.length, start + entityWords.length + 6);
     for (const word of following) {
-      if (word.length < 4 || !verbLike.test(word)) continue;
-      if (NON_FACTUAL_ENTITY_PREDICATES.has(word) || DIRECTION_PREDICATES.has(word)) continue;
+      const knownPredicateStem = UNCLASSIFIED_ACTION_STEMS.some((stem) => word.startsWith(stem));
+      if ((!knownPredicateStem && (word.length < 4 || !verbLike.test(word))) ||
+          NON_FACTUAL_ENTITY_PREDICATES.has(word) || DIRECTION_PREDICATES.has(word)) continue;
       if (knownActionStems.some((stem) => word.startsWith(stem))) continue;
       if (!normalizedEvidenceWords.has(word)) return word;
     }
