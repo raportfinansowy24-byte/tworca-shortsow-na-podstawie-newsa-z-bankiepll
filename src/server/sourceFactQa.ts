@@ -106,6 +106,25 @@ function numericTokens(value: string): string[] {
   return [...tokens];
 }
 
+const SOURCE_ACTION_FAMILIES: Record<string, string[]> = {
+  reported_results: ['odnotow', 'raportow', 'poinformow', 'opublikow', 'przedstawil', 'podal', 'wykazal', 'zaraportow', 'reported', 'announced', 'published'],
+  acquisition: ['przejal', 'przejec', 'przejm', 'kupil', 'kupow', 'nabyl', 'nabyw', 'acquired', 'acquire', 'bought', 'buy', 'purchased', 'purchase'],
+  financing: ['wyemit', 'emisj', 'zaciagn', 'pozyskal', 'pozysk', 'udzielil', 'udziel', 'sfinans', 'finansow'],
+  approval_decision: ['zatwierdz', 'zaakceptow', 'odrzucil', 'odrzuc', 'zdecydowal', 'zdecyd', 'uchwalil', 'uchwal', 'approved', 'rejected'],
+  launch_change: ['uruchomil', 'wdrozyl', 'wprowadzil', 'zmienil', 'zlikwidowal', 'launch', 'introduced', 'changed'],
+  employment: ['zatrudnil', 'zwolnil', 'zatrudn', 'zwoln', 'employees', 'hired', 'fired']
+};
+
+function actionFamilies(value: string): Set<string> {
+  const normalized = normalizeEvidence(value);
+  const words = normalized.split(/\\s+/u);
+  const families = new Set<string>();
+  for (const [family, stems] of Object.entries(SOURCE_ACTION_FAMILIES)) {
+    if (words.some((word) => stems.some((stem) => word.startsWith(stem)))) families.add(family);
+  }
+  return families;
+}
+
 function direction(value: string): 'up' | 'down' | 'mixed' | 'none' {
   const normalized = normalizeEvidence(value);
   // Detect negated words (e.g. "nie spada", "nie obniz", "zamiast spadku")
@@ -239,6 +258,19 @@ export function evaluateSourceEvidence(rawScenes: unknown, options: SourceFactQa
         code: 'unsupported_entity_claim',
         severity: 'blocker',
         message: `Podmiot „${unsupportedEntity}” w scenie ${sceneNumber} nie występuje w przypisanym fragmencie źródła.`,
+        scene: sceneNumber
+      });
+      return;
+    }
+
+    const claimActions = actionFamilies(`${narration} ${caption}`);
+    const evidenceActions = actionFamilies(evidence);
+    const unsupportedAction = [...claimActions].find((family) => !evidenceActions.has(family));
+    if (unsupportedAction) {
+      findings.push({
+        code: 'unsupported_claim_action',
+        severity: 'blocker',
+        message: `Czynność opisana w scenie ${sceneNumber} nie jest potwierdzona przypisanym fragmentem źródła.`,
         scene: sceneNumber
       });
       return;
