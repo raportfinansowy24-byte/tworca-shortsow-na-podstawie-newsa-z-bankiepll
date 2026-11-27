@@ -117,7 +117,7 @@ const SOURCE_ACTION_FAMILIES: Record<string, string[]> = {
 
 function actionFamilies(value: string): Set<string> {
   const normalized = normalizeEvidence(value);
-  const words = normalized.split(/\\s+/u);
+  const words = normalized.split(/\s+/u);
   const families = new Set<string>();
   for (const [family, stems] of Object.entries(SOURCE_ACTION_FAMILIES)) {
     if (words.some((word) => stems.some((stem) => word.startsWith(stem)))) families.add(family);
