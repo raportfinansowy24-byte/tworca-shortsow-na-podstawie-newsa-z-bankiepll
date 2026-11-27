@@ -1275,14 +1275,10 @@ app.use('/exports', async (req, res, next) => {
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/u.test(requestedFilename)) return res.sendStatus(404);
   let safeFilePath: string;
   try {
-    const exportRoot = await fs.promises.realpath(EXPORTS_DIR);
-    let candidatePath = path.resolve(exportRoot, requestedFilename);
-    if (!candidatePath.startsWith(`${exportRoot}${path.sep}`)) return res.sendStatus(404);
-    const candidateStats = await fs.promises.lstat(candidatePath, { bigint: false });
-    if (!candidateStats.isFile() || candidateStats.isSymbolicLink()) return res.sendStatus(404);
-    candidatePath = await fs.promises.realpath(candidatePath);
-    if (!candidatePath.startsWith(`${exportRoot}${path.sep}`)) return res.sendStatus(404);
-    safeFilePath = candidatePath;
+    const exportRoot = fs.realpathSync(EXPORTS_DIR);
+    safeFilePath = fs.realpathSync(path.resolve(exportRoot, requestedFilename));
+    if (!safeFilePath.startsWith(`${exportRoot}${path.sep}`)) return res.sendStatus(404);
+    if (!fs.statSync(safeFilePath).isFile()) return res.sendStatus(404);
   } catch {
     return res.sendStatus(404);
   }
@@ -1319,13 +1315,11 @@ app.get('/api/exports/:filename', async (req, res) => {
   let filePath: string;
   let stat: fs.Stats;
   try {
-    const exportRoot = await fs.promises.realpath(EXPORTS_DIR);
-    filePath = path.resolve(exportRoot, requestedFilename);
+    const exportRoot = fs.realpathSync(EXPORTS_DIR);
+    filePath = fs.realpathSync(path.resolve(exportRoot, requestedFilename));
     if (!filePath.startsWith(`${exportRoot}${path.sep}`)) return res.sendStatus(404);
-    stat = await fs.promises.lstat(filePath, { bigint: false });
-    if (!stat.isFile() || stat.isSymbolicLink()) return res.sendStatus(404);
-    filePath = await fs.promises.realpath(filePath);
-    if (!filePath.startsWith(`${exportRoot}${path.sep}`)) return res.sendStatus(404);
+    stat = fs.statSync(filePath);
+    if (!stat.isFile()) return res.sendStatus(404);
   } catch {
     return res.status(404).json({ error: 'Nie znaleziono pliku wideo' });
   }
@@ -1458,25 +1452,17 @@ async function validateExportedMp4(filename: string): Promise<Mp4ValidationResul
   ) return { valid: false, reason: 'Nieprawidłowa nazwa pliku MP4.', hasAudio: false };
 
   let exportRoot: string;
-  try {
-    exportRoot = await fs.promises.realpath(EXPORTS_DIR);
-  } catch {
-    return { valid: false, reason: 'Katalog eksportów nie jest dostępny.', hasAudio: false };
-  }
-  let filePath = path.resolve(exportRoot, filename);
-  if (!filePath.startsWith(`${exportRoot}${path.sep}`)) {
-    return { valid: false, reason: 'Plik MP4 znajduje się poza katalogiem eksportów.', hasAudio: false };
-  }
-
+  let filePath: string;
   let stats: fs.Stats;
   try {
-    stats = await fs.promises.lstat(filePath, { bigint: false });
-    if (!stats.isFile() || stats.isSymbolicLink()) {
-      return { valid: false, reason: 'Ścieżka MP4 nie wskazuje na zwykły plik.', hasAudio: false };
-    }
-    filePath = await fs.promises.realpath(filePath);
+    exportRoot = fs.realpathSync(EXPORTS_DIR);
+    filePath = fs.realpathSync(path.resolve(exportRoot, filename));
     if (!filePath.startsWith(`${exportRoot}${path.sep}`)) {
       return { valid: false, reason: 'Plik MP4 rozwiązuje się poza katalogiem eksportów.', hasAudio: false };
+    }
+    stats = fs.statSync(filePath);
+    if (!stats.isFile()) {
+      return { valid: false, reason: 'Ścieżka MP4 nie wskazuje na zwykły plik.', hasAudio: false };
     }
   } catch {
     return { valid: false, reason: 'Plik MP4 nie istnieje lub nie można go bezpiecznie odczytać.', hasAudio: false };
