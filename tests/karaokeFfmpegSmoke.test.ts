@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { cpSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -29,11 +29,13 @@ const root = process.cwd();
 const font = resolve(root, 'fonts/Montserrat-Black.ttf');
 assert.ok(readFileSync(font).byteLength > 1000, 'Montserrat Black font must exist in ./fonts');
 const dir = mkdtempSync(join(tmpdir(), 'r24-karaoke-'));
+mkdirSync(join(dir, 'fonts'));
+cpSync(font, join(dir, 'fonts', 'Montserrat-Black.ttf'));
 try {
   const assPath = join(dir, 'captions.ass');
   const outputPath = join(dir, 'render.mp4');
   writeFileSync(assPath, ass, 'utf8');
-  const filter = 'ass=captions.ass:fontsdir=.';
+  const filter = 'ass=captions.ass:fontsdir=./fonts';
   const result = spawnSync('ffmpeg', [
     '-hide_banner', '-loglevel', 'error', '-y',
     '-f', 'lavfi', '-i', 'color=c=black:s=720x1280:r=25:d=1.5',
