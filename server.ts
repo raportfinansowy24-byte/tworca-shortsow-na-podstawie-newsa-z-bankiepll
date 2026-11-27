@@ -10,7 +10,7 @@ import http from 'http';
 import { validateRemoteUrl, pinnedLookup } from './src/server/remoteUrlSecurity';
 import { downloadRemoteFile, postWebhook } from './src/server/safeHttp';
 import { isPublicExportFilename, isSafeExportPath, parseByteRange } from './src/server/byteRange';
-import { selectValidCompletedMp4Jobs, validateMp4File, type Mp4ValidationResult } from './src/server/mp4Validation';
+import { resolvePublicExportFile, selectValidCompletedMp4Jobs, validateMp4File, type Mp4ValidationResult } from './src/server/mp4Validation';
 import { runCompletionCallback } from './src/server/renderDeadline';
 import { createStreamTicketStore, STREAM_TICKET_TTL_MS } from './src/server/streamTickets';
 import { BestEffortFlush } from './src/server/bestEffortFlush';
@@ -1272,13 +1272,12 @@ app.use('/exports', async (req, res, next) => {
   if (req.method === 'OPTIONS') return res.sendStatus(200);
   let requestedFilename: string;
   try { requestedFilename = decodeURIComponent(req.path).replace(/^\/+/, ''); } catch { return res.sendStatus(404); }
-  if (!isPublicExportFilename(requestedFilename)) return res.sendStatus(404);
-  const requestedPath = path.join(EXPORTS_DIR, requestedFilename);
-  if (!isSafeExportPath(EXPORTS_DIR, requestedPath)) return res.sendStatus(404);
-  if (path.extname(requestedFilename).toLowerCase() === '.mp4') {
-    const validation = await validateExportedMp4(requestedFilename);
+  const resolvedExport = await resolvePublicExportFile(EXPORTS_DIR, requestedFilename);
+  if (!resolvedExport) return res.sendStatus(404);
+  if (path.extname(resolvedExport.filename).toLowerCase() === '.mp4') {
+    const validation = await validateExportedMp4(resolvedExport.filename);
     if (!validation.valid) {
-      markCompletedJobsForFilenameAsInvalid(requestedFilename, validation.reason || 'Nieprawidłowy plik MP4.');
+      markCompletedJobsForFilenameAsInvalid(resolvedExport.filename, validation.reason || 'Nieprawidłowy plik MP4.');
       return res.status(422).json({ error: 'Plik MP4 nie przeszedł walidacji.', details: validation.reason });
     }
   }
@@ -1301,17 +1300,14 @@ app.use('/exports', async (req, res, next) => {
 
 // Dedicated Video Streaming Endpoint with HTTP 206 Partial Content support
 app.get('/api/exports/:filename', async (req, res) => {
-  const filename = req.params.filename;
-  const safeFilename = path.basename(filename);
-  if (safeFilename !== filename || !isPublicExportFilename(safeFilename) || path.extname(safeFilename).toLowerCase() !== '.mp4') return res.sendStatus(404);
-  const filePath = path.join(EXPORTS_DIR, safeFilename);
+  const requestedFilename = req.params.filename;
+  const resolvedExport = await resolvePublicExportFile(EXPORTS_DIR, requestedFilename);
+  if (!resolvedExport || path.extname(resolvedExport.filename).toLowerCase() !== '.mp4') return res.sendStatus(404);
+  const filePath = resolvedExport.filePath;
 
-  if (!isSafeExportPath(EXPORTS_DIR, filePath)) {
-    return res.status(404).json({ error: 'Nie znaleziono pliku wideo' });
-  }
-  const validation = await validateExportedMp4(filename);
+  const validation = await validateExportedMp4(resolvedExport.filename);
   if (!validation.valid) {
-    markCompletedJobsForFilenameAsInvalid(filename, validation.reason || 'Nieprawidłowy plik MP4.');
+    markCompletedJobsForFilenameAsInvalid(resolvedExport.filename, validation.reason || 'Nieprawidłowy plik MP4.');
     return res.status(422).json({ error: 'Plik MP4 nie przeszedł walidacji.', details: validation.reason });
   }
   let stat: fs.Stats;
@@ -1436,24 +1432,18 @@ const sseSubscribers = new Map<string, Set<express.Response>>();
 const mp4ValidationCache = new Map<string, { size: number; mtimeMs: number; ctimeMs: number; result: Mp4ValidationResult }>();
 
 async function validateExportedMp4(filename: string): Promise<Mp4ValidationResult> {
-  const safeFilename = path.basename(filename);
-  if (safeFilename !== filename || !isPublicExportFilename(safeFilename) || path.extname(safeFilename).toLowerCase() !== '.mp4') {
-    return { valid: false, reason: 'Nieprawidłowa nazwa pliku MP4.', hasAudio: false };
+  const resolved = await resolvePublicExportFile(EXPORTS_DIR, filename);
+  if (!resolved || path.extname(resolved.filename).toLowerCase() !== '.mp4') {
+    return { valid: false, reason: 'Nieprawidłowa nazwa pliku MP4 lub brak bezpiecznego pliku w katalogu eksportów.', hasAudio: false };
   }
-  const filePath = path.join(EXPORTS_DIR, safeFilename);
-  if (!isSafeExportPath(EXPORTS_DIR, filePath)) {
-    return { valid: false, reason: 'Plik MP4 nie istnieje lub nie znajduje się bezpiecznie w katalogu eksportów.', hasAudio: false };
+  const filePath = resolved.filePath;
+  const stats = resolved.stats;
+  const cached = mp4ValidationCache.get(filePath);
+  if (cached && cached.size === stats.size && cached.mtimeMs === stats.mtimeMs && cached.ctimeMs === stats.ctimeMs) {
+    return cached.result;
   }
   try {
-    const stats = await fs.promises.lstat(filePath);
-    if (!stats.isFile() || stats.isSymbolicLink()) {
-      return { valid: false, reason: 'Ścieżka MP4 nie wskazuje na zwykły plik.', hasAudio: false };
-    }
-    const cached = mp4ValidationCache.get(filePath);
-    if (cached && cached.size === stats.size && cached.mtimeMs === stats.mtimeMs && cached.ctimeMs === stats.ctimeMs) {
-      return cached.result;
-    }
-    const result = await validateMp4File(EXPORTS_DIR, safeFilename);
+    const result = await validateMp4File(EXPORTS_DIR, resolved.filename);
     mp4ValidationCache.set(filePath, { size: stats.size, mtimeMs: stats.mtimeMs, ctimeMs: stats.ctimeMs, result });
     if (mp4ValidationCache.size > 500) {
       const oldestKey = mp4ValidationCache.keys().next().value;
