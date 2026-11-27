@@ -5,6 +5,7 @@ process.env.SUPABASE_SERVICE_ROLE_KEY = 'sb_secret_job_delete_test';
 
 const requests: Array<{ url: string; method: string; body: string }> = [];
 let failNextDelete = false;
+let failNextTombstoneLookup = false;
 
 const originalFetch = globalThis.fetch;
 globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -25,7 +26,14 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   }
 
   if (url.includes('/rpc/get_deleted_short_job_ids')) {
-    return new Response(JSON.stringify(['persistently-deleted']), {
+    if (failNextTombstoneLookup) {
+      failNextTombstoneLookup = false;
+      return new Response(JSON.stringify({ code: 'TEST_LOOKUP_FAILURE', message: 'forced tombstone lookup failure' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    return new Response(JSON.stringify(['persistently-deleted', 'combined_video_job_disk_old']), {
       status: 200,
       headers: { 'Content-Type': 'application/json' }
     });
@@ -84,6 +92,20 @@ try {
 
   const loaded = await store.loadShortJobsFromSupabase(20);
   assert.deepEqual(loaded.map((job) => job.id), ['still-visible'], 'tombstoned rows must be filtered from history');
+
+  const recoveredCandidates = await store.getDeletedShortJobIds([
+    'job_disk_old',
+    'job_never_deleted'
+  ]);
+  assert.equal(recoveredCandidates.has('job_disk_old'), true, 'MP4 recovery must recognize a tombstoned disk-recovered job ID');
+  assert.equal(recoveredCandidates.has('job_never_deleted'), false, 'MP4 recovery must preserve non-deleted exports');
+
+  failNextTombstoneLookup = true;
+  await assert.rejects(
+    () => store.getDeletedShortJobIds(['job_disk_old']),
+    /Nie udało się sprawdzić trwałych usunięć/,
+    'recovery must fail closed when Supabase tombstone lookup fails'
+  );
 
   failNextDelete = true;
   assert.equal(
