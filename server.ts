@@ -1302,8 +1302,9 @@ app.use('/exports', async (req, res, next) => {
 // Dedicated Video Streaming Endpoint with HTTP 206 Partial Content support
 app.get('/api/exports/:filename', async (req, res) => {
   const filename = req.params.filename;
-  if (!isPublicExportFilename(filename) || path.extname(filename).toLowerCase() !== '.mp4') return res.sendStatus(404);
-  const filePath = path.join(EXPORTS_DIR, filename);
+  const safeFilename = path.basename(filename);
+  if (safeFilename !== filename || !isPublicExportFilename(safeFilename) || path.extname(safeFilename).toLowerCase() !== '.mp4') return res.sendStatus(404);
+  const filePath = path.join(EXPORTS_DIR, safeFilename);
 
   if (!isSafeExportPath(EXPORTS_DIR, filePath)) {
     return res.status(404).json({ error: 'Nie znaleziono pliku wideo' });
@@ -1435,10 +1436,11 @@ const sseSubscribers = new Map<string, Set<express.Response>>();
 const mp4ValidationCache = new Map<string, { size: number; mtimeMs: number; ctimeMs: number; result: Mp4ValidationResult }>();
 
 async function validateExportedMp4(filename: string): Promise<Mp4ValidationResult> {
-  if (!isPublicExportFilename(filename) || path.extname(filename).toLowerCase() !== '.mp4') {
+  const safeFilename = path.basename(filename);
+  if (safeFilename !== filename || !isPublicExportFilename(safeFilename) || path.extname(safeFilename).toLowerCase() !== '.mp4') {
     return { valid: false, reason: 'Nieprawidłowa nazwa pliku MP4.', hasAudio: false };
   }
-  const filePath = path.join(EXPORTS_DIR, filename);
+  const filePath = path.join(EXPORTS_DIR, safeFilename);
   if (!isSafeExportPath(EXPORTS_DIR, filePath)) {
     return { valid: false, reason: 'Plik MP4 nie istnieje lub nie znajduje się bezpiecznie w katalogu eksportów.', hasAudio: false };
   }
@@ -1451,7 +1453,7 @@ async function validateExportedMp4(filename: string): Promise<Mp4ValidationResul
     if (cached && cached.size === stats.size && cached.mtimeMs === stats.mtimeMs && cached.ctimeMs === stats.ctimeMs) {
       return cached.result;
     }
-    const result = await validateMp4File(EXPORTS_DIR, filename);
+    const result = await validateMp4File(EXPORTS_DIR, safeFilename);
     mp4ValidationCache.set(filePath, { size: stats.size, mtimeMs: stats.mtimeMs, ctimeMs: stats.ctimeMs, result });
     if (mp4ValidationCache.size > 500) {
       const oldestKey = mp4ValidationCache.keys().next().value;
