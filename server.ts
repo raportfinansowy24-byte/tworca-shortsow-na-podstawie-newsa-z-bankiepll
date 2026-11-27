@@ -57,7 +57,7 @@ import { buildCtaPolicyPrompt, selectFinanceCta } from './src/server/financeCtaS
 import { nextTelegramRevisionNumber, normalizeTelegramFeedback } from './src/server/telegramRevision';
 import { publishApprovedShortToPostiz } from './src/server/postizPublisher';
 import { constantTimeTokenMatch, createApiAuthMiddleware, createAppSessionToken, getAppAuthConfiguration, SESSION_TTL_SECONDS } from './src/server/apiAuth';
-import { getPexelsSearchCache, hasSupabaseHistoryConfiguration, loadShortJobsFromSupabase, persistShortJobSnapshot, queueShortJobSnapshot, setPexelsSearchCache, upsertShortJobExport, type DriveExportStatus, type ShortJobSnapshot } from './src/server/supabaseJobStore';
+import { deleteShortJobsFromSupabase, getDeletedShortJobIds, getPexelsSearchCache, hasSupabaseHistoryConfiguration, loadShortJobsFromSupabase, persistShortJobSnapshot, queueShortJobSnapshot, setPexelsSearchCache, upsertShortJobExport, type DriveExportStatus, type ShortJobSnapshot } from './src/server/supabaseJobStore';
 import { AtomicJsonFile } from './src/server/atomicJsonFile';
 import { buildCreativeDirectorFallback, buildCreativeDirectorPrompt, loadBrandContext, mapCreativeDirectorPlanToRenderScenes, parseCreativeDirectorPlan, type CreativeDirectorArticle, type CreativeDirectorPlan } from './src/server/creativeDirector';
 import { buildFinanceSceneDataVisual, buildFinanceShortPlan, selectHookVariantFromLearningSignals, validateFinanceShortPlan, type FinanceShortPlan } from './src/server/shortPipeline';
@@ -1682,9 +1682,13 @@ async function recoverAndValidateExportedMp4Files(): Promise<void> {
 
 async function hydrateJobsFromSupabase(): Promise<void> {
   try {
-    const remoteJobs = await loadShortJobsFromSupabase(2000);
     let changed = false;
+    const localDeletedIds = await getDeletedShortJobIds(Array.from(jobsStore.keys()));
+    for (const deletedId of localDeletedIds) {
+      changed = jobsStore.delete(deletedId) || changed;
+    }
 
+    const remoteJobs = await loadShortJobsFromSupabase(2000);
     for (const remoteJob of remoteJobs) {
       const localJob = jobsStore.get(remoteJob.id);
       const remoteUpdatedAt = Date.parse(remoteJob.updatedAt) || 0;
@@ -7677,13 +7681,19 @@ router.delete('/jobs/:jobId', historyMutationRateLimit, async (req, res) => {
   const { jobId } = req.params;
   const job = jobsStore.get(jobId);
 
-  // Natychmiast zatrzymaj i zabij proces jeśli zadanie jeszcze trwa w tle
+  // Stop any running work, then persist a tombstone before changing local history.
   cancelAndTerminateJob(jobId, 'Usunięto z kolejki zadań');
+  const deletedFromHistory = await deleteShortJobsFromSupabase([jobId]);
+  if (!deletedFromHistory) {
+    return res.status(503).json({
+      success: false,
+      error: 'Nie udało się trwale usunąć zadania z historii Supabase. Lokalna historia nie została wyczyszczona.'
+    });
+  }
 
   if (!job) {
-    // Usunięto z aktywnych procesów lub nie było w bazie
     await flushJobsToDisk();
-    return res.json({ success: true, message: `Zadanie ${jobId} zostało zatrzymane i usunięte.` });
+    return res.json({ success: true, message: `Zadanie ${jobId} zostało trwale usunięte z historii.` });
   }
 
   if (job.outputFilename) {
@@ -7720,20 +7730,35 @@ router.delete('/jobs/:jobId', historyMutationRateLimit, async (req, res) => {
   res.json({ success: true, message: `Zadanie ${jobId} zostało zatrzymane i usunięte z lokalnej historii cache.` });
 });
 
-// Clear Jobs History (/api/jobs)
+// Clear Jobs History (/api/jobs). Keep active jobs unless mode=all is explicitly requested.
 router.delete('/jobs', historyMutationRateLimit, async (req, res) => {
   const mode = req.query.mode;
-  if (mode === 'all') {
-    jobsStore.clear();
-  } else {
-    for (const [id, job] of jobsStore.entries()) {
-      if (job.status === 'completed' || job.status === 'failed') {
-        jobsStore.delete(id);
-      }
-    }
+  const clearAll = mode === 'all';
+  const localTargetIds = Array.from(jobsStore.entries())
+    .filter(([, job]) => clearAll || job.status === 'completed' || job.status === 'failed')
+    .map(([id]) => id);
+
+  const deletedFromHistory = await deleteShortJobsFromSupabase(localTargetIds, {
+    terminalOnly: !clearAll,
+    all: clearAll
+  });
+  if (!deletedFromHistory) {
+    return res.status(503).json({
+      success: false,
+      error: 'Nie udało się trwale wyczyścić historii Supabase. Lista nie została zmieniona.'
+    });
   }
+
+  for (const id of localTargetIds) jobsStore.delete(id);
+  if (clearAll) jobsStore.clear();
+
   await flushJobsToDisk();
-  res.json({ success: true, message: 'Historia renderowania została pomyślnie wyczyszczona.' });
+  return res.json({
+    success: true,
+    message: clearAll
+      ? 'Historia renderowania została trwale wyczyszczona.'
+      : 'Ukończona historia renderowania została trwale wyczyszczona.'
+  });
 });
 
 // Bankier.pl News Cache
