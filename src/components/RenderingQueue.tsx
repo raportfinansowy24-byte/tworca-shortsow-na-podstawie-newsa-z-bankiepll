@@ -332,7 +332,10 @@ export const RenderingQueue: React.FC<RenderingQueueProps> = ({
           <div className="p-4 bg-slate-950/80 border border-emerald-500/30 rounded-xl">
             <div className="flex items-center justify-between text-emerald-400 text-xs mb-1">
               <span>W Trakcie / W Kolejce</span>
-              <Gauge className="w-4 h-4 text-emerald-400 animate-spin" />
+              <Gauge
+                className={`w-4 h-4 ${stats.active > 0 ? 'text-emerald-400 animate-spin' : 'text-slate-500'}`}
+                aria-label={stats.active > 0 ? 'Zadania renderują się' : 'Brak aktywnych renderowań'}
+              />
             </div>
             <span className="text-2xl font-bold text-emerald-400 font-mono">{stats.active}</span>
           </div>
