@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
@@ -82,20 +83,16 @@ export async function validateMp4File(exportsDirectory: string, filename: string
   ) return invalid('Nieprawidłowa nazwa pliku MP4.');
 
   let root: string;
+  let filePath: string;
+  let stats: fsSync.Stats;
   try {
-    root = await fs.realpath(exportsDirectory);
-  } catch {
-    return invalid('Katalog eksportów nie jest dostępny.');
-  }
-  let filePath = path.resolve(root, filename);
-  if (!filePath.startsWith(`${root}${path.sep}`)) return invalid('Plik MP4 znajduje się poza katalogiem eksportów.');
-
-  let stats;
-  try {
-    filePath = await fs.realpath(filePath);
-    if (!filePath.startsWith(`${root}${path.sep}`)) return invalid('Plik MP4 rozwiązuje się poza katalogiem eksportów.');
-    stats = await fs.lstat(filePath, { bigint: false });
-    if (!stats.isFile() || stats.isSymbolicLink()) return invalid('Ścieżka MP4 nie wskazuje na zwykły plik.');
+    root = fsSync.realpathSync(exportsDirectory);
+    filePath = fsSync.realpathSync(path.resolve(root, filename));
+    if (!filePath.startsWith(`${root}${path.sep}`)) {
+      return invalid('Plik MP4 rozwiązuje się poza katalogiem eksportów.');
+    }
+    stats = fsSync.statSync(filePath);
+    if (!stats.isFile()) return invalid('Ścieżka MP4 nie wskazuje na zwykły plik.');
   } catch {
     return invalid('Plik MP4 nie istnieje lub nie można go bezpiecznie odczytać.');
   }
