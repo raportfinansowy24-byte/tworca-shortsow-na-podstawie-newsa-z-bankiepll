@@ -33,7 +33,7 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
         headers: { 'Content-Type': 'application/json' }
       });
     }
-    return new Response(JSON.stringify(['persistently-deleted', 'combined_video_job_disk_old']), {
+    return new Response(JSON.stringify(['persistently-deleted', 'job_disk_old']), {
       status: 200,
       headers: { 'Content-Type': 'application/json' }
     });
