@@ -153,6 +153,17 @@ const lowercaseLEvidence = [{
 }];
 assert.equal(evaluateSourceEvidence(lowercaseLEvidence, { sourceText: uppercaseLSource }).status, 'pass');
 
+// Unknown factual predicates attached to a known company fail closed.
+const unknownActionSource = 'Orlen opublikował wyniki finansowe.';
+const unknownActionClaim = [{
+  voiceover_text: 'Orlen wycofał inwestycję.',
+  subtitles: 'Orlen wycofał inwestycję.',
+  sourceEvidence: unknownActionSource
+}];
+const unknownActionReport = evaluateSourceEvidence(unknownActionClaim, { sourceText: unknownActionSource });
+assert.equal(unknownActionReport.status, 'blocked');
+assert.ok(unknownActionReport.findings.some((finding) => finding.code === 'unsupported_claim_action'));
+
 console.log('Source fact QA tests passed');
 
 
