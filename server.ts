@@ -64,6 +64,7 @@ import { buildBrandedCtaSvg } from './src/server/brandEndCard';
 import { buildFinancialChartSvg } from './src/server/financeChartVisual';
 import { selectAdaptiveBackgroundMusic } from './src/server/adaptiveMusicStrategy';
 import type { HighlightBoardOptions } from './src/server/highlightBoards';
+import { generateKaraokeCaptionAss } from './src/server/karaokeCaptions';
 import { buildMotionFilter, generateSceneSoundEffect, motionSoundSpecForBeat } from './src/server/motionSoundRenderer';
 import { getLearningSignals, recordHookVariants, recordPipelineEvent, recordPipelineRun, recordAutopilotPipelineRun, recordRetentionMetric, recordQaRepairTelemetry, updatePipelineRunStatus } from './src/server/pipelineTelemetry';
 import { buildShortsEditorQaRevisionInstruction, evaluateRenderedShort, evaluateShortStoryboard, hasNarrationWithinWordRanges, shouldBlockQa } from './src/server/shortsEditorQa';
@@ -3158,13 +3159,15 @@ Zwróć wyłącznie JSON: {"revisions":[{"sceneIndex":0,"voiceover_text":"zmieni
       if (speechText.length > 0) {
         try {
           console.log(`[Subtitle sync] Scene ${sceneNum}: audio=${captionDuration.toFixed(2)}s, scene=${sceneDuration.toFixed(2)}s, TTS word boundaries=${sceneWordTimings.length}/${speechText.split(/\s+/).filter(Boolean).length}.`);
-          const assContent = generateWordByWordAss(speechText, captionDuration, {
-            animation: animMode,
-            highlightColor: highlightCol,
-            position,
+          const assContent = generateKaraokeCaptionAss(speechText, captionDuration, sceneWordTimings, {
+            fontName: 'Montserrat Black',
             fontSize,
-            outlineWidth
-          }, sceneWordTimings);
+            outlineWidth: 5,
+            glowOutlineWidth: 14,
+            activeColor: '&H000000FF&',
+            inactiveColor: '&H00FFFFFF&',
+            marginV: position === 'center' ? 0 : position === 'top' ? 160 : 220
+          });
           fs.writeFileSync(sceneAssPath, assContent, 'utf8');
           // Escape single quotes and backslashes for FFmpeg filter
           const cleanAssPath = sceneAssPath.replace(/\\/g, '/').replace(/'/g, "'\\\\''");
