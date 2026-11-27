@@ -1333,6 +1333,8 @@ app.get('/api/exports/:filename', async (req, res) => {
   const validation = await validateExportedMp4(safeFilename);
   if (!validation.valid) {
     markCompletedJobsForFilenameAsInvalid(safeFilename, validation.reason || 'Nieprawidłowy plik MP4.');
+    return res.status(422).json({ error: 'Plik MP4 nie przeszedł walidacji.', details: validation.reason });
+  }
   const fileSize = stat.size;
   const range = req.headers.range;
 
