@@ -61,6 +61,7 @@ const warnedMessages = new Set<string>();
 const pendingJobs = new Map<string, ShortJobSnapshot>();
 const flushTimers = new Map<string, NodeJS.Timeout>();
 const jobWriteChains = new Map<string, Promise<void>>();
+const deletedJobIds = new Set<string>();
 const JOB_SNAPSHOT_INTERVAL_MS = 2000;
 
 function warnOnce(key: string, message: string): void {
@@ -283,14 +284,14 @@ async function flushJob(jobId: string): Promise<boolean> {
 }
 
 export async function persistShortJobSnapshot(job: ShortJobSnapshot): Promise<boolean> {
-  if (!getSupabaseClient()) return false;
+  if (deletedJobIds.has(job.id) || !getSupabaseClient()) return false;
   pendingJobs.set(job.id, snapshotCopy(job));
   return flushJob(job.id);
 }
 
 /** Coalesces noisy render progress; lifecycle transitions and artifacts flush immediately. */
 export function queueShortJobSnapshot(job: ShortJobSnapshot, immediate = false): void {
-  if (!getSupabaseClient()) return;
+  if (deletedJobIds.has(job.id) || !getSupabaseClient()) return;
   pendingJobs.set(job.id, snapshotCopy(job));
 
   if (immediate || ['completed', 'failed', 'cancelled'].includes(job.status)) {
@@ -303,6 +304,87 @@ export function queueShortJobSnapshot(job: ShortJobSnapshot, immediate = false):
     timer.unref?.();
     flushTimers.set(job.id, timer);
   }
+}
+
+/** Mark jobs as deleted in Supabase and drain queued writes before the transaction. */
+export async function deleteShortJobsFromSupabase(
+  jobIds: string[],
+  options: { terminalOnly?: boolean; all?: boolean } = {}
+): Promise<boolean> {
+  const supabase = getSupabaseClient();
+  if (!supabase) return false;
+
+  const uniqueIds = Array.from(new Set(
+    jobIds
+      .filter((id): id is string => typeof id === 'string')
+      .map((id) => id.trim())
+      .filter((id) => id.length > 0 && id.length <= 300)
+  ));
+  if (uniqueIds.length === 0 && !options.terminalOnly && !options.all) return true;
+
+  const pendingSnapshots = new Map<string, ShortJobSnapshot>();
+  for (const jobId of uniqueIds) {
+    deletedJobIds.add(jobId);
+    const pending = pendingJobs.get(jobId);
+    if (pending) pendingSnapshots.set(jobId, pending);
+    const timer = flushTimers.get(jobId);
+    if (timer) clearTimeout(timer);
+    flushTimers.delete(jobId);
+    pendingJobs.delete(jobId);
+  }
+
+  // Wait for writes already sent to PostgREST before issuing the atomic delete RPC.
+  await Promise.all(uniqueIds.map(async (jobId) => {
+    const inFlight = jobWriteChains.get(jobId);
+    if (inFlight) await inFlight.catch(() => undefined);
+  }));
+
+  const { error } = await supabase.rpc('delete_short_jobs', {
+    p_job_ids: uniqueIds,
+    p_terminal_only: options.terminalOnly === true,
+    p_all: options.all === true
+  });
+
+  if (error) {
+    for (const jobId of uniqueIds) {
+      deletedJobIds.delete(jobId);
+      const pending = pendingSnapshots.get(jobId);
+      if (pending) queueShortJobSnapshot(pending);
+    }
+    warnOnce(
+      `job-delete:${error.code || error.message}`,
+      `[Supabase] Nie udało się trwale usunąć historii zadań (${error.code || 'błąd API'}).`
+    );
+    return false;
+  }
+
+  return true;
+}
+
+/** Returns persisted deletion tombstones for local-cache reconciliation at startup. */
+export async function getDeletedShortJobIds(jobIds: string[]): Promise<Set<string>> {
+  const supabase = getSupabaseClient();
+  const uniqueIds = Array.from(new Set(jobIds.filter((id) => typeof id === 'string' && id.length > 0)));
+  if (!supabase || uniqueIds.length === 0) return new Set<string>();
+
+  const { data, error } = await supabase.rpc('get_deleted_short_job_ids', {
+    p_job_ids: uniqueIds
+  });
+  if (error) {
+    warnOnce(
+      `job-delete-read:${error.code || error.message}`,
+      `[Supabase] Nie udało się sprawdzić rejestru usunięć zadań (${error.code || 'błąd API'}).`
+    );
+    return new Set<string>();
+  }
+
+  const deleted = new Set<string>(
+    Array.isArray(data)
+      ? data.filter((id): id is string => typeof id === 'string')
+      : []
+  );
+  for (const jobId of deleted) deletedJobIds.add(jobId);
+  return deleted;
 }
 
 export async function loadShortJobsFromSupabase(limit = 1000): Promise<ShortJobSnapshot[]> {
@@ -318,7 +400,11 @@ export async function loadShortJobsFromSupabase(limit = 1000): Promise<ShortJobS
     warnOnce(`job-read:${error.code || error.message}`, `[Supabase] Nie udało się odczytać historii zadań (${error.code || 'błąd API'}).`);
     return [];
   }
-  return (data || []).map((row) => rowToShortJobSnapshot(row as Record<string, any>));
+  const rows = data || [];
+  const deletedIds = await getDeletedShortJobIds(rows.map((row) => String(row.id)));
+  return rows
+    .filter((row) => !deletedIds.has(String(row.id)))
+    .map((row) => rowToShortJobSnapshot(row as Record<string, any>));
 }
 
 export async function upsertShortJobsBatch(jobs: ShortJobSnapshot[]): Promise<boolean> {
