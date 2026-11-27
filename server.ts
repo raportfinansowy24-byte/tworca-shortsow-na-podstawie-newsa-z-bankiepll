@@ -61,6 +61,7 @@ import { deleteShortJobsFromSupabase, getDeletedShortJobIds, getPexelsSearchCach
 import { AtomicJsonFile } from './src/server/atomicJsonFile';
 import { buildCreativeDirectorFallback, buildCreativeDirectorPrompt, loadBrandContext, mapCreativeDirectorPlanToRenderScenes, parseCreativeDirectorPlan, type CreativeDirectorArticle, type CreativeDirectorPlan } from './src/server/creativeDirector';
 import { buildFinanceSceneDataVisual, buildFinanceShortPlan, selectHookVariantFromLearningSignals, validateFinanceShortPlan, type FinanceShortPlan } from './src/server/shortPipeline';
+import { summarizeScenesForHistory } from './src/server/storyboardHistory';
 import { buildBrandedCtaSvg } from './src/server/brandEndCard';
 import { buildFinancialChartSvg } from './src/server/financeChartVisual';
 import { selectAdaptiveBackgroundMusic } from './src/server/adaptiveMusicStrategy';
@@ -1419,29 +1420,6 @@ interface Job {
   exportError?: string;
   createdAt: string;
   updatedAt: string;
-}
-
-function summarizeScenesForHistory(scenes: unknown[]): Record<string, unknown>[] {
-  return scenes.slice(0, 50).map((rawScene, index) => {
-    const scene = rawScene && typeof rawScene === 'object' ? rawScene as Record<string, unknown> : {};
-    const shortText = (value: unknown, maxLength: number) => typeof value === 'string' ? value.trim().slice(0, maxLength) : undefined;
-    const rawPexelsId = scene.pexelsId ?? scene.pexels_id;
-    const pexelsId = Number(rawPexelsId);
-    return {
-      index: index + 1,
-      title: shortText(scene.title ?? scene.subtitles ?? scene.caption, 300),
-      voiceoverText: shortText(scene.voiceover_text ?? scene.voiceoverText, 700),
-      searchKeyword: shortText(scene.searchKeyword ?? scene.search_keyword, 180),
-      camera: shortText(scene.camera, 220),
-      visualMood: shortText(scene.visualMood, 220),
-      source: shortText(scene.videoSource ?? scene.source, 80),
-      pexelsId: Number.isFinite(pexelsId) && pexelsId > 0 ? pexelsId : undefined,
-      pixabayId: Number.isSafeInteger(scene.pixabayId) && typeof scene.pixabayId === 'number' && scene.pixabayId > 0 ? scene.pixabayId : undefined,
-      stockId: shortText(scene.stockId, 100),
-      sourcePageUrl: shortText(scene.sourcePageUrl, 300),
-      duration: typeof scene.duration === 'number' && Number.isFinite(scene.duration) ? scene.duration : undefined
-    };
-  });
 }
 
 interface ActiveJobExecution {

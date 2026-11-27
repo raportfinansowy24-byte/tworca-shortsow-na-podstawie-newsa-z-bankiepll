@@ -32,6 +32,8 @@ jobs:
         run: npm run test:scene-contract
       - name: Shorts storyboard QA tests
         run: npm run test:shorts-editor-qa
+      - name: Live storyboard preview and history serialization tests
+        run: npm run test:storyboard-preview
       - name: QA repair tests
         run: npm run test:qa-repair
       - name: Source evidence tests
