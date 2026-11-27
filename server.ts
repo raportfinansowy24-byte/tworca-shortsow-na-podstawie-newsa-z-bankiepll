@@ -1281,7 +1281,7 @@ app.use('/exports', (req, res, next) => {
   next();
 }, mp4ValidationRateLimit, async (req, res, next) => {
   let requestedFilename: string;
-  try { requestedFilename = decodeURIComponent(req.path).replace(/^\\/+/, ''); } catch { return res.sendStatus(404); }
+  try { requestedFilename = decodeURIComponent(req.path).replace(/^\/+/, ''); } catch { return res.sendStatus(404); }
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/u.test(requestedFilename)) return res.sendStatus(404);
   let safeFilePath: string;
   try {
