@@ -45,24 +45,28 @@ export async function resolvePublicExportFile(
   if (!isPublicExportFilename(requestedFilename)) return null;
 
   let root: string;
-  let entries: Awaited<ReturnType<typeof fs.readdir>>;
   try {
     root = await fs.realpath(exportsDirectory);
-    entries = await fs.readdir(root, { withFileTypes: true });
   } catch {
     return null;
   }
 
-  const matchingEntry = entries.find((entry) => entry.isFile() && entry.name === requestedFilename);
-  if (!matchingEntry) return null;
+  let matchingFilename: string | undefined;
+  try {
+    const entries = await fs.readdir(root, { withFileTypes: true });
+    matchingFilename = entries.find((entry) => entry.isFile() && entry.name === requestedFilename)?.name;
+  } catch {
+    return null;
+  }
+  if (!matchingFilename) return null;
 
-  const filePath = path.join(root, matchingEntry.name);
+  const filePath = path.join(root, matchingFilename);
   try {
     const stats = await fs.lstat(filePath);
     if (!stats.isFile() || stats.isSymbolicLink()) return null;
     const realPath = await fs.realpath(filePath);
     if (path.dirname(realPath) !== root) return null;
-    return { filename: matchingEntry.name, filePath: realPath, stats };
+    return { filename: matchingFilename, filePath: realPath, stats };
   } catch {
     return null;
   }
