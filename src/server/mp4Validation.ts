@@ -1,6 +1,5 @@
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
-import type { Stats } from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { isPublicExportFilename } from './byteRange';
@@ -32,48 +31,6 @@ export interface Mp4ValidationResult {
   probedSizeBytes?: number;
 }
 const invalid = (reason: string, hasAudio = false): Mp4ValidationResult => ({ valid: false, reason, hasAudio });
-export interface ResolvedPublicExportFile {
-  filename: string;
-  filePath: string;
-  stats: Stats;
-}
-
-/** Resolves a requested export name only by matching a regular file returned by readdir. */
-export async function resolvePublicExportFile(
-  exportsDirectory: string,
-  requestedFilename: string
-): Promise<ResolvedPublicExportFile | null> {
-  if (!isPublicExportFilename(requestedFilename)) return null;
-
-  let root: string;
-  try {
-    root = await fs.realpath(exportsDirectory);
-  } catch {
-    return null;
-  }
-
-  let matchingFilename: string | undefined;
-  try {
-    const entries = await fs.readdir(root, { withFileTypes: true });
-    matchingFilename = entries.find((entry) => entry.isFile() && entry.name === requestedFilename)?.name;
-  } catch {
-    return null;
-  }
-  if (!matchingFilename) return null;
-
-  const filePath = path.join(root, matchingFilename);
-  try {
-    const stats = await fs.lstat(filePath, { bigint: false });
-    if (!stats.isFile() || stats.isSymbolicLink()) return null;
-    const realPath = await fs.realpath(filePath);
-    if (path.dirname(realPath) !== root) return null;
-    return { filename: matchingFilename, filePath: realPath, stats };
-  } catch {
-    return null;
-  }
-}
-
-
 export function validateMp4ProbeOutput(output: string, actualSizeBytes: number, requireAudio = false): Mp4ValidationResult {
   if (!Number.isSafeInteger(actualSizeBytes) || actualSizeBytes < 1024) return invalid('Plik MP4 jest pusty lub zbyt mały.');
   let document: Mp4ProbeDocument;
@@ -117,11 +74,32 @@ export function validateMp4ProbeOutput(output: string, actualSizeBytes: number, 
   };
 }
 
-/** Validates an MP4 selected from the exports directory, never an arbitrary user-supplied path. */
+/** Validates an MP4 using an allow-listed filename and a canonical path confined to the export root. */
 export async function validateMp4File(exportsDirectory: string, filename: string, requireAudio = false): Promise<Mp4ValidationResult> {
-  if (path.extname(filename).toLowerCase() !== '.mp4') return invalid('Nieprawidłowa nazwa pliku MP4.');
-  const resolved = await resolvePublicExportFile(exportsDirectory, filename);
-  if (!resolved) return invalid('Plik MP4 nie istnieje lub nie znajduje się bezpiecznie w katalogu eksportów.');
+  if (
+    typeof filename !== 'string' ||
+    !/^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/u.test(filename) ||
+    path.extname(filename).toLowerCase() !== '.mp4'
+  ) return invalid('Nieprawidłowa nazwa pliku MP4.');
+
+  let root: string;
+  try {
+    root = await fs.realpath(exportsDirectory);
+  } catch {
+    return invalid('Katalog eksportów nie jest dostępny.');
+  }
+  let filePath = path.resolve(root, filename);
+  if (!filePath.startsWith(`${root}${path.sep}`)) return invalid('Plik MP4 znajduje się poza katalogiem eksportów.');
+
+  let stats;
+  try {
+    filePath = await fs.realpath(filePath);
+    if (!filePath.startsWith(`${root}${path.sep}`)) return invalid('Plik MP4 rozwiązuje się poza katalogiem eksportów.');
+    stats = await fs.lstat(filePath, { bigint: false });
+    if (!stats.isFile() || stats.isSymbolicLink()) return invalid('Ścieżka MP4 nie wskazuje na zwykły plik.');
+  } catch {
+    return invalid('Plik MP4 nie istnieje lub nie można go bezpiecznie odczytać.');
+  }
 
   try {
     const { stdout } = await execFileAsync('ffprobe', [
@@ -129,9 +107,9 @@ export async function validateMp4File(exportsDirectory: string, filename: string
       '-show_entries', 'stream=codec_type,codec_name,width,height',
       '-show_entries', 'format=duration,size,format_name',
       '-of', 'json',
-      resolved.filePath
+      filePath
     ], { timeout: 12_000, maxBuffer: 1024 * 1024 });
-    return validateMp4ProbeOutput(stdout, resolved.stats.size, requireAudio);
+    return validateMp4ProbeOutput(stdout, stats.size, requireAudio);
   } catch (error) {
     const details = error && typeof error === 'object' && 'stderr' in error && typeof error.stderr === 'string'
       ? error.stderr.trim().slice(0, 240)
