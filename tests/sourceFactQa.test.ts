@@ -105,6 +105,25 @@ const commissionScenes = [
 const commissionResult = evaluateSourceEvidence(commissionScenes, { sourceText: commissionSource });
 assert.equal(commissionResult.status, 'pass', 'Czy Komisja must not be parsed as a two-word proper name');
 
+// Regression: a shared company name does not make an unrelated source sentence evidence.
+const orlenReportedResults = 'Orlen opublikował wyniki finansowe za pierwszy kwartał.';
+const unsupportedAcquisitionClaim = [{
+  voiceover_text: 'Orlen przejął bank i rozszerza działalność finansową.',
+  subtitles: 'Orlen przejął bank i rozszerza działalność finansową.',
+  sourceEvidence: orlenReportedResults
+}];
+const unsupportedActionReport = evaluateSourceEvidence(unsupportedAcquisitionClaim, { sourceText: orlenReportedResults });
+assert.equal(unsupportedActionReport.status, 'blocked');
+assert.ok(unsupportedActionReport.findings.some((finding) => finding.code === 'unsupported_claim_action'));
+
+const supportedAcquisitionSource = 'Orlen przejął udziały w banku i sfinalizował transakcję.';
+const supportedAcquisition = [{
+  voiceover_text: 'Orlen przejął udziały w banku.',
+  subtitles: 'Orlen przejął udziały w banku.',
+  sourceEvidence: supportedAcquisitionSource
+}];
+assert.equal(evaluateSourceEvidence(supportedAcquisition, { sourceText: supportedAcquisitionSource }).status, 'pass');
+
 console.log('Source fact QA tests passed');
 
 
