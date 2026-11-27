@@ -34,10 +34,10 @@ function textValue(scene: Record<string, unknown>, keys: string[]): string {
 
 function normalizeEvidence(value: string): string {
   return value
-    .toLocaleLowerCase('pl-PL')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/ł/g, 'l')
+    .replace(/[Łł]/g, 'l')
+    .toLocaleLowerCase('pl-PL')
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim()
     .replace(/\s+/g, ' ');
@@ -109,33 +109,46 @@ function numericTokens(value: string): string[] {
 
 const SOURCE_ACTION_FAMILIES: Record<string, string[]> = {
   reported_results: ['odnotow', 'raportow', 'poinformow', 'opublikow', 'przedstawil', 'podal', 'wykazal', 'zaraportow', 'reported', 'announced', 'published'],
-  acquisition: ['przejal', 'przejec', 'przejm', 'kupil', 'kupow', 'nabyl', 'nabyw', 'acquired', 'acquire', 'bought', 'buy', 'purchased', 'purchase'],
-  financing: ['wyemit', 'emisj', 'zaciagn', 'pozyskal', 'pozysk', 'udzielil', 'udziel', 'sfinans', 'finansow'],
-  approval_decision: ['zatwierdz', 'zaakceptow', 'odrzucil', 'odrzuc', 'zdecydowal', 'zdecyd', 'uchwalil', 'uchwal', 'approved', 'rejected'],
-  launch_change: ['uruchomil', 'wdrozyl', 'wprowadzil', 'zmienil', 'zlikwidowal', 'launch', 'introduced', 'changed'],
-  employment: ['zatrudnil', 'zwolnil', 'zatrudn', 'zwoln', 'employees', 'hired', 'fired']
+  acquisition_completed: ['przejal', 'przejela', 'przejeli', 'kupil', 'kupila', 'kupili', 'nabyl', 'nabyla', 'nabyli', 'sfinalizowal', 'sfinalizowala', 'sfinalizowali', 'acquired', 'bought', 'purchased'],
+  financing_debt_issued: ['wyemit', 'emisj', 'issued', 'issuance'],
+  financing_debt_borrowed: ['zaciagn', 'borrowed', 'borrow'],
+  financing_capital_raised: ['pozyskal', 'pozysk', 'raised', 'raise'],
+  financing_credit_granted: ['udzielil', 'udziel', 'granted', 'grant'],
+  financing_funded: ['sfinans', 'finansow', 'funded', 'fund'],
+  approval_granted: ['zatwierdz', 'zaakceptow', 'approved', 'approve'],
+  approval_rejected: ['odrzuc', 'rejected', 'reject'],
+  decision_adopted: ['zdecydow', 'uchwal', 'decided', 'adopted'],
+  launch_started: ['uruchom', 'wdroz', 'wprowadz', 'launch', 'introduced'],
+  launch_changed: ['zmien', 'changed'],
+  launch_discontinued: ['zlikwid', 'discontinued'],
+  employment_hired: ['zatrudn', 'hired', 'hire'],
+  employment_fired: ['zwoln', 'fired', 'dismissed', 'laid']
 };
 
 function actionFamilies(value: string): Set<string> {
   const normalized = normalizeEvidence(value);
   const words = normalized.split(/\s+/u);
   const families = new Set<string>();
-  for (const [family, stems] of Object.entries(SOURCE_ACTION_FAMILIES)) {
-    if (!words.some((word) => stems.some((stem) => word.startsWith(stem)))) continue;
 
-    // An acquisition plan is not evidence that the transaction was completed.
-    if (family === 'acquisition') {
-      const intent = /\b(rozwa\w*|planuj\w*|zamierz\w*|chc\w*|negocjuj\w*|moz\w*)\b/u.test(normalized) ||
-        /\b(rozmow\w*|plan\w*)\b.{0,45}\b(przejec\w*|kupn\w*|nabyc\w*)/u.test(normalized);
-      const completed = /\b(przejal|przejela|przejeli|kupil|kupila|kupili|nabyl|nabyla|nabyli|sfinalizowal|sfinalizowala|sfinalizowali)\b/u.test(normalized) ||
-        /\b(zostal|zostala|zostalo|zostali)\b.{0,30}\b(przejety|przejeta|przejete|kupiony|kupiona|nabyty|nabyta)\b/u.test(normalized);
-      if (intent && !completed) families.add('acquisition_intent');
-      else if (completed) families.add('acquisition_completed');
-      else families.add('acquisition_unspecified');
-      continue;
+  for (const [family, stems] of Object.entries(SOURCE_ACTION_FAMILIES)) {
+    if (words.some((word) => stems.some((stem) => word.startsWith(stem)))) {
+      families.add(family);
     }
-    families.add(family);
   }
+
+  // Keep acquisition intent, ongoing activity and completed transactions distinct.
+  const acquisitionTopic = words.some((word) =>
+    ['przejec', 'przejm', 'przeja', 'kupn', 'kupow', 'kupuj', 'nabyc', 'acquir', 'purchase'].some((stem) => word.startsWith(stem))
+  );
+  if (acquisitionTopic) {
+    const completed = families.has('acquisition_completed');
+    const intent = words.some((word) =>
+      ['rozwaz', 'planuj', 'zamierz', 'chc', 'negocjuj', 'moz', 'rozmaw'].some((stem) => word.startsWith(stem))
+    );
+    const inProgress = words.some((word) => word.startsWith('przejm') || word.startsWith('kupuj'));
+    families.add(completed ? 'acquisition_completed' : intent ? 'acquisition_intent' : inProgress ? 'acquisition_in_progress' : 'acquisition_unspecified');
+  }
+
   return families;
 }
 
@@ -151,26 +164,29 @@ const DIRECTION_PREDICATES = new Set([
 ]);
 
 /**
- * Catch factual predicates attached to a named company even when they are not
- * yet represented in the curated action taxonomy. Unknown predicates must be
- * present in the evidence verbatim; otherwise QA fails closed.
+ * Fail closed when a named entity is followed by a factual predicate that is
+ * not covered by the curated action taxonomy. Unknown predicates must occur
+ * verbatim in the exact source excerpt attached to the scene.
  */
 function unsupportedUnclassifiedEntityPredicate(claim: string, evidence: string): string | undefined {
   const normalizedClaim = normalizeEvidence(claim);
-  const normalizedEvidence = normalizeEvidence(evidence);
+  const normalizedEvidenceWords = new Set(normalizeEvidence(evidence).split(/\s+/u));
   const words = normalizedClaim.split(/\s+/u);
   const entities = namedEntities(claim).map(normalizeEvidence);
-  const verbLike = /(?:al|ala|alo|ali|aly|il|ila|ilo|ili|yl|yla|ylo|yli|nal|nela|neli|owal|owala|owali|uje|uja|uja|aja|aja|nie|nieja)$/u;
+  const verbLike = /(?:al|ala|alo|ali|aly|il|ila|ilo|ili|yl|yla|ylo|yli|nal|nela|neli|owal|owala|owali|uje|uja|aja|aje|ia|ie|isz|ysz|amy|emy|acie|nie|ci|owac|ac|ic|yc)$/u;
+  const knownActionStems = Object.values(SOURCE_ACTION_FAMILIES).flat();
 
   for (const entity of entities) {
     const entityWords = entity.split(/\s+/u);
     const start = words.findIndex((_, index) => entityWords.every((part, offset) => words[index + offset] === part));
     if (start < 0) continue;
-    const following = words.slice(start + entityWords.length, start + entityWords.length + 5);
+
+    const following = words.slice(start + entityWords.length, start + entityWords.length + 6);
     for (const word of following) {
-      if (!verbLike.test(word) || NON_FACTUAL_ENTITY_PREDICATES.has(word) || DIRECTION_PREDICATES.has(word)) continue;
-      if (Object.values(SOURCE_ACTION_FAMILIES).some((stems) => stems.some((stem) => word.startsWith(stem)))) continue;
-      if (!normalizedEvidence.split(/\s+/u).includes(word)) return word;
+      if (word.length < 4 || !verbLike.test(word)) continue;
+      if (NON_FACTUAL_ENTITY_PREDICATES.has(word) || DIRECTION_PREDICATES.has(word)) continue;
+      if (knownActionStems.some((stem) => word.startsWith(stem))) continue;
+      if (!normalizedEvidenceWords.has(word)) return word;
     }
   }
   return undefined;
