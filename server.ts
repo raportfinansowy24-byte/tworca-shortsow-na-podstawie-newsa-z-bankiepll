@@ -1641,9 +1641,24 @@ async function recoverAndValidateExportedMp4Files(): Promise<void> {
     }
 
     const files = await fs.promises.readdir(EXPORTS_DIR);
-    for (const filename of files) {
-      if (path.extname(filename).toLowerCase() !== '.mp4') continue;
+    const mp4Files = files.filter((filename) => path.extname(filename).toLowerCase() === '.mp4');
+    const recoveredJobIdByFilename = new Map<string, string>();
+    for (const filename of mp4Files) {
+      const match = filename.match(/combined_video_(job_[^\\.]+)\\.mp4/);
+      recoveredJobIdByFilename.set(filename, match ? match[1] : 'job_disk_' + path.parse(filename).name);
+    }
+
+    // A cleared history can leave local MP4s in place. Consult persistent tombstones
+    // before rebuilding jobs from those files, otherwise a restart resurrects them.
+    const deletedRecoveredJobIds = await getDeletedShortJobIds(Array.from(recoveredJobIdByFilename.values()));
+
+    for (const filename of mp4Files) {
       if (Array.from(jobsStore.values()).some((job) => job.outputFilename === filename)) continue;
+      const jobId = recoveredJobIdByFilename.get(filename)!;
+      if (deletedRecoveredJobIds.has(jobId)) {
+        console.info('[Historia MP4] Pominięto odzyskiwanie trwale usuniętego zadania ' + jobId + '.');
+        continue;
+      }
       const validation = await validateExportedMp4(filename);
       if (!validation.valid) {
         console.warn('[Historia MP4] Pominięto nieprawidłowy plik ' + filename + ': ' + validation.reason);
@@ -1655,8 +1670,6 @@ async function recoverAndValidateExportedMp4Files(): Promise<void> {
       } catch {
         continue;
       }
-      const match = filename.match(/combined_video_(job_[^\\.]+)\\.mp4/);
-      const jobId = match ? match[1] : 'job_disk_' + path.parse(filename).name;
       if (jobsStore.has(jobId)) continue;
       const recoveredJob: Job = {
         id: jobId,
