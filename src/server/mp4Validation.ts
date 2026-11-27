@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
+import type { Stats } from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { isPublicExportFilename } from './byteRange';
@@ -34,7 +35,7 @@ const invalid = (reason: string, hasAudio = false): Mp4ValidationResult => ({ va
 export interface ResolvedPublicExportFile {
   filename: string;
   filePath: string;
-  stats: Awaited<ReturnType<typeof fs.lstat>>;
+  stats: Stats;
 }
 
 /** Resolves a requested export name only by matching a regular file returned by readdir. */
@@ -62,7 +63,7 @@ export async function resolvePublicExportFile(
 
   const filePath = path.join(root, matchingFilename);
   try {
-    const stats = await fs.lstat(filePath);
+    const stats = await fs.lstat(filePath, { bigint: false });
     if (!stats.isFile() || stats.isSymbolicLink()) return null;
     const realPath = await fs.realpath(filePath);
     if (path.dirname(realPath) !== root) return null;
