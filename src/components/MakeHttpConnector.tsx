@@ -112,7 +112,7 @@ export const MakeHttpConnector: React.FC = () => {
 
   const fetchRecentJobs = async () => {
     try {
-      const res = await fetch('/api/jobs');
+      const res = await fetch('/api/jobs', { cache: 'no-store' });
       if (res.ok) {
         const data: JobStatusResponse[] = await res.json();
         setRecentJobs(data);
@@ -375,7 +375,7 @@ export const MakeHttpConnector: React.FC = () => {
         fetch('/api/health', { cache: 'no-store' }).then(async (r) => {
           if (r.ok) setHealth(await r.json());
         }),
-        fetch('/api/jobs').then(async (r) => {
+        fetch('/api/jobs', { cache: 'no-store' }).then(async (r) => {
           if (r.ok) {
             const data = await r.json();
             if (Array.isArray(data)) setRecentJobs(data.slice(0, 10));

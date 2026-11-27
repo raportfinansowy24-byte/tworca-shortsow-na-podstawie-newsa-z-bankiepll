@@ -7652,7 +7652,11 @@ router.get('/jobs', (req, res) => {
   }).sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
-  res.json(jobs);
+  // The live queue must never be served from a browser/proxy cache.
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.status(200).json(jobs);
 });
 
 // Job Status Check Endpoint (/api/jobs/:jobId)
