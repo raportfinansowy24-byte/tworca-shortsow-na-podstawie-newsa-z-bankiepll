@@ -19,7 +19,8 @@ export interface ShortsEditorQaReport {
 }
 
 export function shouldBlockQa(status: ShortsEditorQaStatus, requirePass = false): boolean {
-  return status === 'blocked' || (requirePass && status !== 'pass');
+  // "review" is not publication-safe: missing frames/provider failures must fail closed in every mode.
+  return status === 'blocked' || status === 'review' || (requirePass && status !== 'pass');
 }
 
 export interface NarrationWordRange {
