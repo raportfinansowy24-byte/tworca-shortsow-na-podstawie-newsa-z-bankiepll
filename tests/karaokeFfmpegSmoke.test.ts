@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -33,12 +33,12 @@ try {
   const assPath = join(dir, 'captions.ass');
   const outputPath = join(dir, 'render.mp4');
   writeFileSync(assPath, ass, 'utf8');
-  const filter = "ass='" + assPath.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'") + "':fontsdir=./fonts";
+  const filter = 'ass=captions.ass:fontsdir=.';
   const result = spawnSync('ffmpeg', [
     '-hide_banner', '-loglevel', 'error', '-y',
     '-f', 'lavfi', '-i', 'color=c=black:s=720x1280:r=25:d=1.5',
     '-vf', filter, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-an', outputPath,
-  ], { encoding: 'utf8', timeout: 60_000 });
+  ], { cwd: dir, encoding: 'utf8', timeout: 60_000 });
   assert.equal(result.status, 0, 'FFmpeg ASS render failed: ' + (result.stderr || result.error?.message || 'unknown error'));
   assert.ok(statSync(outputPath).size > 1000, 'FFmpeg output video must be non-empty');
   console.log('Karaoke ASS FFmpeg render smoke test passed');
