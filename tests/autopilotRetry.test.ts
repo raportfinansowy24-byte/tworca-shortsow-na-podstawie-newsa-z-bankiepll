@@ -44,9 +44,21 @@ const repairedWithDefaultLimit = await repairUntilPass<string, QaReport>({
     : initialReport,
   sleep: async () => {}
 });
-assert.equal(repairedWithDefaultLimit.passed, true, 'domyślna pętla QA kontynuuje poprawki aż do PASS');
-assert.equal(repairedWithDefaultLimit.attempts, 3, 'domyślna pętla nie kończy się po dwóch poprawkach');
-assert.equal(defaultRepairCalls, 3, 'model jest ponownie wywoływany aż do uzyskania PASS');
+assert.equal(repairedWithDefaultLimit.passed, true, 'domyślna pętla może osiągnąć PASS w granicy trzech poprawek');
+assert.equal(repairedWithDefaultLimit.attempts, 3, 'domyślny budżet pojedynczego joba wynosi trzy poprawki');
+assert.equal(defaultRepairCalls, 3, 'model nie przekracza trzech poprawek w jednym jobie');
+
+let boundedDefaultCalls = 0;
+const boundedDefault = await repairUntilPass<string, QaReport>({
+  initialValue: 'blocked',
+  initialReport,
+  revise: async () => { boundedDefaultCalls += 1; return 'still-blocked'; },
+  evaluate: () => initialReport,
+  sleep: async () => {}
+});
+assert.equal(boundedDefault.passed, false, 'nieusuwalny blocker kończy pojedynczy job po wyczerpaniu budżetu');
+assert.equal(boundedDefault.attempts, 3);
+assert.equal(boundedDefaultCalls, 3);
 
 let previousErrorObserved = false;
 const repairedAfterTransientError = await repairUntilPass<string, QaReport>({
