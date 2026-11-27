@@ -124,6 +124,35 @@ const supportedAcquisition = [{
 }];
 assert.equal(evaluateSourceEvidence(supportedAcquisition, { sourceText: supportedAcquisitionSource }).status, 'pass');
 
+// An acquisition plan is not evidence of a completed acquisition.
+const acquisitionIntent = 'Orlen rozważa przejęcie banku.';
+const completedAcquisitionClaim = [{
+  voiceover_text: 'Orlen przejął bank.',
+  subtitles: 'Orlen przejął bank.',
+  sourceEvidence: acquisitionIntent
+}];
+const intentCannotProveCompletion = evaluateSourceEvidence(completedAcquisitionClaim, { sourceText: acquisitionIntent });
+assert.equal(intentCannotProveCompletion.status, 'blocked');
+assert.ok(intentCannotProveCompletion.findings.some((finding) => finding.code === 'unsupported_claim_action'));
+
+const completedAcquisitionEvidence = 'Orlen przejął bank.';
+const intentClaim = [{
+  voiceover_text: 'Orlen rozważa przejęcie banku.',
+  subtitles: 'Orlen rozważa przejęcie banku.',
+  sourceEvidence: completedAcquisitionEvidence
+}];
+const completionCannotProveIntent = evaluateSourceEvidence(intentClaim, { sourceText: completedAcquisitionEvidence });
+assert.equal(completionCannotProveIntent.status, 'blocked');
+
+// Uppercase Polish Ł and lowercase ł must normalize identically.
+const uppercaseLSource = 'Łódź opublikowała raport finansowy.';
+const lowercaseLEvidence = [{
+  voiceover_text: 'Łódź opublikowała raport finansowy.',
+  subtitles: 'Łódź opublikowała raport finansowy.',
+  sourceEvidence: 'łódź opublikowała raport finansowy.'
+}];
+assert.equal(evaluateSourceEvidence(lowercaseLEvidence, { sourceText: uppercaseLSource }).status, 'pass');
+
 console.log('Source fact QA tests passed');
 
 
