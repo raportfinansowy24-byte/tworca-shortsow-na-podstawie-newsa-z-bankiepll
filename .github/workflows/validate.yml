@@ -120,6 +120,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends ffmpeg
           mkdir -p fonts
           cp assets/fonts/Montserrat-Black.ttf fonts/Montserrat-Black.ttf
+      - name: MP4 history validation tests
+        run: npm run test:mp4-validation && npm run test:mp4-validation:integration
       - name: Karaoke ASS generation tests
         run: npm run test:karaoke-captions
       - name: Real FFmpeg karaoke render smoke test
