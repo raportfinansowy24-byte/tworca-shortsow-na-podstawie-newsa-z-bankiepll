@@ -84,7 +84,7 @@ import { buildStockClipSamplingFilter, isTrustedStockVideoDownloadUrl, stockClip
 import { cleanStockSearchQuery, scoreStockCandidateSoftAvoidance } from './src/server/stockCandidatePolicy';
 import { buildSourceEvidenceVisual, resolveStockWithEvidenceFallback, resolveStockWithVerifiedEvidenceFallback } from './src/server/sourceEvidenceVisual';
 import { findLegacyFailedAutopilotArticleUrl, getNextPendingAutopilotRetry, MAX_STORYBOARD_QA_REPAIR_ATTEMPTS, recordAutopilotFailure, reactivateExhaustedAutopilotRetries, repairUntilPass, resolveAutopilotRetry, isCompatibleNarrationRetryCache, type AutopilotRetryEntry, type RetryableAutopilotArticle, type NarrationRetryCacheMetadata } from './src/server/autopilotRetry';
-import { GEMINI_PRIMARY_MODEL, getGeminiApiKeys, getGeminiFallbackModels, withGeminiModelFallback } from './src/server/modelRouting';
+import { GEMINI_PRIMARY_MODEL, getGeminiApiKeys, getRotatedGeminiApiKeys, getGeminiFallbackModels, withGeminiModelFallback } from './src/server/modelRouting';
 import { fetchOfferCatalogCategory, resolveOfferCatalogSourceBase } from './src/server/offerCatalogFetch';
 import { GEMINI_NARRATION_REVISION_BUDGET_MS, GEMINI_REQUEST_BUDGET_MS, getGeminiHttpOptions, getGeminiRemainingBudgetMs } from './src/server/geminiRequestPolicy';
 
@@ -95,7 +95,7 @@ const serverStartedAt = new Date().toISOString();
 async function generateGeminiContentWithFallback(params: { contents: any; config?: any; deadlineAt?: number }) {
   const startedAt = Date.now();
   const deadlineAt = params.deadlineAt ?? (startedAt + GEMINI_REQUEST_BUDGET_MS);
-  const keys = getGeminiApiKeys();
+  const keys = getRotatedGeminiApiKeys(getGeminiApiKeys());
   const fallbackModels = getGeminiFallbackModels();
   console.info('[Gemini HTTP] request_started budgetMs=' + getGeminiRemainingBudgetMs(deadlineAt, startedAt) + ' keys=' + keys.length + ' models=' + (1 + fallbackModels.length) + '.');
   try {
