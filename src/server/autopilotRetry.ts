@@ -1,4 +1,4 @@
-export const MAX_STORYBOARD_QA_REPAIR_ATTEMPTS = Number.POSITIVE_INFINITY;
+export const MAX_STORYBOARD_QA_REPAIR_ATTEMPTS = 3;
 export const MAX_AUTOPILOT_RETRY_QUEUE_SIZE = 50;
 
 export interface RetryableAutopilotArticle {
@@ -159,9 +159,9 @@ export interface QaRepairLoopResult<T, R extends { status: string }> {
 }
 
 /**
- * Keep repairing the same storyboard until deterministic QA passes.
- * Provider failures preserve the current candidate and use capped exponential backoff;
- * they do not consume a finite repair allowance.
+ * Bound expensive storyboard revisions within one render job.
+ * Failed articles remain retryable in the persistent autopilot queue across separate runs;
+ * provider failures preserve the current candidate and use capped exponential backoff.
  */
 export async function repairUntilPass<T, R extends { status: string }>(options: {
   initialValue: T;
