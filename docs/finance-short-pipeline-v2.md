@@ -47,3 +47,12 @@ npm run test:scene-contract
 npm run lint
 npm run build
 ```
+
+
+## Kontrakt długości Shorta
+
+- **Minimum:** 17 sekund.
+- **Cel redakcyjny:** 18 sekund.
+- **Maksimum bezwzględne:** 28 sekund.
+
+Osiem scen storyboardu otrzymuje bazowy budżet 18 sekund (2,25 s na scenę). Rzeczywisty czas scen jest synchronizowany z długością narracji TTS; renderer może wydłużyć lub skrócić budżety scen zgodnie z narracją, ale gotowy materiał musi mieścić się w przedziale 17–28 sekund. Wartość 18 sekund jest celem, a nie sztywnym limitem odrzucającym poprawną narrację.

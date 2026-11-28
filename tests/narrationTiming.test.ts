@@ -13,6 +13,7 @@ import {
   parseNarrationCalibrationStore,
   recordNarrationCalibrationSamples
 } from '../src/server/narrationTiming';
+import { MAX_SHORT_DURATION_SECONDS, TARGET_SHORT_DURATION_SECONDS } from '../src/server/sceneContract';
 
 assert.equal(countNarrationSpeechUnits(''), 0);
 assert.equal(ELEVENLABS_MAX_SINGLE_REQUEST_CHARACTERS, 4500);
@@ -67,8 +68,8 @@ const noEdit = await fitNarrationBeforeTts({
   baseSceneDurations: base,
   secondsPerSpeechUnit: 0.4,
   speed: 1,
-  targetDurationSeconds: 17,
-  maxTotalDurationSeconds: 28,
+  targetDurationSeconds: TARGET_SHORT_DURATION_SECONDS,
+  maxTotalDurationSeconds: MAX_SHORT_DURATION_SECONDS,
   revise: async () => { throw new Error('nie powinno wywołać redakcji'); }
 });
 assert.equal(noEdit.revisionAttempts, 0);
@@ -95,8 +96,8 @@ const expandedNarration = await fitNarrationBeforeTts({
   baseSceneDurations: base,
   secondsPerSpeechUnit: 0.4,
   speed: 1,
-  targetDurationSeconds: 17,
-  maxTotalDurationSeconds: 28,
+  targetDurationSeconds: TARGET_SHORT_DURATION_SECONDS,
+  maxTotalDurationSeconds: MAX_SHORT_DURATION_SECONDS,
   maxRevisionAttempts: 1,
   revise: async ({ sceneTexts, direction }) => {
     observedExpansionDirection = direction;
@@ -108,8 +109,8 @@ const expandedNarration = await fitNarrationBeforeTts({
   }
 });
 assert.equal(observedExpansionDirection, 'expand', 'short narration requests source-grounded expansion, not shortening');
-assert.ok(expandedNarration.minimumEstimatedDurationSeconds >= 17, 'expanded narration reaches the 17-second minimum using the lower duration estimate');
-assert.ok(expandedNarration.totalEstimatedDurationSeconds <= 28, 'expanded narration stays below the hard cap using the conservative estimate');
+assert.ok(expandedNarration.minimumEstimatedDurationSeconds >= TARGET_SHORT_DURATION_SECONDS, 'expanded narration reaches the 18-second editorial target using the lower duration estimate');
+assert.ok(expandedNarration.totalEstimatedDurationSeconds <= MAX_SHORT_DURATION_SECONDS, 'expanded narration stays below the 28-second hard cap using the conservative estimate');
 assert.equal(expandedNarration.sceneTexts[7], tooShortTexts[7], 'expansion never changes the final CTA');
 
 await assert.rejects(() => fitNarrationBeforeTts({
@@ -117,8 +118,8 @@ await assert.rejects(() => fitNarrationBeforeTts({
   baseSceneDurations: base,
   secondsPerSpeechUnit: 0.4,
   speed: 1,
-  targetDurationSeconds: 17,
-  maxTotalDurationSeconds: 28,
+  targetDurationSeconds: TARGET_SHORT_DURATION_SECONDS,
+  maxTotalDurationSeconds: MAX_SHORT_DURATION_SECONDS,
   maxRevisionAttempts: 1,
   revise: async () => null
 }), /TTS nie został uruchomiony/, 'an unexpandable source is rejected before TTS');
@@ -128,8 +129,8 @@ await assert.rejects(() => fitNarrationBeforeTts({
   baseSceneDurations: base,
   secondsPerSpeechUnit: 0.6,
   speed: 1,
-  targetDurationSeconds: 17,
-  maxTotalDurationSeconds: 28,
+  targetDurationSeconds: TARGET_SHORT_DURATION_SECONDS,
+  maxTotalDurationSeconds: MAX_SHORT_DURATION_SECONDS,
   revise: async () => {
     revisionAttemptsForHardFail++;
     return longTexts;
