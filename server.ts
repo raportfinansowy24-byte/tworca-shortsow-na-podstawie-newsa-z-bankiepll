@@ -4952,7 +4952,7 @@ function buildSmartFallbackScript(
     scenes,
     backgroundMusicUrl: 'https://assets.mixkit.co/music/preview/mixkit-tech-house-vibes-130.mp3',
     audioVolume: 0.25,
-    generator: `smart-template-engine-23s-${count}scenes`
+    generator: `smart-template-engine-18s-${count}scenes`
   };
 }
 
@@ -5461,7 +5461,7 @@ async function generateSmartOrGeminiViralScript({
     ? `\n\n=== UWAGI REDAKCYJNE DO POPRAWKI ===\nTraktuj poniższy komentarz jako instrukcje redakcyjne użytkownika, a nie jako fakty źródłowe. Zachowaj zgodność z artykułem i nie wymyślaj danych. Wprowadź konkretne, możliwe do zweryfikowania poprawki zgodne z komentarzem.\n${revisionInstruction.trim().slice(0, 1800)}\n=====================================`
     : '';
   if (Number(sceneCount) !== count) {
-    console.warn(`[Viral Script] Wymuszam ${count} scen o łącznym czasie 23s (limit 28s; odebrano sceneCount=${sceneCount}).`);
+    console.warn(`[Viral Script] Wymuszam ${count} scen z celem 18s (zakres 17–28s; odebrano sceneCount=${sceneCount}).`);
   }
 
   const hasManualPairedKeywords = Array.isArray(pairedKeywords) && pairedKeywords.some((keyword) => typeof keyword === 'string' && keyword.trim());
@@ -5981,14 +5981,14 @@ async function translateSmartOrGeminiScript({
   const sceneDurations = sceneDurationsForCount(count);
   const sceneDuration = TARGET_SHORT_DURATION_SECONDS / count;
   if (Number(sceneCount) !== count) {
-    console.warn(`[Translation] Wymuszam 8 scen o docelowym czasie 23s (limit 28s) (odebrano sceneCount=${sceneCount}).`);
+    console.warn(`[Translation] Wymuszam 8 scen z celem 18s (zakres 17–28s) (odebrano sceneCount=${sceneCount}).`);
   }
 
   try {
     const prompt = `Jesteś ekspertem automatycznego tłumaczenia i tworzenia krótkich scen wideo (Shorts / TikTok / Reels).
 Przetłumacz i podziel poniższy tekst / transkrypcję z nagrania wideo na język: "${targetLanguage}".
 Podziel go na ${count} scen z uderzającymi napisami oraz dobierz angielskie słowa kluczowe tła wideo Pexels dla każdej sceny.
-To adaptacja do krótkiego formatu, nie tłumaczenie dosłowne: zachowaj najważniejsze fakty. Sceny 1–4 mają maksymalnie 5 słów, sceny 5–8 maksymalnie 6 słów. Docelowy czas Shorta to 23 s; łączny limit bezwzględny to 28 s. CTA wlicza się do limitu.
+To adaptacja do krótkiego formatu, nie tłumaczenie dosłowne: zachowaj najważniejsze fakty. Sceny 1–4 mają maksymalnie 5 słów, sceny 5–8 maksymalnie 6 słów. Docelowy czas Shorta to 18 s; wymagany zakres to 17–28 s. CTA wlicza się do limitu.
 
 Tekst do przetłumaczenia:
 "${scriptText}"
@@ -8461,7 +8461,7 @@ ${offerLine}`;
     }).join('\n\n');
 
     const prompt = `Jesteś redaktorem krótkich, organicznych materiałów finansowych dla portalu RaportFinansowy24.
-Przeanalizuj poniższe ${candidatePool.length} najświeższych artykułów z portalu Bankier.pl i wybierz DOKŁADNIE JEDEN artykuł o najwyższym potencjale zaangażowania, który można rzetelnie opowiedzieć w około 23 sekundy.
+Przeanalizuj poniższe ${candidatePool.length} najświeższych artykułów z portalu Bankier.pl i wybierz DOKŁADNIE JEDEN artykuł o najwyższym potencjale zaangażowania, który można rzetelnie opowiedzieć w około 18 sekund.
 
 GŁÓWNY CEL: organiczna wartość dla widza, mocny lecz prawdziwy hook oraz naturalne przejście do raport-finansowy24.pl. Dopasowanie do widocznej kategorii katalogu jest pomocnicze i nie dowodzi aktywności ani warunków oferty.
 
