@@ -2785,7 +2785,7 @@ async function processCombineScenesJob(jobId: string, payload: CombineScenesPayl
         baseSceneDurations,
         secondsPerSpeechUnit: calibratedSecondsPerUnit,
         speed: ttsSpeed,
-        targetDurationSeconds: MIN_SHORT_DURATION_SECONDS,
+        targetDurationSeconds: TARGET_SHORT_DURATION_SECONDS,
         maxTotalDurationSeconds: MAX_SHORT_DURATION_SECONDS,
         maxRevisionAttempts: 4,
         narrationPaddingSeconds: 0,
